@@ -1,151 +1,203 @@
-# Minimum Viable Product (MVP)
+# MVP
 
 ## Purpose
 
-The first version of AIOS is designed to validate one core hypothesis:
+This document defines the scope of the Minimum Viable Product (MVP) for AIOS.
 
-> AI can improve organizational work by collaborating with humans throughout the lifecycle of work.
+The MVP represents the smallest version of AIOS that delivers meaningful value while validating the core product hypothesis.
 
-The MVP focuses on delivering a complete end-to-end experience rather than a large number of features.
-
----
-
-## Goals
-
-The MVP aims to answer the following questions:
-
-- Can humans and AI collaborate naturally on work?
-- Does AI reduce the effort required to complete work?
-- Can completed work be transformed into reusable organizational memory?
-- Can AIOS become the primary workspace for knowledge work?
-
-If these questions can be answered positively, the product is ready for further expansion.
+It intentionally limits functionality to reduce implementation complexity and accelerate learning.
 
 ---
 
-## Target Users
+# Product Goal
 
-The initial MVP targets:
+Enable small organizations to collaborate with AI on everyday work, capture organizational experience, and begin building organizational intelligence.
 
-- Individuals
-- Small teams
-- Early adopters
-- Internal product development
-
-Enterprise-specific functionality is intentionally excluded from this release.
+The MVP focuses on a single AI assistant, core work management, and automatic memory generation.
 
 ---
 
-## In Scope
+# Target Users
 
-The following capabilities are included in the MVP.
+The initial target users are:
 
-### Organization
+- Small product teams (2–10 members)
+- Early-stage startups
+- Internal teams validating AI-assisted workflows
+
+The MVP is **not** intended for enterprise-scale organizations or individual personal productivity.
+
+---
+
+# Core Principles
+
+The MVP should answer the following questions:
+
+- Can AI effectively assist organizations during daily work?
+- Can organizations capture meaningful experience automatically?
+- Does organizational memory improve future work?
+
+Everything outside these goals is intentionally deferred.
+
+---
+
+# In Scope
+
+## Organization
 
 - Create an organization
+- Invite members
 - Join an organization
-- Basic organization settings
+- Basic organization management
 
-### Authentication
+---
+
+## Authentication
 
 - Sign in
 - Sign out
-- User profile
+- Member profile
 
-### Workspace
+---
 
-- Home
-- Navigation
-- Personal workspace
+## Workspace
 
-### Work
+Two workspace types are supported.
+
+### Personal Workspace
+
+A personal area where members manage:
+
+- Assigned work
+- Personal tasks
+- Notifications
+
+### Organization Workspace
+
+A shared environment where members collaborate on organizational work.
+
+---
+
+## Work
+
+Members can:
 
 - Create work
-- View work
-- Update work status
+- Update work
+- Assign members
+- Track work status
 - Complete work
 
-### AI Collaboration
+---
 
-- AI research assistance
-- AI summarization
-- AI drafting
-- AI recommendations
+## Decision
 
-### Decision
+Members can:
 
-- Human review
-- Human approval
-- Decision history
-
-### Memory
-
-- Generate memory from completed work
-- View organizational memories
+- Create decisions
+- Review proposals
+- Approve or reject decisions
+- Record decision history
 
 ---
 
-## Out of Scope
+## AI Collaboration
 
-The following capabilities are intentionally excluded from the MVP.
+The MVP supports **one AI assistant only**.
 
-- Workflow Builder
-- Workflow Automation
-- Multi-Agent Orchestration
-- Knowledge Graph
+The Secretary can:
+
+- Summarize discussions
+- Draft documents
+- Suggest improvements
+- Organize work
+- Assist decision preparation
+
+The Secretary does **not** act autonomously.
+
+---
+
+## Memory
+
+When work is completed, AIOS automatically generates a **Memory**.
+
+Generated memories are:
+
+- Organization-specific
+- Automatically created
+- Not yet validated
+- Available for later review
+
+Memory is **not** considered reusable organizational knowledge until it has been reviewed and promoted.
+
+---
+
+# Out of Scope
+
+The following features are intentionally excluded from the MVP.
+
+## AI Employees
+
+- Multiple AI agents
+- Specialized AI roles
+- Autonomous collaboration
+
+---
+
+## Organizational Intelligence
+
+- Knowledge promotion
 - Organization Brain
+- Replay
+- Learning optimization
+
+---
+
+## Workflow Engine
+
+- Custom workflows
+- Workflow automation
+- Business process designer
+
+---
+
+## Platform
+
 - Marketplace
+- Plugin system
+- Public API
 - SDK
-- Third-party integrations
+
+---
+
+## Governance
+
 - Advanced permissions
-- Audit dashboard
-- Analytics
-- Mobile application
-
-These features will be introduced in future releases.
+- Enterprise administration
+- Compliance features
+- Audit management
 
 ---
 
-## Success Criteria
+# Success Criteria
 
-The MVP is considered successful if users can:
+The MVP is considered successful if organizations can:
 
-1. Create work.
-2. Collaborate with AI.
-3. Make human decisions.
-4. Complete work.
-5. Generate reusable organizational memory.
+- Create and manage work collaboratively
+- Receive assistance from a single AI Secretary
+- Record organizational decisions
+- Automatically generate organizational memories
+- Build an initial repository of organizational experience
 
-Without assistance from external tools.
-
----
-
-## MVP User Journey
-
-The primary user journey is intentionally simple.
-
-```text
-Sign In
-    ↓
-Home
-    ↓
-Create Work
-    ↓
-Collaborate with AI
-    ↓
-Human Decision
-    ↓
-Complete Work
-    ↓
-Memory Generated
-```
+Knowledge promotion and organizational learning are intentionally deferred to future phases.
 
 ---
 
-## Guiding Principle
+# Guiding Principle
 
-The MVP should prioritize learning over completeness.
+The MVP is designed to validate the core hypothesis:
 
-Every implemented feature must contribute directly to validating the core product hypothesis.
+> Organizations become more effective when AI assists daily work and organizational experience is captured automatically.
 
-If a feature does not help answer the MVP hypothesis, it should not be included.
+Everything else can evolve after this hypothesis has been validated.
