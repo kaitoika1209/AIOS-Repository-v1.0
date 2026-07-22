@@ -2,107 +2,161 @@
 
 ## Purpose
 
-This roadmap outlines the planned evolution of AIOS.
+This roadmap outlines the planned evolution of AIOS beyond the Minimum Viable Product (MVP).
 
-It is intended to communicate the direction of the product rather than serve as a fixed release schedule.
+Each phase introduces new capabilities while building upon the previous one.
 
-Priorities may change as we learn from users and validate product hypotheses.
+The roadmap is intended to communicate direction rather than fixed delivery dates.
 
 ---
 
-## Phase 1 — Foundation
+# Guiding Principles
 
-Build the core platform required to support organizational work.
+The product evolves through five stages.
 
-### Goals
+Each stage has a clear objective and delivers a complete, usable increment of AIOS.
 
-- Organization management
+Future phases should not compromise the simplicity or stability of earlier phases.
+
+---
+
+# Phase 1 — Foundation (MVP)
+
+## Goal
+
+Provide the core platform that enables organizations to collaborate with a single AI assistant while capturing organizational experience.
+
+### Features
+
 - Authentication
-- Workspace
+- Organization management
+- Member management
+- Personal Workspace
+- Organization Workspace
 - Work management
-- Initial AI collaboration
+- Decision management
+- Secretary (single AI assistant)
+- Automatic Memory generation
 
 ### Success Criteria
 
-Users can create work, collaborate with AI, complete work, and generate organizational memory.
+Organizations can:
+
+- Collaborate around work
+- Record decisions
+- Receive assistance from the Secretary
+- Automatically generate organizational memories
+
+Generated memories remain **unreviewed** and are not yet reusable organizational knowledge.
 
 ---
 
-## Phase 2 — Workflow
+# Phase 2 — Workflow
 
-Introduce structured workflows to support repeatable business processes.
+## Goal
 
-### Goals
+Improve collaboration by introducing structured workflows and team coordination.
 
-- Workflow engine
-- Assignments
-- Reviews
-- Replay
+### Features
+
+- Workflow templates
+- Task assignment improvements
 - Notifications
+- Team collaboration enhancements
+- Activity timeline
 
 ### Success Criteria
 
-Organizations can standardize recurring work while maintaining human oversight.
+Organizations can:
+
+- Standardize recurring work
+- Coordinate team activities efficiently
+- Track progress across workflows
 
 ---
 
-## Phase 3 — AI Collaboration
+# Phase 3 — AI Organization
 
-Expand AI from an assistant into an active organizational participant.
+## Goal
 
-### Goals
+Expand AI from a single assistant into specialized AI Employees working alongside human members.
+
+### Features
 
 - AI Employees
-- Secretary AI
+- Multiple AI roles
+- Secretary orchestration
 - Multi-agent collaboration
-- Context-aware assistance
+- AI role management
 
 ### Success Criteria
 
-AI actively supports teams throughout the lifecycle of work.
+Organizations can:
+
+- Delegate specialized work to AI Employees
+- Coordinate multiple AI roles
+- Combine human and AI collaboration effectively
 
 ---
 
-## Phase 4 — Organizational Intelligence
+# Phase 4 — Organizational Intelligence
 
-Transform accumulated work into reusable organizational intelligence.
+## Goal
 
-### Goals
+Transform organizational experience into reusable knowledge.
 
-- Memory
-- Knowledge
-- Recall
+### Features
+
+- Memory review
+- Knowledge promotion
+- Replay
 - Organization Brain
-- Capability growth
+- Organizational search
+- Knowledge reuse
 
 ### Success Criteria
 
-Past work continuously improves future work.
+Organizations can:
+
+- Review generated memories
+- Promote validated memories into knowledge
+- Search and reuse organizational knowledge
+- Improve future work through accumulated experience
 
 ---
 
-## Phase 5 — Platform
+# Phase 5 — Platform
 
-Enable AIOS to become an extensible platform.
+## Goal
 
-### Goals
+Open AIOS as an extensible platform.
+
+### Features
 
 - Public API
 - SDK
 - Marketplace
+- Plugin system
 - Third-party integrations
-- Governance enhancements
 
 ### Success Criteria
 
-Organizations can customize and extend AIOS to fit their unique workflows.
+Developers can:
+
+- Extend AIOS
+- Build custom integrations
+- Publish reusable extensions
 
 ---
 
-## Guiding Principles
+# Roadmap Philosophy
 
-The roadmap follows three principles:
+Each phase should provide independent value.
 
-1. Validate before expanding.
-2. Build depth before breadth.
-3. Deliver complete user experiences in every phase.
+Earlier phases remain stable while later phases introduce additional capabilities.
+
+AIOS prioritizes continuous learning over feature quantity.
+
+The roadmap may evolve as new insights emerge, but the core vision remains unchanged:
+
+> Help organizations become smarter through AI-assisted work and continuously accumulated organizational intelligence.
