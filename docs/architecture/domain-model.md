@@ -2,204 +2,511 @@
 
 ## Purpose
 
-The AIOS domain model defines the core business concepts that make up the platform.
+This document defines the conceptual domain model of AIOS.
 
-It serves as the foundation for application logic, APIs, database design, and future product evolution.
+Its purpose is to establish a shared understanding of the core business concepts, their responsibilities, and their relationships.
 
-Every implementation within AIOS should align with this model.
+The domain model is intentionally independent of:
 
----
+- databases,
+- APIs,
+- frameworks,
+- user interfaces,
+- infrastructure,
+- implementation language.
 
-## Core Domains
-
-AIOS is built around eight core domains.
-
-| Domain | Responsibility |
-|---------|----------------|
-| Organization | Represents an organization using AIOS |
-| Member | Represents both human users and AI employees |
-| Work | Represents a unit of business activity |
-| Decision | Represents a formal human decision |
-| Memory | Represents organizational experience |
-| Knowledge | Represents validated organizational intelligence |
-| Workflow | Defines how work progresses |
-| Capability | Represents organizational abilities and growth |
+It represents the ubiquitous language of AIOS.
 
 ---
 
-## Domain Relationship
+# Core Philosophy
+
+AIOS is an organizational operating system.
+
+Organizations perform Work.
+
+Work produces Decisions.
+
+Completed Work becomes organizational Memory.
+
+Approved Memory provides Evidence.
+
+Evidence supports reusable Knowledge.
+
+Knowledge strengthens organizational Capability.
+
+This continuous learning cycle enables organizations to improve over time while preserving complete historical traceability.
+
+---
+
+# Conceptual Flow
 
 ```text
 Organization
-        │
-        ▼
-    Members
-        │
-        ▼
+      │
+      ▼
+   Members
+      │
+      ▼
       Work
-        │
-        ▼
-    Decision
-        │
-        ▼
-     Memory
-        │
-        ▼
-    Knowledge
+      │
+      ▼
+   Decisions
+      │
+      ▼
+Completed Work
+      │
+      ▼
+    Memory
+      │
+      │ Evidence
+      ▼
+   Knowledge
+      │
+      ▼
+  Capability
 ```
 
-Every completed work has the potential to generate organizational memory.
+This flow represents organizational learning.
 
-Validated memories become reusable knowledge.
+Each concept has a distinct responsibility and lifecycle.
 
 ---
 
-## Domain Responsibilities
+# Core Domain Concepts
 
-### Organization
+## Organization
 
-Represents a company, team, or business unit operating inside AIOS.
+Represents the organizational boundary.
 
-Owns:
+The Organization owns all business resources.
+
+Examples:
 
 - Members
-- Workspaces
 - Work
-- Knowledge
-
----
-
-### Member
-
-Represents an actor within the organization.
-
-A member can be:
-
-- Human
-- AI Employee
-
-Both participate in work using the same collaboration model.
-
----
-
-### Work
-
-The central domain of AIOS.
-
-Work represents a business activity with a defined objective.
-
-A work item may contain:
-
-- Participants
-- Files
-- AI interactions
 - Decisions
-- Timeline
+- Memory
+- Knowledge
+- Capabilities
+- Secretary
 
-Every meaningful activity belongs to a work.
-
----
-
-### Decision
-
-Represents an official organizational decision.
-
-A decision:
-
-- has context
-- contains evidence
-- records reasoning
-- is made by a human
-
-Approved decisions may generate organizational memory.
+Organization is the highest-level consistency boundary for business ownership.
 
 ---
 
-### Memory
+## Member
 
-Represents experience gained from completed work.
+Represents a human participant.
 
-Memory captures:
+Members perform authoritative business actions.
+
+Examples:
+
+- complete Work
+- approve Decisions
+- review Memory
+- publish Knowledge
+
+Members are responsible for organizational judgment.
+
+---
+
+## Secretary
+
+Represents an AI participant.
+
+The Secretary assists Members by:
+
+- summarizing
+- drafting
+- recommending
+- analyzing
+- retrieving organizational context
+
+The Secretary never replaces human authority.
+
+---
+
+## Work
+
+Represents organizational activity.
+
+Examples:
+
+- Projects
+- Tasks
+- Investigations
+- Meetings
+- Campaigns
+
+Work is the source of organizational experience.
+
+Completed Work generates Memory.
+
+---
+
+## Decision
+
+Represents an organizational question together with its answer.
+
+Examples:
+
+- Vendor selection
+- Product direction
+- Budget approval
+- Technical choice
+
+A Decision belongs to one Work.
+
+Multiple Decisions may exist within one Work.
+
+---
+
+## Memory
+
+Represents verified historical experience.
+
+Memory records:
 
 - what happened
-- why it happened
-- what was learned
+- outcomes
+- lessons learned
+- Decision summaries
+- Secretary contributions
 
-Memory preserves organizational learning.
+Memory is immutable after approval.
 
----
-
-### Knowledge
-
-Represents validated memories that are reusable across the organization.
-
-Knowledge becomes part of the organization's long-term intelligence.
+Memory is not reusable Knowledge.
 
 ---
 
-### Workflow
+## Evidence
 
-Defines the lifecycle of work.
+Represents traceable support for Knowledge.
 
-Examples include:
+Evidence links:
 
-- Review
-- Approval
-- Publishing
+```text
+Approved Memory
+        │
+        ▼
+   Knowledge
+```
 
-Workflow controls progression rather than business logic.
+Evidence ensures explainability.
+
+Knowledge always remains connected to organizational history.
 
 ---
 
-### Capability
+## Knowledge
 
-Represents organizational abilities.
+Represents reusable organizational understanding.
 
-Examples include:
+Examples:
 
-- Marketing
+- Best practices
+- Recommended approaches
+- Organizational guidance
+- Operational heuristics
+
+Knowledge evolves through revisions.
+
+Knowledge is never silently rewritten.
+
+Knowledge always references Evidence.
+
+---
+
+## Capability
+
+Represents organizational competence.
+
+Capabilities are strengthened through accumulated Knowledge.
+
+Examples:
+
 - Sales
-- Customer Support
-- Software Development
+- Engineering
+- Marketing
+- Customer Success
 
-Capabilities evolve through accumulated organizational knowledge.
-
----
-
-## Design Principles
-
-The domain model follows these principles.
-
-### Work-Centered
-
-Every important activity belongs to Work.
+Capabilities provide a way to organize organizational Knowledge.
 
 ---
 
-### Human Responsibility
+# Aggregate Relationships
 
-AI supports work.
+The following conceptual relationships exist.
 
-Humans own decisions.
+```text
+Organization
+
+├── Members
+
+├── Secretary
+
+├── Work
+│      │
+│      └── Decisions
+│
+├── Memory
+│
+├── Knowledge
+│
+└── Capability
+```
+
+Cross-Aggregate communication occurs through references and Domain Events.
+
+Aggregates never directly modify one another.
 
 ---
 
-### Organizational Learning
+# Learning Model
 
-Every completed work contributes to organizational improvement.
+The organizational learning cycle is:
+
+```text
+Work
+   │
+   ▼
+Decision
+   │
+   ▼
+Memory
+   │
+Evidence
+   ▼
+Knowledge
+   │
+   ▼
+Capability
+```
+
+The meaning of each transition is:
+
+Work
+
+↓
+
+Experience
+
+Decision
+
+↓
+
+Organizational judgment
+
+Memory
+
+↓
+
+Verified historical record
+
+Knowledge
+
+↓
+
+Reusable understanding
+
+Capability
+
+↓
+
+Improved organizational performance
 
 ---
 
-### Clear Domain Boundaries
+# Traceability
 
-Each domain has a single responsibility.
+AIOS preserves complete traceability.
 
-Dependencies between domains should remain minimal.
+```text
+Knowledge
+     │
+Evidence
+     │
+Memory
+     │
+Work
+```
+
+Every published Knowledge record can be traced back to the organizational experiences that support it.
+
+Traceability enables:
+
+- Explainability
+- Auditability
+- Trust
+- Governance
 
 ---
 
-## Future Evolution
+# AI Participation
 
-The domain model is expected to grow over time.
+The Secretary participates throughout the organizational lifecycle.
 
-New domains should only be introduced when they represent a distinct business capability and cannot be expressed within existing domains.
+```text
+Work
+  │
+  ├── summarize
+  ├── identify risks
+  ├── recommend Decisions
+  │
+Decision
+  │
+  ├── draft rationale
+  ├── compare options
+  │
+Memory
+  │
+  ├── summarize
+  ├── identify lessons
+  │
+Knowledge
+  │
+  ├── identify patterns
+  ├── recommend revisions
+  ├── suggest Evidence
+  ├── recommend Confidence
+```
+
+Human Members remain responsible for authoritative decisions.
+
+---
+
+# Domain Boundaries
+
+Each Aggregate has a single responsibility.
+
+| Aggregate | Primary Responsibility |
+|------------|------------------------|
+| Work | Organizational activity |
+| Decision | Organizational judgment |
+| Memory | Historical experience |
+| Knowledge | Reusable organizational understanding |
+| Capability | Organizational competence |
+
+No Aggregate assumes another Aggregate's responsibility.
+
+---
+
+# Domain Events
+
+Learning progresses through Domain Events.
+
+Examples:
+
+```text
+WorkCompleted
+
+↓
+
+MemoryGenerated
+
+↓
+
+MemoryApproved
+
+↓
+
+KnowledgeCandidateIdentified
+
+↓
+
+KnowledgePublished
+
+↓
+
+CapabilityStrengthened
+```
+
+Events coordinate Aggregates while preserving independence.
+
+---
+
+# Design Principles
+
+The AIOS domain model follows these principles.
+
+## Single Responsibility
+
+Each Aggregate owns one business concept.
+
+---
+
+## Explicit Authority
+
+Human authority is never implicit.
+
+AI recommendations never become authoritative automatically.
+
+---
+
+## Historical Integrity
+
+Historical records are preserved.
+
+Approved Memory and Published Knowledge are immutable.
+
+---
+
+## Explainability
+
+Knowledge is supported by traceable Evidence.
+
+Every recommendation can be explained.
+
+---
+
+## Organizational Learning
+
+Organizations continuously improve by converting experience into reusable Knowledge.
+
+---
+
+## Evolution without Rewriting
+
+Knowledge evolves through revisions.
+
+Historical revisions remain preserved.
+
+---
+
+## Organization Isolation
+
+Every Aggregate belongs to one Organization.
+
+Cross-Organization modification is prohibited.
+
+---
+
+# Future Extensions
+
+The domain model intentionally supports future concepts such as:
+
+- External Knowledge Sources
+- Organization Policies
+- Skills
+- Competencies
+- AI Employees
+- Multi-Organization Collaboration
+- Knowledge Graphs
+- Semantic Retrieval
+- Automated Knowledge Discovery
+
+These extensions should preserve the existing Aggregate boundaries.
+
+---
+
+# Related Documents
+
+- `docs/architecture/overview.md`
+- `docs/architecture/authorization.md`
+- `docs/architecture/aggregates/work.md`
+- `docs/architecture/aggregates/decision.md`
+- `docs/architecture/aggregates/memory.md`
+- `docs/architecture/aggregates/knowledge.md`
+- `docs/glossary.md`
