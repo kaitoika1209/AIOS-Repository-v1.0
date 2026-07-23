@@ -135,6 +135,22 @@ It combines memories, knowledge, and capabilities to improve future work.
 
 ---
 
+## Evidence
+
+One or more Approved Memories that provide traceable support for a Knowledge record.
+
+Evidence represents the organizational experiences upon which a piece of Knowledge is based.
+
+Evidence ensures that every Knowledge record can be traced back to the historical events that justified its creation or subsequent revisions.
+
+Evidence is immutable once associated with a Knowledge revision, preserving auditability and explainability.
+
+A single Memory may support multiple Knowledge records.
+
+A single Knowledge record may be supported by multiple Memories.
+
+---
+
 # Naming Consistency
 
 The following terms should be used consistently throughout AIOS.
