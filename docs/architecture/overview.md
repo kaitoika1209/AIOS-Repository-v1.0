@@ -1,131 +1,446 @@
-# Architecture Overview
+# AIOS Architecture Overview
 
-## Overview
+## Purpose
 
-AIOS is an operating system designed to help organizations manage work, make better decisions, and continuously improve through organizational learning.
+This document provides an architectural overview of AIOS.
 
-The architecture is organized around a small set of core domains that represent how organizations operate.
+It introduces the core architectural concepts, explains how the domain is organized, and serves as the recommended starting point for understanding the AIOS Blueprint.
 
-Rather than centering the system around projects or tasks, AIOS is centered around **Work**.
+The Blueprint is implementation-independent.
 
-Every completed work contributes to organizational memory, which can later evolve into reusable knowledge.
-
----
-
-## Core Domains
-
-The AIOS architecture consists of the following core domains.
-
-| Domain | Responsibility |
-|---------|----------------|
-| Organization | Represents companies and teams |
-| Member | Represents human users and AI employees |
-| Work | The central business object |
-| Decision | Human decisions made during work |
-| Memory | Organizational experience generated from completed work |
-| Knowledge | Validated experience reusable across the organization |
-| Workflow | Defines how work progresses |
-| Capability | Represents organizational skills and growth |
+It defines the business architecture of AIOS rather than a specific technology stack.
 
 ---
 
-## Domain Relationships
+# Vision
+
+AIOS is an organizational operating system.
+
+Organizations do not improve simply by completing work.
+
+They improve by learning from experience, preserving organizational memory, developing reusable knowledge, and continuously strengthening organizational capability.
+
+AIOS provides the domain model, governance, and AI collaboration needed to support that continuous learning process.
+
+Human judgment remains authoritative.
+
+AI accelerates organizational learning without replacing human decision-making.
+
+---
+
+# Core Learning Model
+
+The central learning model of AIOS is:
+
+```text
+Work
+   │
+   ▼
+Decision
+   │
+   ▼
+Memory
+   │
+Evidence
+   ▼
+Knowledge
+   │
+   ▼
+Capability
+```
+
+Each concept represents a distinct business responsibility.
+
+| Concept | Responsibility |
+|----------|----------------|
+| Work | Organizational activity |
+| Decision | Organizational judgment |
+| Memory | Historical experience |
+| Evidence | Traceable support for Knowledge |
+| Knowledge | Reusable organizational understanding |
+| Capability | Organizational competence |
+
+This learning cycle enables organizations to continuously improve while preserving complete historical traceability.
+
+---
+
+# Architectural Principles
+
+The AIOS Blueprint is built on the following principles.
+
+## Domain-Driven Design
+
+Business concepts are modeled explicitly.
+
+Aggregates protect business invariants.
+
+Bounded Contexts separate responsibilities.
+
+Domain Events coordinate independent business capabilities.
+
+---
+
+## Explicit Human Authority
+
+Human Members remain responsible for all authoritative business decisions.
+
+AI Secretaries may assist but never replace human authority.
+
+---
+
+## Historical Integrity
+
+Historical experience is preserved permanently.
+
+Approved Memory and Published Knowledge are immutable.
+
+Knowledge evolves through revisions rather than modification.
+
+---
+
+## Explainability
+
+Every published Knowledge record is supported by traceable Evidence.
+
+Every organizational recommendation can be explained.
+
+---
+
+## Organization Isolation
+
+Every Aggregate belongs to exactly one Organization.
+
+Cross-Organization modification is prohibited.
+
+---
+
+## AI Governance
+
+AI participation is explicit.
+
+Secretary contributions remain distinguishable from human actions.
+
+AI recommendations never become authoritative automatically.
+
+---
+
+# Domain Architecture
+
+The AIOS domain consists of the following primary concepts.
 
 ```text
 Organization
         │
         ▼
-    Members
+     Members
         │
         ▼
-      Work
+       Work
         │
         ▼
-    Decision
+    Decisions
         │
         ▼
-     Memory
+      Memory
         │
+     Evidence
         ▼
     Knowledge
+        │
+        ▼
+    Capability
 ```
 
-Knowledge generated from previous work is reused to improve future work.
+The Secretary participates across the domain while respecting Aggregate boundaries.
 
 ---
 
-## Architectural Principles
+# Architectural Layers
 
-AIOS follows these architectural principles.
+The Blueprint is organized into complementary architectural views.
 
-### Work-Centered
+## Domain Model
 
-Work is the primary entity of the system.
+Defines the core business concepts and their relationships.
 
-Every meaningful action is associated with a piece of work.
-
----
-
-### Human-in-the-Loop
-
-AI assists.
-
-Humans remain responsible for decisions.
+```
+docs/architecture/domain-model.md
+```
 
 ---
 
-### Learning by Doing
+## Context Map
 
-Every completed work has the potential to improve the organization.
+Defines the bounded contexts and their interactions.
 
-Learning is a built-in capability rather than an additional feature.
-
----
-
-### Modular Design
-
-Each domain has a clear responsibility and evolves independently.
-
-This allows the platform to scale without tightly coupling business logic.
+```
+docs/architecture/context-map.md
+```
 
 ---
 
-## System Layers
+## Authorization
+
+Defines organizational security boundaries and authority.
+
+```
+docs/architecture/authorization.md
+```
+
+---
+
+## Aggregates
+
+Define:
+
+- business responsibilities
+- Aggregate Roots
+- invariants
+- business rules
+- domain events
+
+Location:
+
+```
+docs/architecture/aggregates/
+```
+
+---
+
+## State Machines
+
+Define lifecycle transitions for Aggregates.
+
+Location:
+
+```
+docs/architecture/state-machines/
+```
+
+---
+
+# Aggregate Overview
+
+The Blueprint currently defines the following Aggregates.
+
+| Aggregate | Responsibility |
+|-----------|----------------|
+| Work | Organizational activity |
+| Decision | Organizational judgment |
+| Memory | Historical experience |
+| Knowledge | Reusable organizational understanding |
+
+Future versions introduce additional Aggregates such as Capability.
+
+Each Aggregate owns:
+
+- one business concept,
+- one identity,
+- one consistency boundary,
+- one set of invariants.
+
+Aggregates communicate through references and Domain Events rather than direct modification.
+
+---
+
+# State Machines
+
+Each Aggregate owns its own lifecycle.
+
+| Aggregate | Lifecycle |
+|-----------|-----------|
+| Work | Work execution |
+| Decision | Decision lifecycle |
+| Memory | Historical review lifecycle |
+| Knowledge | Knowledge publication lifecycle |
+
+Lifecycle rules are documented separately to keep business behavior independent from Aggregate structure.
+
+---
+
+# Organizational Learning
+
+Organizational learning progresses through Domain Events.
 
 ```text
-Presentation
+WorkCompleted
         │
-Application
+        ▼
+MemoryGenerated
         │
-Domain
+        ▼
+MemoryApproved
         │
-Infrastructure
+        ▼
+KnowledgeCandidateIdentified
+        │
+        ▼
+KnowledgePublished
+        │
+        ▼
+CapabilityStrengthened
 ```
 
-Business rules belong in the Domain layer.
-
-External services, databases, and frameworks belong in the Infrastructure layer.
+This event-driven model preserves loose coupling between business capabilities.
 
 ---
 
-## Technology Direction
+# AI Participation
 
-The initial implementation uses a modular monorepo architecture.
+The Secretary assists throughout the lifecycle.
 
-- Frontend: Next.js
-- Backend: NestJS
-- Database: PostgreSQL
-- ORM: Prisma
-- AI Runtime: LangGraph
+Examples include:
 
-Technology choices are documented separately in `docs/engineering/tech-stack.md`.
+- summarizing Work,
+- drafting Decisions,
+- generating Memory drafts,
+- identifying reusable patterns,
+- recommending Knowledge,
+- suggesting Evidence,
+- recommending Confidence.
+
+The Secretary never:
+
+- approves Decisions,
+- approves Memory,
+- publishes Knowledge,
+- confirms Confidence,
+- or bypasses authorization.
+
+Human authority remains explicit.
 
 ---
 
-## Related Documents
+# MVP and Roadmap
 
-- `docs/product/vision.md`
+The Blueprint intentionally separates architecture from implementation.
+
+## MVP
+
+The MVP focuses on:
+
+- Organization
+- Member
+- Secretary
+- Work
+- Decision
+- Memory
+
+Knowledge and Capability are intentionally excluded from the initial implementation.
+
+---
+
+## Roadmap
+
+Future phases introduce:
+
+- Knowledge management
+- Capability management
+- AI Employee
+- External Knowledge Sources
+- Semantic Retrieval
+- Organizational Intelligence
+
+The domain boundaries defined in this Blueprint are intended to remain stable as those capabilities are added.
+
+---
+
+# Reading Guide
+
+The recommended reading order is:
+
+```text
+1.
+docs/architecture/overview.md
+
+↓
+
+2.
+docs/architecture/domain-model.md
+
+↓
+
+3.
+docs/architecture/context-map.md
+
+↓
+
+4.
+docs/architecture/authorization.md
+
+↓
+
+5.
+docs/architecture/aggregates/
+
+↓
+
+6.
+docs/architecture/state-machines/
+
+↓
+
+7.
+docs/product/
+```
+
+This order moves from conceptual architecture to detailed domain behavior.
+
+---
+
+# Relationship Between Documents
+
+The documents complement one another.
+
+| Document | Primary Purpose |
+|----------|-----------------|
+| overview.md | Introduces the architecture |
+| domain-model.md | Defines business concepts |
+| context-map.md | Defines bounded contexts |
+| authorization.md | Defines authority and security |
+| aggregates/* | Defines business invariants |
+| state-machines/* | Defines lifecycle behavior |
+| product/* | Defines implementation scope |
+
+Together, these documents form the AIOS Blueprint.
+
+---
+
+# Blueprint Scope
+
+Blueprint v0.2.0 defines the business architecture.
+
+It does not prescribe:
+
+- programming languages,
+- frameworks,
+- databases,
+- deployment architecture,
+- API protocols,
+- UI implementation,
+- infrastructure providers.
+
+Technology decisions belong to later implementation phases.
+
+---
+
+# Guiding Principle
+
+AIOS is designed around a single architectural idea:
+
+> Organizations improve by transforming experience into reusable organizational knowledge.
+
+Every major architectural decision in this Blueprint supports that learning cycle while preserving human authority, historical integrity, explainability, and organizational trust.
+
+---
+
+# Related Documents
+
+- `docs/architecture/domain-model.md`
+- `docs/architecture/context-map.md`
+- `docs/architecture/authorization.md`
+- `docs/architecture/aggregates/`
+- `docs/architecture/state-machines/`
 - `docs/product/mvp.md`
 - `docs/product/roadmap.md`
-- `docs/architecture/domain-model.md`
-- `docs/engineering/tech-stack.md`
+- `docs/glossary.md`
