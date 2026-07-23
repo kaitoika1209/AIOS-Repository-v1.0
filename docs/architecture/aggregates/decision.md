@@ -486,6 +486,27 @@ A newly proposed Decision:
 
 ---
 
+### Revision After Rejection
+
+A rejected Decision may be revised and proposed again.
+
+A revision represents another attempt to answer the same organizational question.
+
+A revision may:
+
+- Add or remove options
+- Update supporting context
+- Incorporate new evidence
+- Improve the rationale
+
+A revision must not materially change the original organizational question.
+
+If the organizational question changes materially, a new Decision must be created.
+
+Each revision increments the revision number while preserving the same Decision identity and complete audit history.
+
+---
+
 ### Option Management
 
 While a Decision is `Proposed`:
