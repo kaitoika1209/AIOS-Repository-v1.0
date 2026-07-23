@@ -6,7 +6,11 @@ This document defines the lifecycle of a Memory within AIOS.
 
 A Memory represents organizational experience automatically generated from completed Work.
 
-A Memory is **not** considered reusable organizational knowledge until it has been reviewed and approved by a human Member.
+A Memory is a historical record of what happened during a specific Work.
+
+It is **not** reusable organizational knowledge.
+
+Knowledge is created separately through the promotion of an approved Memory.
 
 ---
 
@@ -20,12 +24,8 @@ stateDiagram-v2
 
     InReview --> Approved : Approve
     InReview --> Rejected : Reject
-    InReview --> Archived : Archive
 
-    Approved --> Knowledge : Promote
-
-    Knowledge --> Archived : Archive
-
+    Approved --> Archived : Archive
     Rejected --> Archived : Archive
 
     Archived --> [*]
@@ -37,9 +37,9 @@ stateDiagram-v2
 
 ## Generated
 
-A Memory has been automatically created after a Work is completed.
+A Memory has been automatically generated from a completed Work.
 
-Generated Memories are considered drafts.
+Generated Memories are considered unreviewed historical records.
 
 ### Allowed Actions
 
@@ -58,58 +58,47 @@ A Member is reviewing the generated Memory.
 
 - Approve
 - Reject
-- Archive
 
-Reviewers may provide comments explaining their decision.
+Reviewers may attach comments to support their decision.
 
 ---
 
 ## Approved
 
-The Memory has been verified as factually accurate.
+The Memory has been verified as an accurate representation of the completed Work.
 
-Approved Memories remain historical records.
+Approved Memories remain immutable historical records.
 
-They are **not yet organizational Knowledge**.
+Approval does **not** automatically create Knowledge.
 
-### Allowed Actions
-
-- Promote to Knowledge
-- Archive
-
----
-
-## Knowledge
-
-The Memory has been promoted into reusable organizational Knowledge.
-
-Knowledge becomes available for future AI assistance and organizational search.
+Knowledge promotion is a separate business process.
 
 ### Allowed Actions
 
 - View
+- Request Knowledge promotion
 - Archive
-
-Knowledge is immutable.
 
 ---
 
 ## Rejected
 
-The generated Memory has been rejected.
+The Memory has been determined to be inaccurate, incomplete, or unsuitable.
 
-Rejected Memories remain part of the audit history but are never reused.
+Rejected Memories remain part of the organization's audit history.
 
 ### Allowed Actions
 
 - View
 - Archive
 
+Rejected Memories cannot be promoted to Knowledge.
+
 ---
 
 ## Archived
 
-The Memory is retained for historical purposes.
+The Memory is retained only for historical and audit purposes.
 
 Archived Memories are read-only.
 
@@ -122,11 +111,8 @@ Archived Memories are read-only.
 | Generated | In Review | Review started |
 | In Review | Approved | Approved by reviewer |
 | In Review | Rejected | Rejected by reviewer |
-| In Review | Archived | Archived |
-| Approved | Knowledge | Promoted |
 | Approved | Archived | Archived |
 | Rejected | Archived | Archived |
-| Knowledge | Archived | Archived |
 
 No other transitions are permitted.
 
@@ -140,83 +126,79 @@ The following rules must always be true.
 
 - Every Memory belongs to exactly one Organization.
 - Every Memory originates from exactly one completed Work.
-- Every Memory references the Decisions that influenced the Work.
-- Every Memory records the AI model that generated it.
-- Every state transition is recorded with actor and timestamp.
+- Every Memory references its source Work.
+- Every Memory records all related Decisions.
+- Every Memory preserves AI contributions.
+- Every state transition is recorded.
 
 ---
 
 ## Generated
 
-- Generated automatically when a Work is completed.
+- Created automatically when a Work is completed.
 - Exactly one Memory is generated for each completed Work.
-- Generation occurs only once.
-- Human Members cannot create Memories manually.
+- Members cannot create Memories manually.
+- AI generates the initial Memory.
 
 ---
 
 ## In Review
 
 - Review must be performed by an active Member.
-- AI cannot review or approve a Memory.
-- Review comments are preserved.
+- AI cannot approve or reject a Memory.
+- Review comments are permanently preserved.
 
 ---
 
 ## Approved
 
-- Approved Memories are verified historical records.
+- Approval confirms historical accuracy.
+- Approved content becomes immutable.
 - Approval timestamp is immutable.
-- Approved content cannot be edited.
-
----
-
-## Knowledge
-
-- Knowledge originates from one approved Memory.
-- Knowledge is reusable across future Work within the same Organization.
-- AI may reference Knowledge when assisting Members.
-- Knowledge cannot be modified directly.
+- An Approved Memory may become the source of future Knowledge.
 
 ---
 
 ## Rejected
 
-- Rejection reason is required.
-- Rejected Memories are excluded from AI retrieval.
-- Rejected Memories cannot become Knowledge.
+- Rejection requires a reason.
+- Rejected Memories remain searchable for audit purposes.
+- Rejected Memories can never become Knowledge.
 
 ---
 
 ## Archived
 
-- Archived records remain searchable for audit purposes.
-- Archived Knowledge is excluded from active recommendations.
+- Archived Memories remain immutable.
+- Archived Memories remain available for historical investigation.
+- Archived Memories are excluded from active review processes.
 
 ---
 
 # Relationship to Work
 
-Memory is created automatically after a Work reaches the **Completed** state.
+A Memory always originates from one completed Work.
 
-A Memory always references:
+A Memory references:
 
 - Organization
 - Work
 - Decisions
 - Participants
 - Timeline
-- AI contributions
+- AI Contributions
 
-A Memory cannot exist without a completed Work.
+A Memory cannot exist without its source Work.
 
 ---
 
 # Relationship to Knowledge
 
-Knowledge is not created independently.
+Knowledge is **not** a Memory state.
 
-Promotion always follows this sequence:
+Knowledge is an independent business object created from an Approved Memory.
+
+Promotion follows this business process:
 
 ```text
 Completed Work
@@ -227,54 +209,14 @@ Human Review
         ↓
 Approved Memory
         ↓
-Knowledge
+Knowledge Promotion
+        ↓
+Knowledge Created
 ```
 
-Knowledge always maintains a reference to the Memory from which it originated.
+The original Memory always remains unchanged.
 
----
-
-# AI Behavior
-
-The Secretary is responsible for generating the initial Memory.
-
-The Secretary may:
-
-- Summarize the Work
-- Extract important Decisions
-- Identify lessons learned
-- Organize the timeline
-
-The Secretary must not:
-
-- Approve a Memory
-- Reject a Memory
-- Promote Knowledge
-- Modify historical records after approval
-
-All approval actions require a human Member.
-
----
-
-# Audit Requirements
-
-Every Memory must preserve:
-
-- Organization
-- Source Work
-- Related Decisions
-- Participants
-- Generated summary
-- Lessons learned
-- AI model and prompt version
-- Current state
-- Review history
-- Promotion history
-- Created timestamp
-- Review timestamp
-- Promotion timestamp (if applicable)
-
-Audit information must remain immutable.
+Knowledge maintains a permanent reference back to its source Memory.
 
 ---
 
@@ -286,8 +228,56 @@ The following domain events may be emitted.
 - MemoryReviewStarted
 - MemoryApproved
 - MemoryRejected
-- MemoryPromoted
 - MemoryArchived
+- KnowledgePromotionRequested
+
+Knowledge creation is handled separately by the Knowledge domain.
+
+---
+
+# AI Behavior
+
+The Secretary is responsible only for generating the initial Memory.
+
+The Secretary may:
+
+- Summarize the completed Work
+- Summarize Decisions
+- Extract lessons learned
+- Organize timelines
+- Identify important outcomes
+
+The Secretary must never:
+
+- Approve a Memory
+- Reject a Memory
+- Promote Knowledge
+- Modify an approved Memory
+- Modify historical records
+
+All review and promotion actions require a human Member.
+
+---
+
+# Audit Requirements
+
+Every Memory preserves:
+
+- Organization
+- Source Work
+- Related Decisions
+- Participants
+- AI-generated summary
+- Lessons learned
+- AI model version
+- Prompt version
+- Current state
+- Review history
+- Creation timestamp
+- Review timestamp
+- Archive timestamp (if applicable)
+
+Audit information is immutable.
 
 ---
 
@@ -297,3 +287,4 @@ The following domain events may be emitted.
 - docs/product/use-cases/mvp.md
 - docs/architecture/state-machines/work.md
 - docs/architecture/state-machines/decision.md
+- docs/architecture/state-machines/knowledge.md
