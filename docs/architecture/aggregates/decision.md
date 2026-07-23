@@ -676,6 +676,17 @@ Secretary contributions cannot directly change Decision state.
 
 The following conditions must always remain true.
 
+### Decision Identity
+
+- A Decision represents exactly one organizational question.
+- A Decision may contain multiple revisions.
+- Every revision must address the same organizational question.
+- The Decision identity remains unchanged across revisions.
+- If the organizational question changes materially, a new Decision must be created.
+- A revision must not be used to redefine the original Decision question.
+
+---
+
 ### Organization Boundary
 
 - A Decision belongs to exactly one Organization.
