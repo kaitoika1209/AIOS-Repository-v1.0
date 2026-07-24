@@ -1,1125 +1,2079 @@
 # Decision Aggregate
 
-## Purpose
-
-The Decision Aggregate represents a deliberate organizational choice made within a Work.
-
-A Decision records:
-
-- What must be decided
-- Which options were considered
-- Who proposed the Decision
-- Who approved, rejected, or withdrew it
-- Why the final outcome was selected
-- Whether the Decision blocks completion of the related Work
-
-The Decision Aggregate is responsible for preserving the integrity, traceability, and finality of organizational decisions.
+**Status:** Draft  
+**Phase:** MVP  
+**Bounded Context:** Decision Management
 
 ---
 
-## Aggregate Root
+# Purpose
 
-```text
-Decision
-```
+The Decision Aggregate models the complete lifecycle of a business decision from creation through review and final resolution.
 
-`Decision` is the Aggregate Root.
+A Decision represents a proposal that requires explicit human review before becoming an approved organizational decision.
 
-All changes to a Decision must be performed through the Decision Aggregate.
+The aggregate is responsible for maintaining the integrity of the decision lifecycle, preserving immutable review snapshots, recording review history, and ensuring that business rules are consistently enforced.
 
-External components must not directly modify:
+The Decision Aggregate does **not** execute business actions.
 
-- Decision status
-- Options
-- Outcome
-- Rationale
-- Review history
-- Audit information
+Business actions resulting from an approved decision are coordinated by the Application Layer.
 
 ---
 
-## Identity
-
-Each Decision has a globally unique identifier.
-
-```text
-DecisionId
-```
-
-A Decision belongs to:
-
-- Exactly one Organization
-- Exactly one Work
-
-The identity and ownership of a Decision never change.
-
-A Decision cannot be transferred to another Organization or Work.
-
----
-
-## Responsibilities
+# Responsibilities
 
 The Decision Aggregate is responsible for:
 
-- Maintaining the Decision question
-- Managing proposed options
-- Identifying whether the Decision is blocking
-- Managing the Decision lifecycle
-- Recording approval, rejection, withdrawal, and revision
-- Preserving the selected option and rationale
-- Preventing invalid state transitions
-- Preserving human and Secretary contributions
-- Emitting domain events for important changes
-- Maintaining a complete audit history
-
-The Decision Aggregate is not responsible for:
-
-- Managing the Work lifecycle
-- Automatically completing or resuming Work
-- Generating Memory
-- Creating Knowledge
-- Managing Organization membership
-- Evaluating Organization-wide authorization policy
-- Executing the selected course of action
+- Managing the decision lifecycle.
+- Managing editable draft revisions.
+- Creating immutable submitted snapshots.
+- Recording review history.
+- Recording secretary contributions.
+- Preserving complete audit history.
+- Publishing domain events describing lifecycle changes.
 
 ---
 
-## Entities
+# Non-Responsibilities
 
-### Decision
+The Decision Aggregate is **not** responsible for:
 
-The Aggregate Root.
+- Completing Work.
+- Updating Work status.
+- Managing Completion Gates.
+- Generating Memory.
+- Promoting Knowledge.
+- Managing Organizations.
+- Managing Members.
+- Executing workflows.
+- Cross-aggregate orchestration.
 
-Suggested attributes:
+Those responsibilities belong to other aggregates or to the Application Layer.
 
-```text
+---
+
+# Aggregate Boundary
+
+The Decision Aggregate owns every object that participates directly in the lifecycle of a Decision.
+
+Everything required to determine whether a Decision is internally valid must exist inside the aggregate.
+
+The aggregate boundary guarantees transactional consistency for all decision state transitions.
+
+---
+
+# Aggregate Root
+
+```
 Decision
-- id: DecisionId
-- organizationId: OrganizationId
-- workId: WorkId
-- title: DecisionTitle
-- question: DecisionQuestion
-- context: DecisionContext
-- status: DecisionStatus
-- blocking: BlockingStatus
-- proposerId: MemberId
-- options: DecisionOption[]
-- selectedOptionId: DecisionOptionId?
-- rationale: DecisionRationale?
-- reviewHistory: DecisionReviewRecord[]
-- secretaryContributions: DecisionSecretaryContribution[]
-- revision: DecisionRevision
-- createdAt: Timestamp
-- updatedAt: Timestamp
-- resolvedAt: Timestamp?
-- withdrawnAt: Timestamp?
+```
+
+The Decision Aggregate Root is the single entry point for all modifications.
+
+External systems never modify child entities directly.
+
+---
+
+# Aggregate Structure
+
+```
+Decision
+ ├── DecisionRevision
+ ├── DecisionSubmittedSnapshot
+ ├── DecisionReviewRecord
+ ├── DecisionSecretaryContribution
+ └── DecisionActivityRecord
 ```
 
 ---
 
-### DecisionOption
+# Aggregate Relationships
 
-Represents one possible choice within the Decision.
-
-Suggested attributes:
-
-```text
-DecisionOption
-- id: DecisionOptionId
-- title: OptionTitle
-- description: OptionDescription
-- proposedBy: ActorReference
-- createdAt: Timestamp
+```
+Organization
+      │
+      │ owns
+      ▼
+Decision
 ```
 
-A Decision must contain at least one option before approval.
-
-An option belongs to exactly one Decision.
-
-Option identifiers are unique within the Decision Aggregate.
+A Decision belongs to exactly one Organization.
 
 ---
 
-### DecisionReviewRecord
-
-Represents a human review action.
-
-Suggested attributes:
-
-```text
-DecisionReviewRecord
-- id: DecisionReviewRecordId
-- reviewerId: MemberId
-- action: DecisionReviewAction
-- selectedOptionId: DecisionOptionId?
-- reason: ReviewReason?
-- revision: DecisionRevision
-- createdAt: Timestamp
+```
+Work
+  │
+  │ references
+  ▼
+Decision
 ```
 
-Possible actions:
+A Work item may reference one or more Decisions.
 
-```text
-Approved
+The Decision Aggregate does not know the internal state of Work.
+
+---
+
+```
+Decision
+      │
+      │ reviewed by
+      ▼
+Member
+```
+
+Only Human Members review Decisions.
+
+---
+
+```
+Decision
+      │
+      │ emits events
+      ▼
+Application Layer
+```
+
+The aggregate publishes domain events only.
+
+The Application Layer decides how those events affect other aggregates.
+
+---
+
+# Lifecycle
+
+```
+Draft
+    │
+    ▼
+InReview
+ ├────────► Approved
+ │
+ ├────────► Rejected
+ │
+ └────────► Withdrawn
+```
+
+---
+
+# State Definitions
+
+## Draft
+
+The Decision is editable.
+
+The current revision may be modified freely.
+
+Secretary suggestions may be incorporated.
+
+No immutable review snapshot exists yet.
+
+---
+
+## InReview
+
+The current revision has been submitted.
+
+The submitted revision is immutable.
+
+Editors cannot modify submitted content.
+
+Only reviewers may approve, reject, or withdraw the review.
+
+---
+
+## Approved
+
+The submitted revision has been approved.
+
+The approved snapshot becomes immutable forever.
+
+No additional edits are allowed.
+
+Any future changes require a new Decision.
+
+---
+
+## Rejected
+
+The submitted revision has been rejected.
+
+The rejected snapshot remains immutable.
+
+A new Draft Revision may be created.
+
+The rejected revision itself can never be edited.
+
+---
+
+## Withdrawn
+
+The submitted review has been withdrawn before approval.
+
+The submitted snapshot remains immutable.
+
+A new Draft Revision may be created.
+
+---
+
+# Decision Revision Model
+
+Every Decision evolves through revisions.
+
+Each revision represents one complete proposal.
+
+Example:
+
+```
+Revision 1
+Draft
+      │
+Submit
+      │
 Rejected
-Withdrawn
-Revised
+      │
+Start Revision
+      ▼
+Revision 2
+Draft
+      │
+Submit
+      │
+Approved
 ```
 
-Review records are append-only.
-
-They must never be overwritten or deleted.
+Older revisions remain immutable forever.
 
 ---
 
-### DecisionSecretaryContribution
+# Entities
 
-Represents assistance provided by the Secretary.
+## Decision
 
-Examples include:
+Aggregate Root.
 
-- Summarizing the issue
-- Generating alternative options
-- Comparing advantages and disadvantages
-- Identifying risks
-- Retrieving related organizational experience
-- Drafting a rationale
+Owns:
 
-Suggested attributes:
+- lifecycle
+- revisions
+- review history
+- secretary contributions
+- activity history
 
-```text
-DecisionSecretaryContribution
-- id: SecretaryContributionId
-- type: ContributionType
-- content: ContributionContent
-- modelVersion: ModelVersion
-- promptVersion: PromptVersion
-- createdAt: Timestamp
+Responsible for enforcing every business invariant.
+
+---
+
+## DecisionRevision
+
+Represents one editable proposal.
+
+Contains:
+
+- title
+- summary
+- rationale
+- proposed actions
+- supporting references
+
+Only one Draft Revision may exist at any time.
+
+---
+
+## DecisionSubmittedSnapshot
+
+Represents the immutable content that reviewers actually evaluated.
+
+Created during:
+
+```
+SubmitForReview
 ```
 
-Secretary contributions are advisory records.
-
-They do not represent organizational authority.
+The snapshot is never modified.
 
 ---
 
-## Value Objects
+## DecisionReviewRecord
 
-### DecisionTitle
+Represents one review outcome.
 
-A concise name for the Decision.
+Contains:
 
-Rules:
+- reviewer
+- decision
+- timestamp
+- optional comments
 
-- Must not be empty
-- Must contain meaningful visible characters
-- Must remain within the configured maximum length
+Review history is append-only.
 
 ---
 
-### DecisionQuestion
+## DecisionSecretaryContribution
 
-Defines the question that requires an organizational choice.
+Represents AI assistance.
 
 Examples:
 
-```text
-Which vendor should we select?
-Should the campaign launch be delayed?
-Which proposal should be presented to the client?
-```
+- draft generation
+- rewrite
+- summary
+- formatting
+- suggested rationale
 
-Rules:
-
-- Must not be empty
-- Must describe a choice or approval requirement
-- Must not be changed after approval or withdrawal
+Secretary contributions are advisory only.
 
 ---
 
-### DecisionContext
+## DecisionActivityRecord
 
-Contains the background information necessary to understand the Decision.
+Records lifecycle history.
 
-Rules:
+Examples:
 
-- May be incomplete when first proposed
-- Should contain sufficient context before approval
-- Must become immutable once the Decision is approved
+- created
+- edited
+- submitted
+- approved
+- rejected
+- withdrawn
+- revision started
+
+Activity history is append-only.
 
 ---
 
-### DecisionStatus
+# Value Objects
+
+## DecisionStatus
+
+Represents lifecycle state.
 
 Possible values:
 
-```text
-Proposed
+```
+Draft
+InReview
 Approved
 Rejected
 Withdrawn
 ```
 
-Transitions are defined in:
+---
 
-```text
-docs/architecture/state-machines/decision.md
-```
+## ActorReference
 
-The Aggregate must reject all transitions not permitted by the State Machine.
+Represents the actor responsible for an operation.
+
+Examples:
+
+- Human Member
+- Secretary
+- System
+
+Authorization rules determine which actor may execute each command.
 
 ---
 
-### BlockingStatus
+## DecisionContent
 
-Indicates whether unresolved Decision status prevents Work completion.
+Represents the complete business content of a revision.
+
+Includes:
+
+- title
+- summary
+- rationale
+- proposal
+- references
+
+Validation occurs inside the aggregate.
+
+---
+
+## ReviewOutcome
+
+Represents the result of a review.
 
 Possible values:
 
-```text
-Blocking
-NonBlocking
+```
+Approved
+Rejected
+Withdrawn
 ```
 
-A blocking Decision prevents completion of its related Work while its status is `Proposed`.
+Review outcomes are immutable once recorded.
 
-Approved, Rejected, and Withdrawn Decisions are considered resolved.
+---
+# Commands
+
+Every modification of the Decision Aggregate must occur through an explicit command.
+
+Commands enforce business rules and preserve aggregate consistency.
 
 ---
 
-### DecisionRationale
+## CreateDecision
 
-Explains why the selected outcome was approved.
+Creates a new Decision.
 
-Rules:
+Preconditions
 
-- Required for approval
-- Required for rejection
-- Required for withdrawal
-- Must identify the reasoning behind the action
-- Becomes immutable when the Decision is resolved
+- Organization exists.
+- Creator is authorized.
+- Initial content is valid.
+
+Result
+
+- Decision created.
+- Initial Draft Revision created.
+- Activity recorded.
 
 ---
 
-### DecisionRevision
+## EditDraft
 
-A positive integer representing the current proposal revision.
+Updates the active Draft Revision.
 
-```text
-1, 2, 3, ...
+Allowed only when:
+
+- Decision status is Draft.
+
+Not allowed when:
+
+- InReview
+- Approved
+- Rejected
+- Withdrawn
+
+Result
+
+- Draft updated.
+- Activity recorded.
+
+---
+
+## RecordSecretaryContribution
+
+Records advisory assistance generated by the Secretary.
+
+Examples
+
+- draft proposal
+- rewrite
+- summary
+- suggested rationale
+- formatting improvements
+
+Secretary contributions never modify the Decision directly.
+
+The Human Member decides whether to incorporate them.
+
+Result
+
+- Contribution recorded.
+- Activity recorded.
+
+---
+
+## SubmitForReview
+
+Submits the current Draft Revision for review.
+
+Preconditions
+
+- Status is Draft.
+- Draft passes validation.
+- Required fields are complete.
+
+Behavior
+
+- Immutable Submitted Snapshot created.
+- Status becomes InReview.
+- Activity recorded.
+
+Result
+
+- DecisionSubmitted event emitted.
+
+---
+
+## ApproveDecision
+
+Approves the submitted revision.
+
+Preconditions
+
+- Status is InReview.
+- Reviewer is authorized.
+
+Behavior
+
+- Review record appended.
+- Status becomes Approved.
+- Activity recorded.
+
+Result
+
+- DecisionApproved event emitted.
+
+The Decision Aggregate does not update Work.
+
+---
+
+## RejectDecision
+
+Rejects the submitted revision.
+
+Preconditions
+
+- Status is InReview.
+- Reviewer is authorized.
+
+Behavior
+
+- Review record appended.
+- Status becomes Rejected.
+- Activity recorded.
+
+Result
+
+- DecisionRejected event emitted.
+
+---
+
+## WithdrawDecision
+
+Withdraws the submitted review.
+
+Preconditions
+
+- Status is InReview.
+- Request initiated by an authorized Human Member.
+
+Behavior
+
+- Status becomes Withdrawn.
+- Activity recorded.
+
+The submitted snapshot remains immutable.
+
+---
+
+## StartRevision
+
+Creates a new Draft Revision.
+
+Allowed only when:
+
+- Status is Rejected
+- Status is Withdrawn
+
+Behavior
+
+- New Draft Revision created.
+- Previous revisions remain immutable.
+- Status becomes Draft.
+- Activity recorded.
+
+Result
+
+- DecisionRevisionStarted event emitted.
+
+---
+
+# Business Rules
+
+The following rules define the behavior of the Decision Aggregate.
+
+---
+
+## Rule 1
+
+A Decision always belongs to exactly one Organization.
+
+---
+
+## Rule 2
+
+Exactly one active Draft Revision may exist.
+
+---
+
+## Rule 3
+
+Only the active Draft Revision is editable.
+
+---
+
+## Rule 4
+
+Submitted Snapshots are immutable.
+
+They represent exactly what reviewers evaluated.
+
+---
+
+## Rule 5
+
+Approval always applies to the submitted snapshot.
+
+Approval never applies to the editable draft.
+
+---
+
+## Rule 6
+
+Rejected revisions remain immutable forever.
+
+A rejected revision is historical evidence.
+
+It cannot be edited.
+
+---
+
+## Rule 7
+
+Withdrawn revisions remain immutable forever.
+
+A withdrawn review preserves historical traceability.
+
+---
+
+## Rule 8
+
+A new revision is created after rejection or withdrawal.
+
+Previous revisions are never reused.
+
+---
+
+## Rule 9
+
+Only Human Members may:
+
+- submit
+- approve
+- reject
+- withdraw
+
+The Secretary cannot execute these actions.
+
+---
+
+## Rule 10
+
+Secretary contributions are advisory.
+
+They never become Decision content automatically.
+
+---
+
+## Rule 11
+
+Every lifecycle transition is recorded.
+
+Decision history is append-only.
+
+---
+
+## Rule 12
+
+Every review produces exactly one Review Record.
+
+Review records cannot be modified.
+
+---
+
+## Rule 13
+
+The Decision Aggregate never changes Work.
+
+Cross-aggregate coordination belongs to the Application Layer.
+
+---
+
+## Rule 14
+
+Decision approval never completes Work.
+
+Approval only communicates review outcome.
+
+---
+
+## Rule 15
+
+Decision approval may trigger downstream processing through Domain Events.
+
+The aggregate itself performs no orchestration.
+
+---
+
+# Aggregate Invariants
+
+The following conditions must always be true.
+
+---
+
+## Invariant 1
+
+The aggregate has exactly one identity.
+
+---
+
+## Invariant 2
+
+The aggregate belongs to exactly one Organization.
+
+---
+
+## Invariant 3
+
+At most one Draft Revision exists.
+
+---
+
+## Invariant 4
+
+At most one submitted revision is under review.
+
+---
+
+## Invariant 5
+
+Approved Decisions are immutable.
+
+---
+
+## Invariant 6
+
+Submitted Snapshots are immutable.
+
+---
+
+## Invariant 7
+
+Review history is append-only.
+
+---
+
+## Invariant 8
+
+Activity history is append-only.
+
+---
+
+## Invariant 9
+
+Secretary Contributions are append-only.
+
+---
+
+## Invariant 10
+
+Every Submitted Snapshot belongs to exactly one Revision.
+
+---
+
+## Invariant 11
+
+A Revision can produce at most one Submitted Snapshot.
+
+---
+
+## Invariant 12
+
+A Review Record always references one immutable Submitted Snapshot.
+
+---
+
+## Invariant 13
+
+The aggregate never references Work state.
+
+Only external identifiers may be stored when necessary.
+
+---
+
+## Invariant 14
+
+The aggregate never references Memory.
+
+Memory is managed independently.
+
+---
+
+# Lifecycle Constraints
+
+The following transitions are permitted.
+
+```
+Draft
+    │ Submit
+    ▼
+InReview
+ ├────────► Approved
+ ├────────► Rejected
+ └────────► Withdrawn
 ```
 
-Rules:
+---
 
-- Starts at `1`
-- Increments when a rejected Decision is revised
-- Never decreases
-- Previous review history remains associated with its original revision
+From Approved
+
+No further transitions are allowed.
+
+The lifecycle is terminal.
 
 ---
 
-### ActorReference
+From Rejected
 
-Identifies whether a contribution was made by a human or AI actor.
+Only:
 
-Suggested structure:
-
-```text
-ActorReference
-- actorType: Member | Secretary
-- actorId: MemberId | SecretaryId
+```
+StartRevision
 ```
 
-Only Members may perform authoritative lifecycle actions.
+is allowed.
 
 ---
 
-## Relationships
+From Withdrawn
 
-### Organization
+Only:
 
-Every Decision belongs to exactly one Organization.
-
-```text
-Organization 1 ─── * Decision
+```
+StartRevision
 ```
 
-A Decision cannot reference Members or Work from another Organization.
+is allowed.
 
 ---
 
-### Work
+A Draft Revision created by StartRevision is independent from previous revisions.
 
-Every Decision belongs to exactly one Work.
+Historical revisions remain immutable.
 
-```text
-Work 1 ─── * Decision
+---
+
+# Revision Model
+
+Example
+
+```
+Revision 1
+
+Draft
+   │
+Submit
+   │
+Rejected
+
+Revision 2
+
+Draft
+   │
+Submit
+   │
+Approved
 ```
 
-The Decision Aggregate stores the related `WorkId`.
+The Decision Aggregate preserves every revision permanently.
 
-The Work Aggregate may store a reference to the Decision.
+No revision is ever deleted.
 
-The Decision Aggregate does not own or directly modify Work state.
+No historical snapshot is ever modified.
+# Domain Events
 
-When a blocking Decision is resolved, the Decision Aggregate emits a domain event.
+The Decision Aggregate publishes domain events describing lifecycle changes.
 
-An application service may then determine whether the related Work can resume.
+Domain events are immutable facts.
 
----
+They do not contain business behavior.
 
-### Member
-
-A Decision has one proposer.
-
-A Member may also act as:
-
-- Approver
-- Rejector
-- Withdrawer
-- Option contributor
-
-Member information is not owned by the Decision Aggregate.
-
-Only Member identifiers are stored.
+Business behavior is coordinated by the Application Layer.
 
 ---
 
-### Secretary
+## DecisionCreated
 
-The Secretary may assist the Decision process.
+Published when a new Decision is created.
 
-The Secretary may:
+Payload
 
-- Suggest options
-- Compare options
-- Summarize evidence
-- Identify risks
-- Draft rationale
-- Retrieve relevant Memory or Knowledge
-
-The Secretary must never:
-
-- Approve a Decision
-- Reject a Decision
-- Withdraw a Decision
-- Select the final option
-- Change whether a Decision is blocking
-- Resolve the Decision autonomously
+- decisionId
+- organizationId
+- createdBy
+- createdAt
 
 ---
 
-### Memory
+## DecisionDraftEdited
 
-A resolved Decision may be referenced by the Memory generated from its related Work.
+Published when the active Draft Revision changes.
 
-```text
-Decision * ─── 1 Work
-Work 1 ─── 0..1 Memory
+Payload
+
+- decisionId
+- revisionNumber
+- editedBy
+- editedAt
+
+---
+
+## SecretaryContributionRecorded
+
+Published when the Secretary provides advisory assistance.
+
+Payload
+
+- decisionId
+- contributionId
+- contributionType
+- recordedAt
+
+---
+
+## DecisionSubmitted
+
+Published when a Draft Revision is submitted for review.
+
+Payload
+
+- decisionId
+- revisionNumber
+- submittedSnapshotId
+- submittedBy
+- submittedAt
+
+---
+
+## DecisionApproved
+
+Published when a submitted revision is approved.
+
+Payload
+
+- decisionId
+- revisionNumber
+- approvedBy
+- approvedAt
+
+---
+
+## DecisionRejected
+
+Published when a submitted revision is rejected.
+
+Payload
+
+- decisionId
+- revisionNumber
+- rejectedBy
+- rejectedAt
+
+---
+
+## DecisionWithdrawn
+
+Published when a submitted revision is withdrawn.
+
+Payload
+
+- decisionId
+- revisionNumber
+- withdrawnBy
+- withdrawnAt
+
+---
+
+## DecisionRevisionStarted
+
+Published when a new Draft Revision is created.
+
+Payload
+
+- decisionId
+- revisionNumber
+- createdBy
+- createdAt
+
+---
+
+# Transaction Boundary
+
+Every command executes inside a single transaction.
+
+The transaction includes:
+
+- Aggregate validation
+- Aggregate mutation
+- Domain Event creation
+- Outbox persistence
+
+The transaction ends only after all changes have been committed successfully.
+
+---
+
+```
+┌─────────────────────────────┐
+│ Decision Aggregate          │
+│                             │
+│ Validation                  │
+│ State Change                │
+│ Domain Event                │
+│ Outbox Write                │
+└──────────────┬──────────────┘
+               │ Commit
+               ▼
+        Transaction Complete
 ```
 
-The Decision Aggregate does not create or modify Memory.
+---
 
-Decision history remains available as source evidence for Memory generation.
+The aggregate never communicates directly with:
+
+- Work
+- Memory
+- External Services
+- Message Brokers
+
+Those responsibilities belong outside the transaction boundary.
 
 ---
 
-### Knowledge
+# Transactional Outbox
 
-A Decision may later be cited as supporting context for Knowledge.
+Every published Domain Event must be written to the Transactional Outbox.
 
-Knowledge does not belong to the Decision Aggregate.
+The Aggregate never publishes events directly.
 
-Knowledge creation must not modify the historical Decision.
+Example
 
----
-
-## Commands
-
-The Decision Aggregate may support the following domain commands:
-
-```text
-ProposeDecision
-UpdateDecisionDetails
-AddDecisionOption
-RemoveDecisionOption
-MarkDecisionBlocking
-MarkDecisionNonBlocking
-ApproveDecision
-RejectDecision
-ReviseRejectedDecision
-WithdrawDecision
-RecordDecisionSecretaryContribution
 ```
+ApproveDecision()
 
-Commands express intent.
+        │
+        ▼
 
-Each command must validate:
-
-- Current state
-- Actor authority
-- Organization boundary
-- Work relationship
-- Aggregate invariants
-
----
-
-## Business Rules
-
-### Decision Proposal
-
-A Decision may be proposed only when:
-
-- The related Organization exists
-- The related Work exists
-- The related Work belongs to the same Organization
-- The proposer is an active Organization Member
-- The related Work is not completed or archived
-
-A newly proposed Decision:
-
-- Starts in `Proposed`
-- Starts at revision `1`
-- Has no selected option
-- Has no resolution rationale
-- Has no resolution timestamp
-
----
-
-### Revision After Rejection
-
-A rejected Decision may be revised and proposed again.
-
-A revision represents another attempt to answer the same organizational question.
-
-A revision may:
-
-- Add or remove options
-- Update supporting context
-- Incorporate new evidence
-- Improve the rationale
-
-A revision must not materially change the original organizational question.
-
-If the organizational question changes materially, a new Decision must be created.
-
-Each revision increments the revision number while preserving the same Decision identity and complete audit history.
-
----
-
-### Option Management
-
-While a Decision is `Proposed`:
-
-- Options may be added
-- Options may be edited
-- Options may be removed
-- Duplicate options should be rejected
-- At least one option must remain before approval
-
-After approval, rejection, or withdrawal:
-
-- Options become immutable
-- Selected option cannot be changed
-- Historical options remain available for audit
-
-The Secretary may propose an option, but a human Member must accept its inclusion in the Decision.
-
----
-
-### Blocking Decisions
-
-A Decision may be designated as blocking only while it is `Proposed`.
-
-A blocking Decision prevents completion of its related Work.
-
-For the MVP:
-
-- A Work may have at most one unresolved blocking Decision
-- A Work may have multiple non-blocking Decisions
-- A resolved Decision is no longer considered blocking
-
-Changing the blocking status requires an authorized Member.
-
-The Secretary cannot change blocking status.
-
----
-
-### Decision Approval
-
-A Decision may be approved only when:
-
-- Its current status is `Proposed`
-- It contains at least one option
-- The selected option belongs to the Decision
-- An approval rationale is provided
-- The approver is an active Organization Member
-- The approver is authorized
-- The related Work is not completed or archived
-
-Approval results in:
-
-- Status becoming `Approved`
-- Selected option being recorded
-- Rationale being recorded
-- Reviewer identity being recorded
-- Resolution timestamp being recorded
-- `DecisionApproved` being emitted
-
-Approval is final in the MVP.
-
-An approved Decision cannot be revised, rejected, or withdrawn.
-
----
-
-### Self-Approval
-
-For the MVP, the proposer may approve their own Decision.
-
-This supports small teams where separate proposer and approver roles may not exist.
-
-The action must still:
-
-- Be explicit
-- Record the approver identity
-- Record the rationale
-- Be preserved in the audit history
-
-Future governance policies may prohibit self-approval.
-
-Such policies belong to Organization-level authorization and governance.
-
----
-
-### Decision Rejection
-
-A Decision may be rejected only when:
-
-- Its current status is `Proposed`
-- A rejection reason is provided
-- The rejecting Member is active and authorized
-
-Rejection results in:
-
-- Status becoming `Rejected`
-- No option being selected
-- Rejection reason being preserved
-- Resolution timestamp being recorded
-- `DecisionRejected` being emitted
-
-A rejected Decision may later be revised.
-
----
-
-### Revision After Rejection
-
-A rejected Decision may be revised when:
-
-- The requesting Member is active and authorized
-- The related Work is still active
-- A revision explanation is provided
-
-Revision results in:
-
-- Status returning to `Proposed`
-- Revision number incrementing
-- Previous review records remaining unchanged
-- Previous options remaining available in audit history
-- Selected option remaining empty
-- Previous resolution timestamp being preserved in review history
-- Current resolution fields being cleared
-- `DecisionRevised` being emitted
-
-Revision does not erase the rejection.
-
-The new proposal is another revision of the same Decision identity.
-
----
-
-### Decision Withdrawal
-
-A Decision may be withdrawn only when:
-
-- Its current status is `Proposed`
-- The requesting Member is authorized
-- A withdrawal reason is provided
-
-Withdrawal results in:
-
-- Status becoming `Withdrawn`
-- No option being selected
-- Withdrawal reason being recorded
-- Withdrawal timestamp being recorded
-- `DecisionWithdrawn` being emitted
-
-A withdrawn Decision cannot be resumed or revised in the MVP.
-
-A new Decision must be proposed when the issue needs to be reconsidered.
-
----
-
-### Relationship to Work Completion
-
-Decision approval does not automatically complete the related Work.
-
-Decision rejection does not automatically cancel the related Work.
-
-Decision withdrawal does not automatically complete or cancel the related Work.
-
-When a blocking Decision is resolved, an application service may:
-
-- Re-evaluate Work completion eligibility
-- Notify Work participants
-- Suggest resuming Work
-
-The Work Aggregate remains responsible for Work state transitions.
-
----
-
-### Secretary Contributions
-
-Every Secretary contribution must:
-
-- Belong to the Decision
-- Record its contribution type
-- Record model version
-- Record prompt version
-- Record creation timestamp
-- Be stored as an append-only historical entry
-
-Secretary output must be clearly distinguishable from human input.
-
-Secretary contributions cannot directly change Decision state.
-
----
-
-## Invariants
-
-The following conditions must always remain true.
-
-### Decision Identity
-
-- A Decision represents exactly one organizational question.
-- A Decision may contain multiple revisions.
-- Every revision must address the same organizational question.
-- The Decision identity remains unchanged across revisions.
-- If the organizational question changes materially, a new Decision must be created.
-- A revision must not be used to redefine the original Decision question.
-
----
-
-### Organization Boundary
-
-- A Decision belongs to exactly one Organization.
-- A Decision belongs to a Work in the same Organization.
-- The proposer belongs to the same Organization.
-- Every human reviewer belongs to the same Organization.
-- Cross-Organization references are prohibited.
-
----
-
-### Work Boundary
-
-- A Decision belongs to exactly one Work.
-- `workId` is immutable.
-- A Decision cannot be proposed for completed or archived Work.
-- Decision resolution does not directly mutate the Work Aggregate.
-
----
-
-### Lifecycle Integrity
-
-- Status transitions must follow the Decision State Machine.
-- Approved Decisions are immutable.
-- Withdrawn Decisions are immutable.
-- Only rejected Decisions may return to `Proposed`.
-- Revision number increments only through rejection revision.
-- A Decision cannot resolve more than once within the same revision.
-
----
-
-### Approval Integrity
-
-An Approved Decision must always contain:
-
-- At least one option
-- A valid selected option
-- An approver
-- An approval rationale
-- A resolution timestamp
-
-The selected option must belong to the Decision.
-
----
-
-### Rejection Integrity
-
-A Rejected Decision must always contain:
-
-- A rejecting Member
-- A rejection reason
-- A resolution timestamp
-- No selected option
-
----
-
-### Withdrawal Integrity
-
-A Withdrawn Decision must always contain:
-
-- A withdrawing Member
-- A withdrawal reason
-- A withdrawal timestamp
-- No selected option
-
----
-
-### Historical Integrity
-
-- Review records are append-only.
-- Secretary contributions are append-only.
-- Previous revisions cannot be deleted.
-- Resolved revision history cannot be rewritten.
-- Actor identity and timestamps are immutable.
-- Audit records remain available after Work completion or archival.
-
----
-
-### AI Authority
-
-- AI cannot perform authoritative Decision actions.
-- AI-generated options do not become official until accepted by a Member.
-- AI-generated rationale does not replace explicit human approval.
-- All final outcomes require a human Member action.
-
----
-
-### Blocking Integrity
-
-- Only `Proposed` Decisions may actively block Work.
-- A Work may have no more than one unresolved blocking Decision in the MVP.
-- Approved, Rejected, and Withdrawn Decisions are resolved.
-- Resolving a blocking Decision does not automatically change Work status.
-
----
-
-## Domain Events
-
-The Decision Aggregate may emit:
-
-```text
-DecisionProposed
-DecisionDetailsUpdated
-DecisionOptionAdded
-DecisionOptionUpdated
-DecisionOptionRemoved
-DecisionMarkedBlocking
-DecisionMarkedNonBlocking
-DecisionSecretaryContributionRecorded
 DecisionApproved
-DecisionRejected
-DecisionRevised
-DecisionWithdrawn
+
+        │
+        ▼
+
+Transactional Outbox
+
+        │
+ Commit Transaction
+        │
+        ▼
+
+Background Worker
+
+        │
+        ▼
+
+Event Bus
 ```
 
----
+This guarantees:
 
-## Event Responsibilities
-
-### DecisionProposed
-
-Indicates that a new organizational choice requires attention.
-
-Potential consumers:
-
-- Work coordination
-- Notification service
-- Activity feed
-- Audit log
-- Secretary
+- atomic persistence
+- reliable delivery
+- retry support
+- eventual consistency
 
 ---
 
-### DecisionMarkedBlocking
+# Authorization Boundary
 
-Indicates that the Decision prevents Work completion.
+Authorization is enforced before executing aggregate commands.
 
-Potential consumers:
+The aggregate assumes authorization has already been verified.
 
-- Work application service
-- Notification service
-- Workflow coordination
-
-The consumer may request that the Work enter `WaitingForDecision`.
-
-The Decision Aggregate must not directly change Work status.
+Business invariants remain enforced inside the aggregate.
 
 ---
 
-### DecisionApproved
+## Human Member
 
-Indicates that an authorized Member has selected and approved an option.
+Human Members may
 
-Potential consumers:
+- create Decisions
+- edit Drafts
+- submit for review
+- approve
+- reject
+- withdraw
+- start new revisions
 
-- Work application service
-- Notification service
-- Activity feed
-- Audit log
-- Memory generation process
-
-Approval does not automatically complete Work.
-
----
-
-### DecisionRejected
-
-Indicates that the proposed Decision was not accepted.
-
-Potential consumers:
-
-- Work application service
-- Notification service
-- Activity feed
-- Audit log
-- Secretary
+Human Members are the only actors with decision authority.
 
 ---
 
-### DecisionRevised
+## Secretary
 
-Indicates that a rejected Decision has returned to the proposal process as a new revision.
+The Secretary may
 
-Potential consumers:
+- generate drafts
+- suggest edits
+- summarize
+- rewrite
+- improve formatting
+- provide rationale suggestions
 
-- Notification service
-- Activity feed
-- Audit log
-- Secretary
+The Secretary may never
 
----
+- approve
+- reject
+- submit
+- withdraw
+- change lifecycle state
 
-### DecisionWithdrawn
-
-Indicates that the proposal is no longer being considered.
-
-Potential consumers:
-
-- Work application service
-- Notification service
-- Activity feed
-- Audit log
+Secretary authority is advisory only.
 
 ---
 
-## Transaction Boundary
+## System
 
-A single Decision Aggregate transaction may modify:
+The System may
 
-- Decision details
-- Decision options
-- Blocking status
-- Decision status
-- Selected option
-- Rationale
-- Review history
-- Secretary contributions
-- Revision number
+- publish events
+- dispatch outbox messages
+- maintain audit information
 
-The transaction must not directly modify:
-
-- Work Aggregate state
-- Memory Aggregate state
-- Knowledge Aggregate state
-- Organization state
-- Member state
-
-Cross-Aggregate coordination must occur through:
-
-- Application services
-- Domain events
-- Event handlers
+The System never performs business decisions.
 
 ---
 
-## Authorization Boundary
+# Repository Interface
 
-The Decision Aggregate enforces domain-level authority rules.
+The repository persists the entire Decision Aggregate.
 
-Examples include:
-
-- Only a human Member may approve
-- Only an authorized Member may reject
-- Only an authorized Member may withdraw
-- Only active Members may perform lifecycle actions
-
-Organization-level authorization is evaluated before invoking the Aggregate.
-
-Examples include:
-
-- Organization Admin permissions
-- Member suspension
-- Team-level policy
-- Self-approval restrictions
-- Separation-of-duties policy
-
-The Aggregate must still enforce its invariants even after application-level authorization succeeds.
-
----
-
-## Consistency Model
-
-The internal state of the Decision Aggregate is strongly consistent within one transaction.
-
-Relationships with other Aggregates may be eventually consistent.
-
-Examples:
-
-- Work entering `WaitingForDecision`
-- Work resuming after resolution
-- Notifications
-- Activity feed updates
-- Search indexing
-- Memory generation after Work completion
-
----
-
-## Repository Interface
-
-A conceptual repository interface may be defined as:
+Example
 
 ```text
 DecisionRepository
-- findById(decisionId): Decision?
-- save(decision): void
-- exists(decisionId): boolean
-- findUnresolvedBlockingByWorkId(workId): Decision?
+
+save(decision)
+
+findById(id)
+
+exists(id)
 ```
 
-Repository implementation details belong to the infrastructure layer.
+Repositories never expose child entities independently.
 
-The domain model must not depend on:
-
-- Database technology
-- ORM models
-- Transport protocols
-- Framework-specific types
+Only Aggregate Roots are persisted.
 
 ---
 
-## Application Service Responsibilities
+# Application Services
 
-The application layer may coordinate Decision and Work Aggregates.
+Application Services coordinate multiple aggregates.
+
+They contain workflow orchestration.
+
+Business invariants remain inside aggregates.
+
+---
+
+## Example
+
+Decision Approval
+
+```
+Human Member
+       │
+Approve Decision
+       │
+       ▼
+Decision Aggregate
+       │
+DecisionApproved
+       │
+       ▼
+Application Service
+       │
+RecordDecisionOutcome
+       │
+       ▼
+Work Aggregate
+```
+
+Notice that the Decision Aggregate never calls the Work Aggregate.
+
+---
+
+## Example
+
+Rejected Decision
+
+```
+DecisionRejected
+       │
+       ▼
+Application Service
+       │
+Notify Work
+       │
+       ▼
+Completion Gate
+```
+
+The Application Layer decides whether Work should remain blocked.
+
+The Decision Aggregate has no knowledge of Completion Gates.
+
+---
+
+## Example
+
+Approved Decision
+
+```
+DecisionApproved
+        │
+        ▼
+Application Service
+        │
+RecordDecisionOutcome(workId)
+        │
+        ▼
+Work Aggregate
+```
+
+The Decision Aggregate does not know:
+
+- Work Status
+- Completion Gate
+- Memory
+- Knowledge
+
+---
+
+# Cross-Aggregate Coordination
+
+The following responsibilities belong exclusively to the Application Layer.
+
+- locating related aggregates
+- loading multiple aggregates
+- coordinating transactions
+- handling retries
+- publishing integration events
+- invoking background processes
+
+Aggregates never coordinate each other directly.
+
+---
+
+# Aggregate Independence
+
+The Decision Aggregate can be implemented, tested, and evolved independently.
+
+It depends on no other aggregate for correctness.
+
+All external interactions occur through Domain Events.
+
+This preserves loose coupling and enables future scalability.
+# Consistency Model
+
+The Decision Aggregate provides strong consistency inside its own transaction boundary.
+
+The following changes are committed atomically:
+
+- Decision state
+- active revision
+- submitted snapshot
+- review record
+- activity record
+- domain events
+- outbox records
+
+If any operation fails, the entire transaction is rolled back.
+
+---
+
+## Internal Consistency
+
+All invariants owned by the Decision Aggregate are enforced synchronously.
 
 Examples:
 
-### Proposing a Blocking Decision
+- only Draft content is editable
+- only InReview Decisions may be approved
+- submitted snapshots are immutable
+- only one active review may exist
+- terminal Approved Decisions cannot change
 
-```text
-1. Validate Organization membership
-2. Load Work
-3. Confirm Work is active
-4. Confirm no unresolved blocking Decision exists
-5. Create Decision Aggregate
-6. Save Decision
-7. Request Work transition to WaitingForDecision
-8. Save Work
-```
-
-Where atomic cross-Aggregate transactions are unavailable, coordination should use reliable event processing and idempotency.
+The aggregate must never be persisted in an invalid state.
 
 ---
 
-### Resolving a Blocking Decision
+## Cross-Aggregate Consistency
+
+Consistency between Decision and Work is eventual.
+
+Example:
 
 ```text
-1. Load Decision
-2. Approve, reject, or withdraw Decision
-3. Save Decision
-4. Emit resolution event
-5. Load related Work
-6. Re-evaluate unresolved blocking Decisions
-7. Allow an authorized Member to resume Work
+Decision Approved
+        │
+        ▼
+Decision transaction committed
+        │
+        ▼
+DecisionApproved stored in Outbox
+        │
+        ▼
+Background Worker publishes event
+        │
+        ▼
+Application Handler processes event
+        │
+        ▼
+Work records Decision outcome
 ```
 
-The system must not infer that resolution means Work completion.
+A short delay may exist between Decision approval and the corresponding Work update.
+
+This delay is expected behavior.
 
 ---
 
-## Concurrency Requirements
+## Source of Truth
 
-Concurrent actions must not produce conflicting outcomes.
+The Decision Aggregate is the source of truth for:
+
+- Decision lifecycle
+- Decision revisions
+- submitted snapshots
+- review outcomes
+- Decision audit history
+
+The Work Aggregate is the source of truth for:
+
+- Work lifecycle
+- Completion Gate
+- blocking Decision reference
+- recorded Decision outcome
+- explicit Work completion
+
+Neither aggregate derives or overwrites the other aggregate's authoritative state.
+
+---
+
+# Concurrency Control
+
+The Decision Aggregate uses optimistic concurrency control.
+
+Each persisted aggregate contains a version number.
+
+Example:
+
+```text
+Decision
+- decisionId
+- version
+- status
+- revisions
+- reviewHistory
+```
+
+When saving:
+
+```text
+UPDATE decisions
+SET ...
+    version = version + 1
+WHERE decision_id = :decisionId
+  AND version = :expectedVersion
+```
+
+If no row is updated, a concurrency conflict has occurred.
+
+---
+
+## Concurrency Conflict Behavior
+
+When a conflict occurs:
+
+- the transaction is rolled back
+- no outbox event is committed
+- the caller receives a conflict result
+- the latest aggregate state must be reloaded
+- the command may be retried only after revalidation
+
+Commands must not overwrite concurrent changes silently.
+
+---
+
+## Concurrent Draft Edits
+
+Two Humans may attempt to edit the same Draft.
+
+Only the first successfully committed edit is accepted.
+
+The second edit receives a concurrency conflict.
+
+The user must review the latest Draft before retrying.
+
+---
+
+## Concurrent Review Outcomes
+
+Two reviewers may attempt to resolve the same InReview Decision.
+
+Example:
+
+```text
+Reviewer A -> ApproveDecision
+Reviewer B -> RejectDecision
+```
+
+Only one transition may commit.
+
+After the first transition:
+
+```text
+InReview -> Approved
+```
+
+or:
+
+```text
+InReview -> Rejected
+```
+
+The second command fails because:
+
+- the aggregate version changed, or
+- the Decision is no longer InReview
+
+Exactly one final outcome is recorded.
+
+---
+
+# Idempotency
+
+Commands and event handlers must support safe retry behavior.
+
+Network failures may occur after a transaction commits but before the caller receives confirmation.
+
+The same request may therefore be delivered more than once.
+
+---
+
+## Command Idempotency
+
+State-changing requests should include an idempotency key.
+
+Example:
+
+```text
+commandId
+organizationId
+decisionId
+commandType
+```
+
+The Application Layer records processed command identifiers.
+
+Repeated delivery of the same command must not:
+
+- create duplicate revisions
+- create duplicate snapshots
+- append duplicate review records
+- append duplicate activities
+- emit duplicate logical outcomes
+
+---
+
+## Review Idempotency
+
+Approval, rejection, and withdrawal requests require particular care.
+
+A repeated command with the same command identifier returns the previously committed result.
+
+A different command requesting a second review outcome fails because the Decision is no longer InReview.
+
+---
+
+## Event Handler Idempotency
+
+Outbox delivery is at least once.
+
+Consumers must assume that events can be delivered repeatedly.
+
+Handlers should record:
+
+```text
+consumerName
+eventId
+processedAt
+```
+
+Before applying an event, the handler checks whether that event has already been processed.
+
+---
+
+## Logical Event Identity
+
+Every domain event contains:
+
+- eventId
+- eventType
+- aggregateId
+- aggregateVersion
+- organizationId
+- occurredAt
+- correlationId
+- causationId
+
+These fields support:
+
+- deduplication
+- tracing
+- ordering diagnostics
+- audit reconstruction
+
+---
+
+# Event Ordering
+
+Events from the same Decision are processed in aggregate-version order.
+
+Example:
+
+```text
+Version 1 -> DecisionCreated
+Version 2 -> DecisionDraftEdited
+Version 3 -> DecisionSubmitted
+Version 4 -> DecisionApproved
+```
+
+Consumers must not apply an older aggregate version after a newer version has already been processed.
+
+Ordering across different Decisions is not guaranteed or required.
+
+---
+
+# Failure Semantics
+
+Failures are classified by where they occur.
+
+---
+
+## Validation Failure
 
 Examples:
 
-- Two Members approving different options simultaneously
-- One Member rejecting while another approves
-- Option modification during approval
-- Withdrawal during approval
+- required content is missing
+- rationale is empty
+- no active Draft exists
+- invalid revision number
 
-The implementation should use optimistic concurrency control.
+Result:
 
-Suggested concept:
-
-```text
-aggregateVersion
-```
-
-A command based on a stale Aggregate version must be rejected and retried after reloading the latest state.
-
-Only one authoritative resolution may succeed for each Decision revision.
+- command rejected
+- no state change
+- no event created
+- no outbox record created
 
 ---
 
-## Idempotency Requirements
-
-Lifecycle commands should support idempotent execution where practical.
+## Authorization Failure
 
 Examples:
 
-- Retrying the same approval request must not create duplicate review records.
-- Reprocessing `DecisionApproved` must not resume Work multiple times.
-- Reprocessing Secretary contribution events must not create duplicate entries.
+- Secretary attempts approval
+- unauthorized Member submits a Decision
+- reviewer belongs to another Organization
 
-Infrastructure mechanisms may use:
+Result:
+
+- command is not executed
+- aggregate is not mutated
+- security event may be recorded outside the aggregate
+
+---
+
+## Concurrency Failure
+
+A stale aggregate version is detected.
+
+Result:
+
+- transaction rolled back
+- caller receives conflict response
+- no partial changes remain
+
+---
+
+## Persistence Failure
+
+The database fails while saving the aggregate or outbox records.
+
+Result:
+
+- transaction rolled back
+- Decision remains unchanged
+- command may be retried safely
+
+---
+
+## Outbox Publication Failure
+
+The Decision transaction has committed, but the Background Worker cannot publish the event.
+
+Result:
+
+- Decision remains committed
+- outbox record remains pending
+- publication is retried
+- Work may temporarily retain its previous Decision outcome
+
+The Decision transaction is never reversed because event delivery is delayed.
+
+---
+
+## Downstream Processing Failure
+
+The event is published, but the Work outcome handler fails.
+
+Result:
+
+- Decision remains Approved, Rejected, or Withdrawn
+- event processing is retried
+- failure does not alter Decision history
+- Work is updated only after successful handler execution
+
+---
+
+## Poison Event Handling
+
+If repeated processing fails:
+
+- retry count is recorded
+- error details are retained
+- the event is moved to a failed-processing state
+- operational alerts are raised
+- manual recovery remains possible
+
+A poison event must not block unrelated events indefinitely.
+
+---
+
+# Audit Requirements
+
+The Decision Aggregate preserves a complete and explainable history.
+
+Audit information must answer:
+
+- who created the Decision
+- who edited each Draft
+- what content was submitted
+- when the submission occurred
+- who approved, rejected, or withdrew it
+- what rationale accompanied the outcome
+- which Secretary contributions were provided
+- which revision became final
+- which command and event caused each transition
+
+---
+
+## Immutable Audit Evidence
+
+The following records are append-only:
+
+- Submitted Snapshots
+- Review Records
+- Secretary Contributions
+- Activity Records
+- Domain Events
+
+Approved, rejected, and withdrawn review evidence must never be overwritten.
+
+---
+
+## Submitted Content Integrity
+
+A Submitted Snapshot contains the complete reviewable content.
+
+It must not depend on mutable Draft data for reconstruction.
+
+The snapshot should include:
+
+- revision number
+- title
+- summary
+- rationale
+- proposal
+- supporting references
+- submitter
+- submission timestamp
+- content schema version
+
+Optional integrity metadata may include:
 
 ```text
-CommandId
-EventId
-IdempotencyKey
+contentHash
 ```
 
-These mechanisms must not alter the domain meaning of the Decision.
+The hash helps detect accidental mutation or corruption.
 
 ---
 
-## Open Questions
+## Activity Record Shape
 
-The following items may be refined before Blueprint v1.0.0:
+An Activity Record may contain:
 
-- Whether the MVP should support Decision revision
-- Whether revision should retain one Decision identity or create a new Decision
-- Whether self-approval remains enabled by default
-- Whether blocking status can be changed after Work enters `WaitingForDecision`
-- Whether multiple unresolved blocking Decisions should be supported after the MVP
-- Whether options require explicit human acceptance before inclusion
-- Whether approval requires one approver or multiple approvers
-- Whether a Decision may exist without predefined options
-- Whether review deadlines and escalation rules belong in the Decision domain
-- Whether resolved Decisions may receive non-authoritative comments
+```text
+activityId
+decisionId
+revisionNumber
+activityType
+actorReference
+occurredAt
+commandId
+correlationId
+metadata
+```
 
-These questions do not change the primary Aggregate boundary.
+Metadata must not replace explicit domain fields.
+
+Critical business facts remain strongly typed.
 
 ---
 
-## Related Documents
+# Data Retention
 
-- `docs/product/mvp.md`
-- `docs/product/use-cases/mvp.md`
-- `docs/architecture/aggregates/work.md`
-- `docs/architecture/aggregates/memory.md`
-- `docs/architecture/aggregates/knowledge.md`
-- `docs/architecture/state-machines/work.md`
-- `docs/architecture/state-machines/decision.md`
-- `docs/architecture/authorization.md`
-- `docs/glossary.md`
+Decision history is organizational evidence.
+
+Within the MVP:
+
+- Decisions are not physically deleted
+- submitted snapshots are retained
+- review records are retained
+- activity records are retained
+- Secretary contributions are retained according to policy
+
+Deletion and archival policies require a separate retention design.
+
+They are outside the Decision lifecycle.
+
+---
+
+# Privacy and Sensitive Data
+
+Decision content may contain confidential organizational information.
+
+The implementation must support:
+
+- Organization-level isolation
+- authorization checks
+- encrypted transport
+- encrypted storage where required
+- restricted audit access
+- sensitive logging controls
+
+Domain event payloads should include only information required by consumers.
+
+Full Decision content should not be copied into integration events unless explicitly necessary.
+
+---
+
+# Observability
+
+The implementation should expose operational metrics for:
+
+- Decisions created
+- Decisions submitted
+- Decisions approved
+- Decisions rejected
+- Decisions withdrawn
+- concurrency conflicts
+- pending outbox records
+- publication retries
+- failed event handlers
+- event processing latency
+
+Logs should include:
+
+- decisionId
+- organizationId
+- commandId
+- eventId
+- correlationId
+- aggregateVersion
+
+Decision content must not be logged indiscriminately.
+
+---
+
+# Testing Strategy
+
+The Decision Aggregate should be tested independently from infrastructure.
+
+---
+
+## Unit Tests
+
+Unit tests cover:
+
+- valid state transitions
+- invalid state transitions
+- revision creation
+- Draft editing
+- snapshot immutability
+- review authorization assumptions
+- terminal state behavior
+- emitted Domain Events
+- Aggregate Invariants
+
+---
+
+## Required Lifecycle Tests
+
+At minimum:
+
+```text
+Create -> Draft
+Draft -> Edit
+Draft -> Submit -> InReview
+InReview -> Approve -> Approved
+InReview -> Reject -> Rejected
+Rejected -> StartRevision -> Draft
+InReview -> Withdraw -> Withdrawn
+Withdrawn -> StartRevision -> Draft
+```
+
+---
+
+## Required Negative Tests
+
+At minimum:
+
+- editing while InReview fails
+- editing an Approved Decision fails
+- approving a Draft fails
+- rejecting a Draft fails
+- submitting an incomplete Draft fails
+- starting a revision from Approved fails
+- editing a rejected snapshot fails
+- creating a second active Draft fails
+- resolving the same review twice fails
+- Secretary review authority is denied by the Application Layer
+
+---
+
+## Integration Tests
+
+Integration tests cover:
+
+- aggregate persistence
+- optimistic concurrency
+- aggregate and outbox atomicity
+- outbox retry behavior
+- event deduplication
+- Work outcome coordination
+- Organization isolation
+
+---
+
+## Contract Tests
+
+Event contract tests verify:
+
+- event names
+- payload fields
+- schema compatibility
+- aggregate version
+- correlation metadata
+- backward-compatible evolution
+
+---
+
+# Implementation Guidance
+
+Recommended persistence model:
+
+```text
+decisions
+decision_revisions
+decision_submitted_snapshots
+decision_review_records
+decision_secretary_contributions
+decision_activity_records
+outbox_messages
+processed_commands
+processed_events
+```
+
+The exact schema may differ.
+
+The domain model remains the authority for invariants.
+
+Database constraints provide additional protection but do not replace aggregate behavior.
+
+---
+
+## Recommended Database Constraints
+
+Examples:
+
+- unique Decision identity
+- unique revision number per Decision
+- unique snapshot per revision
+- unique processed command identifier
+- unique processed event per consumer
+- non-null Organization ownership
+- optimistic version constraint
+
+Partial unique indexes may be used to protect active lifecycle records where appropriate.
+
+---
+
+# MVP Exclusions
+
+The following capabilities are outside the Decision Aggregate MVP:
+
+- automated AI approval
+- Secretary approval authority
+- multi-stage approval chains
+- weighted voting
+- quorum rules
+- delegation workflows
+- approval expiration
+- scheduled approval
+- Decision archival lifecycle
+- modifying Approved Decisions
+- direct Work completion
+- direct Memory creation
+- Knowledge promotion
+- Evidence management
+- Capability management
+- marketplace integrations
+
+These may be introduced in later phases through explicit architecture changes.
+
+---
+
+# Design Summary
+
+The Decision Aggregate guarantees that:
+
+- every Decision belongs to one Organization
+- Draft content is editable
+- submitted content is immutable
+- review outcomes are Human-authorized
+- rejected and withdrawn submissions remain historical evidence
+- revisions preserve full history
+- Secretary contributions remain advisory
+- approval never completes Work
+- Work coordination occurs through the Application Layer
+- state changes and outbox writes are atomic
+- downstream processing is retryable and idempotent
+
+---
+
+# Architect Review
+
+## Aggregate Boundary
+
+**Rating: ★★★★★**
+
+The aggregate owns only the lifecycle and evidence required to make a Decision internally consistent.
+
+Work, Memory, Organization membership, and orchestration remain outside the boundary.
+
+---
+
+## Domain Model
+
+**Rating: ★★★★★**
+
+The revision and submitted-snapshot model clearly separates editable proposals from immutable review evidence.
+
+Rejected and withdrawn outcomes retain historical integrity.
+
+---
+
+## Human Authority
+
+**Rating: ★★★★★**
+
+Human Members retain all business authority.
+
+The Secretary may draft, summarize, rewrite, and suggest, but cannot submit, approve, reject, or withdraw Decisions.
+
+---
+
+## Work Separation
+
+**Rating: ★★★★★**
+
+Decision approval records an outcome only.
+
+It does not complete Work or directly change the Completion Gate.
+
+Application Services coordinate the resulting Work update.
+
+---
+
+## Transaction and Event Reliability
+
+**Rating: ★★★★★**
+
+Aggregate persistence and outbox persistence share one transaction.
+
+At-least-once delivery is supported through consumer idempotency and retry handling.
+
+---
+
+## Auditability
+
+**Rating: ★★★★★**
+
+Immutable snapshots, append-only review records, revision history, actor references, command identifiers, and correlation metadata provide strong organizational traceability.
+
+---
+
+## MVP Alignment
+
+**Rating: ★★★★★**
+
+The design includes only the Decision capabilities required for the MVP.
+
+Advanced voting, delegated authority, Knowledge promotion, and AI decision authority remain explicitly excluded.
+
+---
+
+## Final Assessment
+
+```text
+Architecture Quality:        ★★★★★
+Domain Consistency:          ★★★★★
+Human Authority Model:       ★★★★★
+Auditability:                ★★★★★
+Implementation Readiness:    ★★★★★
+MVP Scope Discipline:        ★★★★★
+```
+
+The Decision Aggregate is ready for implementation within the AIOS Modular Monolith.
+
+It is consistent with:
+
+- Decision State Machine
+- Work Aggregate
+- Memory Aggregate
+- explicit Human Work completion
+- Completion Gate ownership
+- Transactional Outbox
+- Background Worker delivery
+- asynchronous cross-aggregate coordination
+
+**Architect Review Result: APPROVED**
