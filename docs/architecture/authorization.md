@@ -1,1632 +1,4757 @@
-# Authorization Model
+# Authorization Architecture
 
-## Purpose
+**Status:** Draft  
+**Phase:** MVP  
+**Architecture:** Modular Monolith  
+**Security Model:** Organization-Scoped Human Authority
+
+---
+
+# Purpose
 
 This document defines the authorization model for AIOS.
 
-Authorization determines whether an Actor may perform a specific Action on a specific Resource within an Organization.
+Authorization determines whether an authenticated actor may execute a specific application command against a specific resource.
 
-The purpose of this model is to ensure that:
+The model preserves explicit Human authority while allowing the Secretary and System actors to perform limited advisory and operational actions.
 
-- organizational boundaries are preserved,
-- human authority remains explicit,
-- AI assistance never becomes implicit authority,
-- lifecycle transitions are performed only by permitted Actors,
-- Aggregate invariants remain protected,
-- and authorization decisions remain explainable and auditable.
+Authorization is enforced before Aggregate commands are executed.
 
-Authorization is distinct from authentication.
-
-Authentication answers:
-
-> Who is the Actor?
-
-Authorization answers:
-
-> Is this Actor allowed to perform this Action on this Resource in this context?
+Business invariants remain enforced inside Aggregates.
 
 ---
 
-## Core Principles
+# Goals
 
-AIOS authorization follows these principles:
+The authorization architecture must ensure that:
 
-1. Every authoritative action is performed within an Organization boundary.
-2. Human Members and AI Secretaries have different authority.
-3. AI may assist, recommend, draft, summarize, and analyze.
-4. AI must not perform authoritative human approval actions.
-5. Application-level permission checks do not replace Aggregate invariants.
-6. Aggregate invariants do not replace Organization-level permission checks.
-7. Authorization must be evaluated at command execution time.
-8. Authorization decisions should be auditable.
-9. Published or approved historical records must not be silently rewritten.
-10. The least-privilege principle applies by default.
+- only authorized actors execute commands
+- Organization boundaries are never crossed
+- Human authority remains explicit
+- Secretary capabilities remain advisory
+- System capabilities remain operational
+- authorization rules are consistent across all Application Services
+- denied operations produce no domain mutation
+- every authoritative action is attributable to a Human Member
+- future roles can be introduced without weakening MVP authority boundaries
 
 ---
 
-## Authorization Layers
+# Non-Goals
 
-Authorization is evaluated across multiple layers.
+This document does not define:
+
+- authentication protocols
+- password management
+- session storage
+- identity provider configuration
+- OAuth implementation
+- cryptographic key management
+- network perimeter security
+- database encryption
+- external identity federation
+- Knowledge access policies
+- marketplace authorization
+- AI Employee autonomy
+
+Those concerns belong to separate security or future-phase designs.
+
+---
+
+# Security Model
+
+AIOS uses an Organization-scoped authorization model.
+
+Every protected operation is evaluated using:
 
 ```text
-Authentication
-      │
-      ▼
-Organization Boundary
-      │
-      ▼
-Membership Status
-      │
-      ▼
-Role / Permission Policy
-      │
-      ▼
-Resource Context
-      │
-      ▼
-Aggregate Invariants
-      │
-      ▼
-Command Execution
+Actor
+
+Organization
+
+Command
+
+Resource
+
+Policy
 ```
 
-Each layer has a separate responsibility.
+Authorization succeeds only when all required conditions are satisfied.
 
 ---
+
+# Core Authorization Question
+
+Every command evaluation answers:
+
+> May this actor perform this command on this resource within this Organization?
+
+The result is always explicit:
+
+```text
+Allowed
+
+Denied
+```
+
+No implicit fallback grants authority.
+
+---
+
+# Authentication and Authorization
+
+Authentication and authorization are separate concerns.
+
+---
+
+## Authentication
+
+Authentication establishes actor identity.
+
+It answers:
+
+> Who is making this request?
+
+Authentication may provide:
+
+```text
+principalId
+principalType
+organizationId
+sessionId
+authenticationMethod
+authenticatedAt
+```
+
+---
+
+## Authorization
+
+Authorization evaluates permission.
+
+It answers:
+
+> Is this authenticated actor allowed to perform this operation?
+
+Authentication alone never grants business authority.
+
+---
+
+# Architectural Position
+
+```text
+Incoming Request
+        │
+        ▼
+Authentication
+        │
+        ▼
+Principal Resolution
+        │
+        ▼
+Authorization Policy
+        │
+        ▼
+Application Service
+        │
+        ▼
+Aggregate Command
+```
+
+Authorization occurs before the Aggregate command.
+
+The Aggregate still validates business invariants after authorization succeeds.
+
+---
+
+# Responsibility Separation
 
 ## Authentication Layer
 
-The authentication layer confirms the identity of an Actor.
+Responsible for:
 
-Possible Actor types:
-
-```text
-Member
-Secretary
-System
-```
-
-Authentication is responsible for:
-
-- validating credentials,
-- identifying the Actor,
-- issuing a trusted Actor identity,
-- identifying the active Organization context,
-- and rejecting unauthenticated requests.
-
-Authentication does not determine whether the Actor may perform a domain action.
+- verifying identity
+- validating credentials or tokens
+- resolving authenticated principal
+- rejecting unauthenticated requests
 
 ---
 
-## Organization Boundary
+## Authorization Layer
 
-Every domain Resource belongs to exactly one Organization unless explicitly defined otherwise.
+Responsible for:
+
+- evaluating permissions
+- checking Organization membership
+- evaluating resource scope
+- validating role and capability requirements
+- returning Allow or Deny
+- producing authorization audit information
+
+---
+
+## Application Layer
+
+Responsible for:
+
+- requesting authorization evaluation
+- passing command and resource context
+- rejecting denied commands
+- supplying ActorReference to the Aggregate
+- preserving correlation metadata
+
+---
+
+## Domain Layer
+
+Responsible for:
+
+- business invariants
+- lifecycle rules
+- state transition validation
+- Human authority invariants where domain-significant
+- recording authoritative actors
+
+The Domain Layer does not query permission stores.
+
+---
+
+## Infrastructure Layer
+
+Responsible for:
+
+- permission persistence
+- membership lookup
+- policy data access
+- identity provider integration
+- security logging
+- audit storage
+
+Infrastructure does not decide business meaning.
+
+---
+
+# Principal Types
+
+The MVP recognizes three principal types:
+
+```text
+HumanMember
+
+Secretary
+
+System
+```
+
+Every command must be associated with exactly one principal.
+
+---
+
+# Human Member Principal
+
+A Human Member represents an authenticated person who belongs to an Organization.
+
+Human Members are the only principals with business authority.
+
+A Human Member may perform authoritative actions when authorized by policy.
+
+Examples include:
+
+- creating Work
+- starting Work
+- completing Work
+- submitting Decisions
+- approving Decisions
+- rejecting Decisions
+- withdrawing Decisions
+- submitting Memory
+- approving Memory
+- rejecting Memory
+
+---
+
+# Human Authority Principle
+
+All final business decisions require explicit Human action.
+
+The following transitions must always be attributable to a Human Member:
+
+```text
+Work -> Completed
+
+Decision -> InReview
+
+Decision -> Approved
+
+Decision -> Rejected
+
+Decision -> Withdrawn
+
+Memory -> InReview
+
+Memory -> Approved
+
+Memory -> Rejected
+```
+
+Neither Secretary nor System may originate these transitions.
+
+---
+
+# Secretary Principal
+
+The Secretary represents an AI-assisted advisory actor.
+
+The Secretary may:
+
+- generate draft content
+- summarize information
+- propose revisions
+- suggest rationale
+- organize content
+- prepare Memory candidates
+- produce non-authoritative recommendations
+
+The Secretary has no business authority.
+
+---
+
+# Secretary Prohibitions
+
+The Secretary may never:
+
+- complete Work
+- cancel Work
+- submit Decisions
+- approve Decisions
+- reject Decisions
+- withdraw Decisions
+- submit Memory for review
+- approve Memory
+- reject Memory
+- promote Memory to Knowledge
+- grant permissions
+- change Organization membership
+- impersonate a Human Member
+
+---
+
+# Advisory-Only Rule
+
+Secretary output remains advisory until a Human Member explicitly incorporates or accepts it.
+
+Example:
+
+```text
+Secretary generates Decision draft
+        │
+        ▼
+Secretary Contribution recorded
+        │
+        ▼
+Human reviews suggestion
+        │
+        ▼
+Human executes EditDraft
+```
+
+The Secretary contribution does not become authoritative content automatically.
+
+---
+
+# System Principal
+
+The System principal represents trusted internal automation.
+
+The System may perform operational actions such as:
+
+- publishing Outbox events
+- invoking event handlers
+- scheduling retries
+- generating Memory candidates
+- executing reconciliation checks
+- recording processing outcomes
+- maintaining operational metadata
+
+The System has no business authority.
+
+---
+
+# System Prohibitions
+
+The System may never:
+
+- approve a Decision
+- reject a Decision
+- complete Work
+- approve Memory
+- reject Memory
+- promote Memory to Knowledge
+- create Human authorization decisions
+- impersonate a Human Member
+- bypass Aggregate commands
+
+---
+
+# Operational Authority
+
+System authority is limited to actions required for reliable execution.
+
+Examples:
+
+```text
+Publish DecisionApproved event
+
+Record processed event
+
+Invoke GenerateMemory handler
+
+Retry failed Outbox publication
+```
+
+These actions execute previously authorized or domain-generated intent.
+
+They do not create new business intent.
+
+---
+
+# Principal Identity
+
+Every principal has a stable identifier.
+
+Recommended representation:
+
+```text
+PrincipalReference
+- principalId
+- principalType
+- organizationId
+```
+
+Principal identifiers must remain auditable over time.
+
+---
+
+# Actor Reference
+
+Aggregate commands receive an ActorReference representing the actor responsible for the operation.
+
+Example:
+
+```text
+ActorReference
+- actorId
+- actorType
+- organizationId
+```
+
+The ActorReference is stored in domain history where attribution is required.
+
+---
+
+# Principal and Actor Distinction
+
+A Principal represents the authenticated execution identity.
+
+An ActorReference represents the identity recorded in domain history.
+
+In most Human commands:
+
+```text
+Principal = Human Member
+
+ActorReference = same Human Member
+```
+
+For asynchronous processing:
+
+```text
+Principal = System
+
+Causation = prior Human-authorized event
+```
+
+The original Human authority remains traceable through correlation and causation metadata.
+
+---
+
+# No Anonymous Authority
+
+Anonymous principals may access only explicitly public or unauthenticated endpoints.
+
+Anonymous principals may never execute authoritative domain commands.
+
+---
+
+# No Shared Human Identity
+
+Shared Human accounts are prohibited.
+
+Every Human-authoritative action must be attributable to one identifiable person.
+
+Generic identities such as:
+
+```text
+admin
+
+team-user
+
+shared-account
+```
+
+must not be used for business approval or completion.
+
+---
+
+# Organization Membership
+
+A Human Member must belong to the Organization containing the target resource.
+
+Example:
+
+```text
+Human Organization = org-A
+
+Work Organization = org-A
+
+Result = eligible for policy evaluation
+```
+
+Cross-Organization access is denied by default.
+
+---
+
+# Organization Boundary
+
+Every protected resource belongs to exactly one Organization.
 
 Examples:
 
 - Work
 - Decision
 - Memory
-- Knowledge
-- Capability
-- Secretary
-- Member
+- Member assignment
+- Secretary Contribution
 
-An Actor may act only within an Organization in which the Actor has an active and authorized relationship.
-
-Cross-Organization access is prohibited by default.
-
-```text
-Actor OrganizationId
-        =
-Resource OrganizationId
-```
-
-This boundary must be enforced before invoking the Aggregate.
-
-The Aggregate must also reject cross-Organization references when necessary to preserve invariants.
+Authorization never permits a command to cross Organization boundaries.
 
 ---
 
-## Actor Types
+# Default Deny
 
-### Member
+AIOS uses a default-deny model.
 
-A Member is a human participant in an Organization.
+If no policy explicitly allows an operation:
 
-A Member may perform authoritative actions when permitted by Organization policy.
+```text
+Denied
+```
+
+Missing policy data never results in permission.
+
+---
+
+# Least Privilege
+
+Principals receive only the minimum permissions required for their responsibilities.
 
 Examples:
 
-- Create Work
-- Start Work
-- Complete Work
-- Propose Decision
-- Approve Decision
-- Review Memory
-- Approve Memory
-- Publish Knowledge
-- Deprecate Knowledge
-
-A Member's authority depends on:
-
-- Membership status
-- Assigned roles
-- Explicit permissions
-- Resource relationship
-- Organization policy
-- Lifecycle state
+- a reviewer may approve Decisions but not manage Organization membership
+- a contributor may edit Drafts but not approve them
+- the Secretary may record suggestions but not submit them
+- the System may process events but not complete Work
 
 ---
 
-### Secretary
+# Explicit Authority
 
-A Secretary is an AI Actor that assists an Organization.
+Authority must be explicit.
 
-The Secretary may:
+The system must not infer permission from:
 
-- summarize information,
-- draft content,
-- identify patterns,
-- recommend actions,
-- suggest Evidence,
-- recommend Confidence,
-- record contributions,
-- and retrieve permitted organizational context.
+- content authorship alone
+- assignment alone
+- prior participation alone
+- Secretary recommendation
+- event delivery
+- administrative convenience
 
-The Secretary must never:
-
-- approve a Decision,
-- reject a Decision,
-- approve a Memory,
-- reject a Memory,
-- publish Knowledge,
-- deprecate Knowledge,
-- archive Knowledge,
-- confirm Confidence authoritatively,
-- alter approved or published historical records,
-- or grant permissions.
-
-The Secretary is not treated as a Member.
-
-AI assistance must remain distinguishable from human authority.
+Each authoritative command requires a matching policy decision.
 
 ---
 
-### System
+# Separation of Advisory and Authoritative Actions
 
-The System Actor represents trusted automated processes.
+AIOS distinguishes two action categories.
+
+---
+
+## Advisory Actions
 
 Examples:
 
-- generating Memory after `WorkCompleted`,
-- delivering notifications,
-- updating search projections,
-- building retrieval indexes,
-- processing domain events,
-- applying retention policies approved by governance.
+- generate draft
+- summarize
+- suggest changes
+- provide recommendation
+- record Secretary Contribution
 
-The System Actor may perform only explicitly defined automated actions.
-
-System authority must not be interpreted as unrestricted authority.
-
-A System action must have:
-
-- a defined trigger,
-- a defined scope,
-- an idempotency mechanism,
-- an auditable execution record,
-- and a documented ownership boundary.
+These may be performed by Secretary or Human Members.
 
 ---
 
-## Membership Status
+## Authoritative Actions
 
-A Member may have one of the following statuses:
+Examples:
 
-```text
-Invited
-Active
-Suspended
-Deactivated
-```
+- submit
+- approve
+- reject
+- withdraw
+- complete
+- cancel
 
-Only `Active` Members may perform ordinary domain actions.
-
-### Invited
-
-The Member has been invited but has not completed activation.
-
-An Invited Member may not perform domain actions.
-
-### Active
-
-The Member may act according to assigned authorization policy.
-
-### Suspended
-
-The Member temporarily loses domain action authority.
-
-Existing historical records remain attributed to the Member.
-
-### Deactivated
-
-The Member no longer has active access.
-
-Deactivation must not delete:
-
-- authorship history,
-- approval history,
-- review records,
-- audit records,
-- or domain event attribution.
+These require Human Member authority.
 
 ---
 
-## Role Model
+# Authority Cannot Be Delegated to AI
 
-AIOS may use roles as permission groupings.
+A Human Member cannot delegate final business authority to the Secretary or System.
 
-Suggested Organization roles:
+The following configuration is invalid:
 
 ```text
-OrganizationOwner
-Administrator
-Contributor
-Reviewer
-KnowledgePublisher
-Viewer
+Secretary may auto-approve Decisions
 ```
 
-Roles are not domain concepts unless Organization governance requires them to be.
+The following configuration is also invalid:
 
-They are authorization policy constructs.
+```text
+System completes Work after Decision approval
+```
 
-A Member may have multiple roles.
+Human authority is a domain constraint, not an optional preference.
 
-Role names alone must not be used inside Aggregates.
+---
 
-Aggregates should receive domain-relevant authorization facts rather than infrastructure-specific role names.
+# Policy Inputs
+
+Authorization policies may evaluate:
+
+```text
+principalType
+principalId
+organizationId
+roleAssignments
+commandType
+resourceType
+resourceId
+resourceOrganizationId
+resourceRelationship
+resourceState
+requestedAt
+```
+
+Policies should use only data required for the decision.
+
+---
+
+# Resource State Usage
+
+Authorization may consider resource state when access meaning changes.
+
+Example:
+
+- a Draft Decision may be editable
+- an Approved Decision is not editable
+
+However, business lifecycle validity remains enforced by the Aggregate.
+
+Authorization must not duplicate Aggregate state-transition logic.
+
+---
+
+# Authorization Versus Business Validation
 
 Example:
 
 ```text
-canApproveMemory = true
+Human has ApproveDecision permission
 ```
 
-instead of:
-
-```text
-role == "Administrator"
-```
-
----
-
-## Suggested Role Responsibilities
-
-### OrganizationOwner
-
-May manage Organization-level governance.
-
-Possible permissions:
-
-- Manage Members
-- Assign Roles
-- Configure authorization policy
-- Configure Secretary access
-- Create and archive Organization resources
-- View all audit records
-- Delegate administrative authority
-
-Organization ownership does not automatically override Aggregate invariants.
-
----
-
-### Administrator
-
-May manage operational settings and Members according to delegated policy.
-
-Possible permissions:
-
-- Invite Members
-- Suspend Members
-- Assign permitted roles
-- Manage Organization settings
-- Archive eligible resources
-- Configure review policies
-
-An Administrator must not automatically gain approval authority unless explicitly granted.
-
----
-
-### Contributor
-
-May participate in organizational Work.
-
-Possible permissions:
-
-- Create Work
-- Update Work
-- Participate in Work
-- Propose Decisions
-- Add Decision options
-- Request reviews
-- Draft Knowledge
-- Add Draft Evidence
-
-Contributor authority does not include authoritative approval by default.
-
----
-
-### Reviewer
-
-May perform defined human review actions.
-
-Possible permissions:
-
-- Approve or reject Decisions
-- Review Memory
-- Approve or reject Memory
-- Request revisions
-- Record review comments
-
-Review authority may be resource-specific or Capability-specific.
-
----
-
-### KnowledgePublisher
-
-May perform authoritative Knowledge actions.
-
-Possible permissions:
-
-- Publish Knowledge
-- Publish Knowledge revisions
-- Confirm Confidence
-- Deprecate Knowledge
-- Recommend archival
-- Review Evidence eligibility
-
-Knowledge publication authority should be separated from ordinary contribution authority when governance requires it.
-
----
-
-### Viewer
-
-May read Resources within permitted scope.
-
-Possible permissions:
-
-- View Work
-- View Decisions
-- View approved Memory
-- View Published Knowledge
-- Search organizational information
-
-Viewer access must respect Resource visibility and confidentiality rules.
-
----
-
-## Permission Model
-
-Authorization should be represented as explicit Actions.
-
-Suggested permission naming convention:
-
-```text
-<Resource>.<Action>
-```
-
-Examples:
-
-```text
-Work.Create
-Work.View
-Work.Update
-Work.Start
-Work.Complete
-Work.Archive
-
-Decision.Create
-Decision.View
-Decision.Update
-Decision.Propose
-Decision.Approve
-Decision.Reject
-Decision.Revise
-Decision.Withdraw
-
-Memory.View
-Memory.StartReview
-Memory.Approve
-Memory.Reject
-Memory.Archive
-Memory.RequestKnowledgePromotion
-
-Knowledge.CreateDraft
-Knowledge.ViewDraft
-Knowledge.UpdateDraft
-Knowledge.AddEvidence
-Knowledge.RemoveDraftEvidence
-Knowledge.SetConfidence
-Knowledge.Publish
-Knowledge.CreateRevision
-Knowledge.PublishRevision
-Knowledge.Deprecate
-Knowledge.Archive
-
-Capability.View
-Capability.Manage
-
-Member.Invite
-Member.Suspend
-Member.Deactivate
-Member.AssignRole
-
-Organization.ManagePolicy
-Organization.ViewAudit
-```
-
-Permissions should be scoped to one Organization.
-
-Some permissions may also be scoped to:
-
-- specific Work,
-- specific Capability,
-- specific team,
-- ownership,
-- participant relationship,
-- or Resource visibility.
-
----
-
-## Resource Context
-
-Authorization is not determined by role alone.
-
-The application layer must evaluate Resource context.
-
-Examples:
-
-- Is the Member a participant in the Work?
-- Is the Member the Decision proposer?
-- Is self-approval allowed?
-- Is the reviewer independent from the author?
-- Does the Member own the relevant Capability?
-- Is the Resource archived?
-- Is the Member acting within the same Organization?
-- Does the Resource contain restricted information?
-- Has a required separation-of-duties rule been satisfied?
-
-The same Member may be authorized for one Resource and unauthorized for another.
-
----
-
-## Ownership and Participation
-
-Ownership and participation may affect access but do not automatically grant all authority.
-
-Examples:
-
-- A Work owner may edit the Work.
-- A Work participant may view the Work.
-- A Decision proposer may revise the Decision.
-- A Decision proposer may not approve their own Decision if self-approval is disabled.
-- A Memory reviewer may approve Memory only when explicitly authorized.
-- A Knowledge creator may not publish their own Knowledge if separation of duties is required.
-
-Ownership is one authorization input, not a universal permission.
-
----
-
-## Self-Approval
-
-Self-approval is an Organization policy.
-
-Blueprint v0.2.0 allows self-approval for Decision in the MVP unless stricter policy is configured.
-
-Possible policy values:
+Authorization result:
 
 ```text
 Allowed
-Forbidden
-AllowedBelowRiskThreshold
-RequiresAdditionalReviewer
 ```
 
-Self-approval rules may differ by Resource type.
+But if the Decision is still Draft, the Aggregate rejects approval.
 
-Examples:
+Authorization answers:
 
-```text
-Decision:
-Allowed in MVP
+> May this Human attempt approval?
 
-Memory:
-Configurable
+The Aggregate answers:
 
-Knowledge:
-Prefer separation of duties
-```
+> Is approval valid in the current domain state?
 
-An Aggregate should receive the resolved authorization decision.
-
-It should not directly query Organization policy.
+Both checks are required.
 
 ---
 
-## Separation of Duties
+# Policy Decision
 
-Organizations may require different Members to perform different stages.
+A policy evaluation returns a structured result.
 
 Example:
-
-```text
-Knowledge Draft Author
-        ≠
-Knowledge Publisher
-```
-
-Possible separation rules:
-
-- Creator cannot approve
-- Proposer cannot reject
-- Memory generator cannot review
-- Knowledge author cannot publish
-- Administrator cannot assign themselves elevated authority
-- One Member cannot satisfy multiple required review slots
-
-Separation of duties belongs primarily to Organization authorization policy and application workflow.
-
-The Aggregate protects any invariant that is necessary for domain correctness.
-
----
-
-## Human Authority Matrix
-
-The following matrix represents default domain authority.
-
-| Action | Member | Secretary | System |
-|---|---:|---:|---:|
-| Create Work | Yes, with permission | No | No |
-| Update Work | Yes, with permission | Suggest only | Defined automation only |
-| Complete Work | Yes, with permission | No | No |
-| Propose Decision | Yes | Draft only | No |
-| Approve Decision | Yes, with permission | No | No |
-| Reject Decision | Yes, with permission | No | No |
-| Generate Memory | No direct command | Draft contribution | Yes, after Work completion |
-| Approve Memory | Yes, with permission | No | No |
-| Reject Memory | Yes, with permission | No | No |
-| Create Knowledge Draft | Yes, with permission | Propose only | Defined workflow only |
-| Publish Knowledge | Yes, with permission | No | No |
-| Confirm Confidence | Yes, with permission | Recommend only | No |
-| Deprecate Knowledge | Yes, with permission | Recommend only | No |
-| Archive Knowledge | Yes, with permission | No | Policy-driven only if explicitly defined |
-| Grant permissions | Authorized Member only | No | No |
-
-`Yes` always assumes Organization and Resource policy validation.
-
----
-
-## Aggregate Authorization Responsibilities
-
-Each Aggregate enforces domain-specific authority constraints.
-
-The Aggregate must not depend on a full role engine.
-
-Instead, the application layer provides validated Actor and authorization context.
-
-Suggested command context:
-
-```text
-CommandContext
-- actor
-- organizationId
-- permissions
-- authorizationFacts
-- correlationId
-- commandId
-- timestamp
-```
-
-Example authorization facts:
-
-```text
-isActiveMember
-isWorkParticipant
-isWorkOwner
-isDecisionProposer
-canSelfApprove
-isIndependentReviewer
-canPublishKnowledge
-canArchiveResource
-```
-
-The Aggregate uses only facts required to protect domain rules.
-
----
-
-## Application Layer Responsibilities
-
-The application layer is responsible for:
-
-- Authenticating the Actor
-- Resolving active Organization context
-- Loading Membership
-- Evaluating roles and permissions
-- Loading Resource authorization context
-- Evaluating Organization policy
-- Evaluating ownership and participation
-- Evaluating separation-of-duties rules
-- Producing authorization facts
-- Rejecting unauthorized commands
-- Recording the authorization decision
-- Invoking the Aggregate only after successful authorization
-
-The application layer must not bypass Aggregate invariants.
-
----
-
-## Infrastructure Responsibilities
-
-Infrastructure may provide:
-
-- Identity provider integration
-- Session management
-- Token validation
-- Role storage
-- Permission storage
-- Policy evaluation engine
-- Audit log persistence
-- Access-control projections
-- Caching
-- Organization context resolution
-
-Infrastructure must not define domain meaning.
-
-Infrastructure failures must fail closed for authoritative actions.
-
----
-
-## Work Authorization
-
-### Create Work
-
-Requirements:
-
-- Actor is an Active Member
-- Actor belongs to the Organization
-- Actor has `Work.Create`
-
-### View Work
-
-Requirements may include:
-
-- Organization-wide visibility
-- Work ownership
-- Work participation
-- Explicit access grant
-- Administrative access
-
-### Update Work
-
-Requirements:
-
-- Work is editable
-- Actor has `Work.Update`
-- Actor satisfies ownership or participation policy
-
-### Start Work
-
-Requirements:
-
-- Actor has `Work.Start`
-- Work is in a startable state
-- Actor belongs to the same Organization
-
-### Complete Work
-
-Requirements:
-
-- Actor has `Work.Complete`
-- Work satisfies completion invariants
-- Actor belongs to the same Organization
-
-### Archive Work
-
-Requirements:
-
-- Actor has `Work.Archive`
-- Work is in an archivable state
-- Historical integrity is preserved
-
----
-
-## Decision Authorization
-
-### Create or Propose Decision
-
-Requirements:
-
-- Actor is an Active Member
-- Actor has `Decision.Create` or `Decision.Propose`
-- Related Work belongs to the same Organization
-- Actor has access to the related Work
-
-### Update Decision Draft
-
-Requirements:
-
-- Actor has `Decision.Update`
-- Decision is editable
-- Actor satisfies proposer, owner, or delegated-editor policy
-
-### Approve Decision
-
-Requirements:
-
-- Actor is an Active human Member
-- Actor has `Decision.Approve`
-- Decision is in an approvable state
-- Blocking Decisions are resolved
-- Self-approval policy is satisfied
-- Organization boundary is satisfied
-
-Secretary and System Actors cannot approve Decisions.
-
-### Reject Decision
-
-Requirements:
-
-- Actor is an Active human Member
-- Actor has `Decision.Reject`
-- Decision is in a rejectable state
-- Rejection reason is provided
-
-### Revise Decision
-
-Requirements:
-
-- Actor has `Decision.Revise`
-- Decision revision rules are satisfied
-- The organizational question remains unchanged
-
-### Withdraw Decision
-
-Requirements:
-
-- Actor has `Decision.Withdraw`
-- Actor satisfies proposer or delegated-authority policy
-- Decision is in a withdrawable state
-
----
-
-## Memory Authorization
-
-### View Memory
-
-Requirements depend on:
-
-- Organization membership
-- Memory status
-- Source Work access
-- Confidentiality policy
-- Reviewer assignment
-- Administrative access
-
-Approved Memory may be more broadly discoverable than Draft or In Review Memory.
-
-### Start Memory Review
-
-Requirements:
-
-- Actor is an Active human Member
-- Actor has `Memory.StartReview`
-- Memory is in `Generated`
-- Actor may access the source Work context
-
-### Approve Memory
-
-Requirements:
-
-- Actor is an Active human Member
-- Actor has `Memory.Approve`
-- Memory is in `InReview`
-- Human review requirements are satisfied
-- Separation-of-duties policy is satisfied when configured
-
-The Secretary cannot approve Memory.
-
-### Reject Memory
-
-Requirements:
-
-- Actor is an Active human Member
-- Actor has `Memory.Reject`
-- Memory is in `InReview`
-- Rejection reason is provided
-
-### Archive Memory
-
-Requirements:
-
-- Actor has `Memory.Archive`
-- Memory is in an archivable state
-- Evidence traceability will not be broken
-
-### Request Knowledge Promotion
-
-Requirements:
-
-- Actor has `Memory.RequestKnowledgePromotion`
-- Memory is `Approved`
-- The request does not create Knowledge directly
-- Knowledge governance remains separate
-
-The Secretary may recommend promotion but cannot authorize it.
-
----
-
-## Knowledge Authorization
-
-### Create Knowledge Draft
-
-Requirements:
-
-- Actor is an Active human Member
-- Actor has `Knowledge.CreateDraft`
-- Candidate Evidence belongs to the same Organization
-- Candidate Evidence is accessible to the Actor
-- At least one Approved Memory is identified before publication
-
-The Secretary may propose a candidate but does not perform authoritative creation without a defined human-accepted workflow.
-
-### View Knowledge Draft
-
-Requirements:
-
-- Actor has `Knowledge.ViewDraft`
-- Actor belongs to the Organization
-- Draft visibility policy permits access
-
-Published Knowledge may have broader visibility than Draft Knowledge.
-
-### Update Knowledge Draft
-
-Requirements:
-
-- Actor has `Knowledge.UpdateDraft`
-- Current revision is editable
-- Actor satisfies author, editor, or delegated-owner policy
-
-### Add Evidence
-
-Requirements:
-
-- Actor has `Knowledge.AddEvidence`
-- Source Memory is `Approved`
-- Source Memory belongs to the same Organization
-- Actor may access the source Memory
-- Duplicate Evidence is not created
-
-### Remove Draft Evidence
-
-Requirements:
-
-- Actor has `Knowledge.RemoveDraftEvidence`
-- Revision is still Draft
-- Publication invariants remain satisfiable
-
-Published Evidence cannot be removed.
-
-### Set Confidence
-
-Requirements:
-
-- Actor is an Active human Member
-- Actor has `Knowledge.SetConfidence`
-- Revision is Draft
-- Rationale is provided
-
-The Secretary may recommend Confidence but cannot confirm it.
-
-### Publish Knowledge
-
-Requirements:
-
-- Actor is an Active human Member
-- Actor has `Knowledge.Publish`
-- Publication invariants are satisfied
-- Review requirements are satisfied
-- Separation-of-duties policy is satisfied
-- Evidence has been revalidated
-- Confidence has been human-confirmed
-
-### Create Knowledge Revision
-
-Requirements:
-
-- Actor has `Knowledge.CreateRevision`
-- Knowledge is `Published`
-- Actor belongs to the same Organization
-- Revision reason is recorded
-
-### Publish Knowledge Revision
-
-Requirements:
-
-- Actor has `Knowledge.PublishRevision`
-- All publication requirements are satisfied
-- Revision identity remains valid
-- Previous revision remains preserved
-
-### Deprecate Knowledge
-
-Requirements:
-
-- Actor is an Active human Member
-- Actor has `Knowledge.Deprecate`
-- Knowledge is `Published`
-- Deprecation reason is recorded
-- Replacement Knowledge is recorded when applicable
-
-### Archive Knowledge
-
-Requirements:
-
-- Actor is an Active human Member
-- Actor has `Knowledge.Archive`
-- Knowledge is in an archivable state
-- Archive reason is recorded
-- Historical traceability is preserved
-
----
-
-## Capability-Scoped Authorization
-
-Organizations may scope Knowledge authority by Capability.
-
-Example:
-
-```text
-Member A
-- KnowledgePublisher for Sales
-
-Member B
-- KnowledgePublisher for Engineering
-```
-
-Member A may publish Sales Knowledge but not Engineering Knowledge.
-
-Capability-scoped authorization may apply to:
-
-- Draft creation
-- Review
-- Publication
-- Deprecation
-- Archival
-- Discovery
-- AI retrieval access
-
-Capability scope is evaluated by the application layer.
-
-The Knowledge Aggregate stores Capability references but does not resolve Member Capability authority.
-
----
-
-## Confidentiality and Visibility
-
-Authorization should support Resource visibility.
-
-Suggested visibility values:
-
-```text
-Private
-Restricted
-Organization
-```
-
-### Private
-
-Visible only to:
-
-- Resource owner
-- Explicitly authorized Members
-- Administrators with permitted access
-
-### Restricted
-
-Visible to:
-
-- Explicit teams
-- Capabilities
-- participants
-- reviewers
-- or permission groups
-
-### Organization
-
-Visible to all Active Members in the Organization.
-
-Visibility does not override lifecycle restrictions.
-
-For example:
-
-- Draft Knowledge may remain restricted even when future Published Knowledge will be Organization-visible.
-- Archived Resources remain hidden from ordinary discovery even when historically Organization-visible.
-
----
-
-## AI Retrieval Authorization
-
-The Secretary must retrieve only information the requesting Member is authorized to access.
-
-AI retrieval must evaluate:
-
-- Member identity
-- Organization
-- Resource visibility
-- lifecycle state
-- Capability scope
-- confidentiality
-- source permissions
-- current request context
-
-The Secretary must not expose restricted source content through a generated summary.
-
-```text
-Unauthorized Source
-        │
-        ├── must not be quoted
-        ├── must not be summarized
-        ├── must not influence visible output
-        └── must not be revealed indirectly
-```
-
-Retrieval indexes must preserve authorization metadata.
-
-A semantic search match does not grant access.
-
----
-
-## Secretary Scope
-
-Each Secretary belongs to exactly one Organization.
-
-A Secretary may be granted access scopes such as:
-
-```text
-Work.Read
-Decision.Read
-Memory.ReadApproved
-Knowledge.ReadPublished
-Knowledge.DraftAssist
-```
-
-A Secretary must not receive broader access than necessary.
-
-Secretary access should be configurable by:
-
-- Resource type
-- lifecycle state
-- Capability
-- team
-- visibility
-- purpose
-
-Secretary access must be auditable.
-
----
-
-## Delegation
-
-A Member may delegate limited authority when Organization policy permits it.
-
-Delegation must specify:
-
-```text
-Delegation
-- delegatorId
-- delegateId
-- organizationId
-- permissions
-- resourceScope
-- validFrom
-- validUntil
-- reason
-- createdAt
-- revokedAt
-```
-
-Delegation must:
-
-- be explicit,
-- be time-bound when possible,
-- not exceed the delegator's own authority,
-- remain auditable,
-- and be revocable.
-
-AI Secretaries cannot receive delegated human approval authority.
-
----
-
-## Temporary Access
-
-Temporary access may be granted for:
-
-- review,
-- incident response,
-- external audit,
-- project participation,
-- or limited operational support.
-
-Temporary access must have:
-
-- explicit scope,
-- expiration,
-- granting Member,
-- reason,
-- and audit history.
-
-Expiration must automatically remove effective permission.
-
-Historical attribution remains unchanged.
-
----
-
-## Authorization Decision
-
-A conceptual authorization decision may contain:
 
 ```text
 AuthorizationDecision
-- decision: Allow | Deny
-- actorId
-- actorType
-- organizationId
-- action
-- resourceType
-- resourceId
-- evaluatedPolicies
-- reason
+- outcome
+- policyId
+- reasonCode
 - evaluatedAt
-- correlationId
 ```
 
-Denied actions should provide a safe, non-sensitive reason.
+Possible outcomes:
+
+```text
+Allow
+
+Deny
+```
+
+The MVP does not use indeterminate authorization outcomes.
+
+Infrastructure errors result in denial.
+
+---
+
+# Deny on Failure
+
+If authorization data cannot be loaded or evaluated safely:
+
+```text
+Denied
+```
 
 Examples:
 
-```text
-Member is not active.
+- membership lookup failure
+- missing Organization context
+- invalid role assignment
+- corrupted permission record
 
-Resource belongs to another Organization.
-
-Required permission is missing.
-
-Self-approval is not permitted.
-
-Knowledge Evidence is not eligible.
-
-Resource state does not permit this action.
-```
-
-Error messages must not reveal inaccessible Resource details.
+Security-critical failures must never fail open.
 
 ---
 
-## Audit Requirements
+# Policy Reason Codes
 
-Authoritative authorization-sensitive actions must be auditable.
-
-Audit records should include:
+Recommended denial reason codes include:
 
 ```text
-AuditRecord
-- actor
+Unauthenticated
+
+PrincipalTypeNotAllowed
+
+OrganizationMismatch
+
+MembershipInactive
+
+PermissionMissing
+
+ResourceNotAccessible
+
+RoleNotAllowed
+
+HumanAuthorityRequired
+
+PolicyDataUnavailable
+```
+
+External responses may expose a reduced message.
+
+Detailed reason codes belong in secure audit logs.
+
+---
+
+# Human Presence Requirement
+
+Authoritative commands require a directly authenticated Human Member.
+
+A System event cannot substitute for Human presence.
+
+Example:
+
+```text
+DecisionApproved event
+```
+
+proves that approval previously occurred.
+
+It does not authorize a new Human-only command such as Work completion.
+
+---
+
+# Causation Does Not Grant Authority
+
+An authoritative event may trigger operational follow-up.
+
+Example:
+
+```text
+Human approves Decision
+
+↓
+
+System records Decision outcome in Work
+```
+
+The System may perform the operational command because that command records an already authoritative fact.
+
+The same event cannot authorize:
+
+```text
+System completes Work
+```
+
+because Work completion requires new Human intent.
+
+---
+
+# Authority Preservation Across Events
+
+Asynchronous handlers must preserve:
+
+```text
+original actor
+correlationId
+causationId
+source eventId
+```
+
+The handler principal remains System.
+
+The original Human actor remains part of the audit chain.
+
+The System must never record itself as the Human decision maker.
+
+---
+
+# Authorization Invariants
+
+The following rules must always hold:
+
+1. Every authoritative command is associated with one Human Member.
+2. Every protected command executes within one Organization.
+3. Cross-Organization access is denied.
+4. Secretary actions remain advisory.
+5. System actions remain operational.
+6. No principal may impersonate another principal.
+7. Denied commands produce no Aggregate mutation.
+8. Infrastructure failures never grant access.
+9. Authorization success never bypasses Aggregate validation.
+10. Domain events do not create new Human authority.
+
+---
+
+# Guiding Principle
+
+The authorization architecture answers:
+
+> Who is allowed to request this operation?
+
+The Domain Model answers:
+
+> Is this operation valid?
+
+The Application Layer coordinates both answers before committing any state change.
+
+# Authorization Model
+
+AIOS uses a hybrid authorization model combining:
+
+- Organization roles
+- command permissions
+- resource relationships
+- principal-type restrictions
+- explicit Human-authority requirements
+
+A role alone does not guarantee authorization.
+
+The complete policy must evaluate the actor, command, Organization, and target resource.
+
+---
+
+# Organization Roles
+
+The MVP defines four Human Member roles:
+
+```text
+OrganizationOwner
+OrganizationAdmin
+Member
+Reviewer
+```
+
+One Human Member may hold multiple roles within the same Organization.
+
+Roles never cross Organization boundaries.
+
+---
+
+## OrganizationOwner
+
+The OrganizationOwner has the highest administrative authority within one Organization.
+
+The Owner may:
+
+- manage Organization membership
+- assign and revoke Organization roles
+- access all Organization resources
+- perform business commands when the relevant command policy permits
+- review security and authorization audit records
+
+Ownership does not bypass Aggregate invariants.
+
+The Owner cannot delegate Human-only authority to the Secretary or System.
+
+---
+
+## OrganizationAdmin
+
+An OrganizationAdmin manages day-to-day access and Organization resources.
+
+An Admin may:
+
+- manage eligible Member roles
+- access Organization resources
+- create and coordinate Work
+- manage assignments
+- perform review actions when granted review permission
+
+An Admin cannot redefine Human-authority invariants.
+
+---
+
+## Member
+
+A Member performs ordinary organizational work.
+
+A Member may, subject to resource relationships:
+
+- create Work
+- edit Work
+- start Work
+- record progress
+- request Decisions
+- create and edit Decision Drafts
+- submit Decision Drafts
+- edit Generated Memory
+- submit Memory for review
+- explicitly complete assigned Work
+
+A Member does not receive approval authority automatically.
+
+---
+
+## Reviewer
+
+A Reviewer is authorized to perform Human review actions.
+
+A Reviewer may, subject to resource scope:
+
+- approve Decisions
+- reject Decisions
+- withdraw eligible Decisions
+- approve Memory
+- reject Memory
+
+Reviewer authority remains Organization-scoped.
+
+---
+
+# Role Assignment Rules
+
+Role assignments must contain:
+
+```text
+roleAssignmentId
+organizationId
+memberId
+role
+assignedBy
+assignedAt
+revokedAt
+```
+
+Only active assignments grant permission.
+
+Revoked assignments remain available for audit.
+
+---
+
+# Role Assignment Authority
+
+Recommended MVP rules:
+
+| Operation | Owner | Admin | Member | Reviewer |
+|---|---:|---:|---:|---:|
+| Assign Owner | Yes | No | No | No |
+| Assign Admin | Yes | No | No | No |
+| Assign Member | Yes | Yes | No | No |
+| Assign Reviewer | Yes | Yes | No | No |
+| Revoke Admin | Yes | No | No | No |
+| Revoke Member | Yes | Yes | No | No |
+| Revoke Reviewer | Yes | Yes | No | No |
+
+An actor may not elevate their own authority unless an explicit policy allows it.
+
+The final Organization membership design may live in a separate Organization Aggregate.
+
+---
+
+# Permission Model
+
+Roles are mapped to named permissions.
+
+Application Services evaluate permissions rather than hard-coding role names wherever possible.
+
+Example permissions:
+
+```text
+work.create
+work.edit
+work.assign
+work.start
+work.record_progress
+work.request_decision
+work.complete
+work.cancel
+
+decision.create
+decision.edit_draft
+decision.record_secretary_contribution
+decision.submit
+decision.approve
+decision.reject
+decision.withdraw
+decision.start_revision
+
+memory.edit_generated
+memory.record_secretary_contribution
+memory.submit
+memory.approve
+memory.reject
+memory.reopen
+
+organization.manage_members
+organization.manage_roles
+authorization.read_audit
+```
+
+---
+
+# Permission Assignment
+
+Recommended MVP mapping:
+
+| Permission Category | Owner | Admin | Member | Reviewer |
+|---|---:|---:|---:|---:|
+| Organization administration | Full | Limited | None | None |
+| Work creation and editing | Yes | Yes | Yes | No by default |
+| Work assignment | Yes | Yes | Limited | No |
+| Work completion | Yes | Yes | Related Work only | No by default |
+| Decision drafting | Yes | Yes | Yes | Optional |
+| Decision submission | Yes | Yes | Related Decision | Optional |
+| Decision review | Yes | Optional | No | Yes |
+| Memory editing | Yes | Yes | Related Memory | Optional |
+| Memory review | Yes | Optional | No | Yes |
+| Authorization audit | Yes | Optional | No | No |
+
+“Related” means the required resource relationship must also be satisfied.
+
+---
+
+# Resource Relationships
+
+Role permissions are narrowed by relationships between the Human Member and the target resource.
+
+Supported MVP relationships include:
+
+```text
+OrganizationMember
+WorkCreator
+WorkAssignee
+WorkParticipant
+DecisionCreator
+DecisionContributor
+DecisionReviewer
+MemoryEditor
+MemoryReviewer
+OrganizationAdministrator
+```
+
+---
+
+# Relationship-Based Authorization
+
+Example:
+
+```text
+Member has work.complete permission
+        │
+        ▼
+Member is WorkAssignee
+        │
+        ▼
+Work belongs to same Organization
+        │
+        ▼
+Authorization Allowed
+```
+
+Without the required relationship, the same command may be denied.
+
+---
+
+# Administrative Override
+
+Owner and Admin roles may receive broader resource access.
+
+Administrative access must still:
+
+- remain inside the Organization
+- satisfy principal-type restrictions
+- preserve Human-authority rules
+- preserve Aggregate invariants
+- be recorded in authorization audit history
+
+Administrative authority is not a domain-state override.
+
+---
+
+# Resource Scope
+
+Every authorization request identifies the target scope.
+
+Example:
+
+```text
+AuthorizationRequest
+- principal
 - organizationId
-- action
+- commandType
 - resourceType
 - resourceId
-- authorizationResult
-- policyVersion
+- resourceOrganizationId
+- relationships
+```
+
+For creation commands without an existing resource, the Organization is the primary scope.
+
+---
+
+# Policy Evaluation Order
+
+Policies should be evaluated in the following order:
+
+```text
+1. Authentication
+2. Principal-type restriction
+3. Organization match
+4. Active membership
+5. Required permission
+6. Required resource relationship
+7. Additional command policy
+8. Allow
+```
+
+A failure at any step results in Deny.
+
+---
+
+# Policy Evaluation Algorithm
+
+```text
+Authorize(request):
+
+    require authenticated principal
+
+    require principal type allowed for command
+
+    require request Organization matches principal scope
+
+    require active Organization membership when Human
+
+    require permission assigned
+
+    require resource relationship when applicable
+
+    require command-specific policy conditions
+
+    return Allow
+```
+
+Aggregate lifecycle validation occurs after this evaluation.
+
+---
+
+# Command Policy Types
+
+Authorization policies fall into three categories.
+
+## Organization-Scoped Policy
+
+Used when no resource exists yet.
+
+Examples:
+
+- CreateWork
+- CreateDecision
+- invite Member
+
+## Resource-Scoped Policy
+
+Used when operating on an existing Aggregate.
+
+Examples:
+
+- EditDraft
+- StartWork
+- EditGeneratedMemory
+
+## Human-Authority Policy
+
+Used for authoritative lifecycle transitions.
+
+Examples:
+
+- CompleteWork
+- ApproveDecision
+- RejectDecision
+- ApproveMemory
+
+Human-authority policies always require:
+
+```text
+principalType = HumanMember
+```
+
+---
+
+# Work Authorization Matrix
+
+| Command | Human Required | Typical Permission | Required Relationship |
+|---|---:|---|---|
+| CreateWork | Yes | `work.create` | Active Organization Member |
+| UpdateWorkDetails | Yes | `work.edit` | Creator, Assignee, or Admin |
+| AssignMember | Yes | `work.assign` | Creator, Admin, or Owner |
+| UnassignMember | Yes | `work.assign` | Creator, Admin, or Owner |
+| AddParticipant | Yes | `work.assign` | Creator, Assignee, or Admin |
+| RemoveParticipant | Yes | `work.assign` | Creator, Assignee, or Admin |
+| RecordProgress | Yes | `work.record_progress` | Assignee or Participant |
+| RecordSecretaryContribution | Human or Secretary | advisory permission | Related Work |
+| StartWork | Yes | `work.start` | Assignee, Creator, or Admin |
+| RequestBlockingDecision | Yes | `work.request_decision` | Assignee, Creator, or Admin |
+| RecordDecisionOutcome | System | operational permission | Valid source event |
+| CompleteWork | Yes | `work.complete` | Assignee, Creator, or Admin |
+| CancelWork | Yes | `work.cancel` | Creator, Admin, or Owner |
+
+The System may record a committed Decision outcome.
+
+The System may not complete or cancel Work.
+
+---
+
+# Decision Authorization Matrix
+
+| Command | Human Required | Typical Permission | Required Relationship |
+|---|---:|---|---|
+| CreateDecision | Yes | `decision.create` | Active Organization Member |
+| EditDraft | Yes | `decision.edit_draft` | Creator, Contributor, or Admin |
+| RecordSecretaryContribution | Human or Secretary | advisory permission | Related Decision |
+| SubmitForReview | Yes | `decision.submit` | Creator, Contributor, or Admin |
+| ApproveDecision | Yes | `decision.approve` | Reviewer, Admin, or Owner |
+| RejectDecision | Yes | `decision.reject` | Reviewer, Admin, or Owner |
+| WithdrawDecision | Yes | `decision.withdraw` | Submitter, Reviewer, Admin, or Owner |
+| StartRevision | Yes | `decision.start_revision` | Creator, Contributor, or Admin |
+
+Secretary and System principals are denied all review outcomes.
+
+---
+
+# Memory Authorization Matrix
+
+| Command | Human Required | Typical Permission | Required Relationship |
+|---|---:|---|---|
+| CreateGeneratedMemory | No | System operational permission | Valid WorkCompleted event |
+| EditGeneratedMemory | Yes | `memory.edit_generated` | Editor, related Work Member, or Admin |
+| RecordSecretaryContribution | Human or Secretary | advisory permission | Related Memory |
+| SubmitMemoryForReview | Yes | `memory.submit` | Editor, related Work Member, or Admin |
+| ApproveMemory | Yes | `memory.approve` | Reviewer, Admin, or Owner |
+| RejectMemory | Yes | `memory.reject` | Reviewer, Admin, or Owner |
+| ReopenRejectedMemory | Yes | `memory.reopen` | Editor, related Work Member, or Admin |
+
+Memory generation by the System creates only a Generated candidate.
+
+It does not approve Memory.
+
+---
+
+# Secretary Authorization Matrix
+
+| Operation | Secretary |
+|---|---:|
+| Generate Work suggestion | Allowed |
+| Generate Decision Draft suggestion | Allowed |
+| Summarize Decision | Allowed |
+| Suggest rationale | Allowed |
+| Generate Memory candidate | Allowed through System workflow |
+| Record advisory contribution | Allowed |
+| Edit authoritative Draft directly | Denied |
+| Submit Decision | Denied |
+| Approve or reject Decision | Denied |
+| Complete Work | Denied |
+| Submit Memory | Denied |
+| Approve or reject Memory | Denied |
+| Manage roles or permissions | Denied |
+
+---
+
+# System Authorization Matrix
+
+| Operation | System |
+|---|---:|
+| Publish Outbox event | Allowed |
+| Dispatch event handler | Allowed |
+| Record processed event | Allowed |
+| Record Decision outcome in Work | Allowed from valid event |
+| Create Generated Memory | Allowed from valid WorkCompleted event |
+| Schedule retry | Allowed |
+| Run reconciliation | Allowed |
+| Complete Work | Denied |
+| Approve Decision | Denied |
+| Reject Decision | Denied |
+| Approve Memory | Denied |
+| Promote Knowledge | Denied |
+| Grant roles | Denied |
+
+---
+
+# Source Event Authorization
+
+Operational System commands require a trusted source event.
+
+Example:
+
+```text
+RecordDecisionOutcome
+```
+
+requires:
+
+- authenticated internal System principal
+- valid Decision outcome event
+- matching Organization
+- valid event schema
+- unprocessed event identity
+- related Work reference
+
+The System cannot invoke the command without causation.
+
+---
+
+# Self-Review Policy
+
+The MVP does not require universal separation between author and reviewer.
+
+An Organization may allow a Human with review permission to review their own submission.
+
+A stricter four-eyes policy may later require:
+
+```text
+reviewerId != submitterId
+```
+
+Such a rule must be explicit and consistently enforced.
+
+It must not be assumed silently.
+
+---
+
+# Multiple Reviewer Roles
+
+The MVP records one authoritative review outcome per submitted revision.
+
+It does not require:
+
+- quorum
+- voting
+- multiple approvals
+- ordered approval stages
+- consensus rules
+
+A later phase may extend the policy model without changing Human-authority principles.
+
+---
+
+# Permission Revocation
+
+Permission changes affect future commands.
+
+Revocation does not rewrite historical actions.
+
+Example:
+
+```text
+Member approves Decision at 10:00
+
+Reviewer role revoked at 11:00
+```
+
+The approval remains valid because the Member was authorized when the command executed.
+
+---
+
+# Time-of-Check Rule
+
+Authorization is evaluated immediately before command execution.
+
+For a state-changing transaction, critical authorization data should remain stable through the transaction.
+
+Where required, the implementation may use:
+
+- transactionally read role assignments
+- versioned policy data
+- short-lived authorization decisions
+- revalidation before commit
+
+Long-lived authorization tokens must not substitute for current permission checks.
+
+---
+
+# Authorization Decision Caching
+
+Caching is optional.
+
+Cached decisions must be:
+
+- short-lived
+- Organization-scoped
+- principal-scoped
+- command-scoped
+- invalidated after role or membership changes
+
+Human-authority commands should prefer current policy evaluation.
+
+---
+
+# Policy Version
+
+Authorization decisions should record the policy version used.
+
+Example:
+
+```text
+policyId
+policyVersion
+```
+
+This supports later audit and investigation.
+
+---
+
+# Command Authorization Summary
+
+A command is authorized only when:
+
+```text
+Principal type is permitted
+AND
+Organization matches
+AND
+Membership is active
+AND
+Required permission exists
+AND
+Required relationship exists
+AND
+Command-specific policy allows it
+```
+
+Authorization success permits the command attempt.
+
+The Aggregate still decides whether the requested state transition is valid.
+
+# Authorization Execution Flow
+
+Authorization is evaluated for every protected Application Service command.
+
+The standard execution flow is:
+
+```text
+Receive Command
+      │
+      ▼
+Resolve Request Context
+      │
+      ▼
+Authenticate Principal
+      │
+      ▼
+Resolve Organization Scope
+      │
+      ▼
+Load Authorization Context
+      │
+      ▼
+Evaluate Authorization Policy
+      │
+      ├── Deny → Return Failure
+      │
+      ▼
+Load Aggregate
+      │
+      ▼
+Execute Aggregate Command
+      │
+      ▼
+Persist Aggregate and Outbox
+      │
+      ▼
+Commit
+```
+
+Authorization must succeed before the Aggregate command is invoked.
+
+---
+
+# Request Context Resolution
+
+Every protected command requires a trusted request context.
+
+Recommended structure:
+
+```text
+RequestContext
+- requestId
 - commandId
 - correlationId
-- timestamp
-- relevant authorization facts
-```
-
-Audit records are append-only.
-
-Audit records must not contain:
-
-- raw credentials,
-- access tokens,
-- unnecessary personal information,
-- or confidential content unrelated to the authorization decision.
-
----
-
-## Policy Versioning
-
-Authorization policy may change over time.
-
-Each authoritative action should be traceable to the policy version used at execution.
-
-```text
-AuthorizationPolicyVersion
-```
-
-Policy changes apply prospectively.
-
-Changing a policy must not rewrite the validity of historical actions that were authorized under an earlier policy.
-
-Historical actions remain evaluated according to the policy in effect at execution time.
-
----
-
-## Default-Deny Policy
-
-AIOS uses default deny.
-
-```text
-No explicit permission
-        =
-Access denied
-```
-
-An action is permitted only when:
-
-- the Actor is authenticated,
-- the Organization boundary matches,
-- Membership is active when required,
-- permission is granted,
-- contextual policy is satisfied,
-- and Aggregate invariants permit the action.
-
-Unknown or incomplete authorization information results in denial for authoritative actions.
-
----
-
-## Fail-Closed Behavior
-
-When authorization infrastructure is unavailable:
-
-- authoritative writes must fail,
-- approval actions must fail,
-- publication actions must fail,
-- permission changes must fail,
-- restricted reads must fail.
-
-Read-only access to safely cached public Organization content may be allowed only when explicitly designed and documented.
-
----
-
-## Consistency Model
-
-Authorization for authoritative commands must use sufficiently current data.
-
-Strong or transactional consistency is preferred for:
-
-- Membership status
-- Permission assignment
-- role changes
-- suspension
-- deactivation
-- Organization boundary
-- self-approval policy
-- separation-of-duties policy
-
-Eventually consistent projections may support:
-
-- navigation
-- search filtering
-- UI hints
-- non-authoritative access previews
-
-The server must re-evaluate authorization when executing a command.
-
-UI visibility is not authorization enforcement.
-
----
-
-## Caching
-
-Authorization results may be cached only when:
-
-- the cache scope is explicit,
-- Organization and Actor are part of the cache key,
-- policy version is included,
-- expiration is short,
-- revocation behavior is defined,
-- and authoritative commands are revalidated when necessary.
-
-Suggested cache key:
-
-```text
-ActorId
-OrganizationId
-Action
-ResourceId
-PolicyVersion
-MembershipVersion
-```
-
-Role or Membership changes must invalidate relevant caches.
-
----
-
-## Authorization and Domain Events
-
-Domain events must preserve Actor attribution when the event represents a human action.
-
-Example:
-
-```text
-KnowledgePublished
-- knowledgeId
-- revisionNumber
+- causationId
+- principal
 - organizationId
-- publishedBy
-- occurredAt
+- requestedAt
+- authenticationContext
 ```
 
-System-generated events should identify:
-
-- originating event,
-- system handler,
-- correlation ID,
-- causation ID.
-
-Consumers of domain events must not assume that event possession grants Resource access.
-
-Event payloads should contain only the information required by consumers.
+The Application Service must not accept principal identity from untrusted command payload fields.
 
 ---
 
-## Authorization and APIs
+# Trusted Identity Source
 
-Every command endpoint must:
+The principal must be resolved from trusted authentication infrastructure.
 
-1. Authenticate the Actor
-2. Resolve Organization context
-3. Load the relevant Resource
-4. Evaluate authorization
-5. Validate request intent
-6. Invoke the Aggregate
-7. Persist changes
-8. Record audit information
-9. Publish domain events
+Examples:
 
-Resource identifiers must not be treated as proof of access.
+- validated session
+- verified access token
+- internal service identity
+- signed worker execution context
 
-Mass assignment of role, status, ownership, or Organization identifiers must be prohibited.
+The following is prohibited:
+
+```text
+POST /decisions/{id}/approve
+
+{
+    "approvedBy": "member-123"
+}
+```
+
+The caller must not choose the authoritative actor identity.
+
+The correct actor is resolved from the authenticated request context.
 
 ---
 
-## Authorization and Background Jobs
+# Resource Identification
 
-Background jobs act as the System Actor.
-
-Each job must have:
-
-- one documented purpose,
-- one permission scope,
-- explicit Resource boundaries,
-- idempotency,
-- audit logging,
-- retry behavior,
-- and failure handling.
-
-A background job must not bypass lifecycle or Organization invariants.
+The command identifies the target resource.
 
 Example:
+
+```text
+ApproveDecisionCommand
+- decisionId
+- rationale
+- expectedVersion
+```
+
+The Application Service derives:
+
+```text
+principalId
+organizationId
+actorReference
+```
+
+from trusted context.
+
+---
+
+# Authorization Context
+
+An Authorization Context contains the data needed to evaluate one policy.
+
+Example:
+
+```text
+AuthorizationContext
+- principal
+- organizationId
+- commandType
+- resourceType
+- resourceId
+- resourceOrganizationId
+- activeRoles
+- permissions
+- relationships
+- policyVersion
+```
+
+Only required data should be loaded.
+
+---
+
+# Authorization Before Resource Loading
+
+Where possible, Organization scope should be included in repository queries.
+
+Example:
+
+```text
+DecisionRepository.Get(
+    organizationId,
+    decisionId
+)
+```
+
+This prevents accidental cross-Organization resource exposure.
+
+The implementation must not:
+
+1. load a resource globally
+2. reveal its existence
+3. check Organization afterward
+
+---
+
+# Safe Resource Lookup
+
+Recommended result behavior:
+
+```text
+Resource exists in Organization
+    → continue
+
+Resource does not exist in Organization
+    → NotFound or generic denial
+```
+
+The API should not reveal whether a resource exists in another Organization.
+
+---
+
+# Application Service Integration
+
+Every state-changing Application Service follows the same authorization pattern.
+
+```text
+Authorize
+
+↓
+
+Execute Domain Command
+
+↓
+
+Persist
+```
+
+Authorization must not be implemented inconsistently across individual services.
+
+---
+
+# Application Service Template
+
+```text
+Execute(command, requestContext):
+
+    principal = requestContext.principal
+
+    authorizationRequest =
+        BuildAuthorizationRequest(
+            principal,
+            command,
+            requestContext.organizationId
+        )
+
+    decision =
+        authorizationService.Authorize(
+            authorizationRequest
+        )
+
+    if decision is Deny:
+        return AuthorizationFailure
+
+    aggregate =
+        repository.Get(
+            requestContext.organizationId,
+            command.aggregateId
+        )
+
+    aggregate.Execute(
+        command,
+        ActorReference.From(principal)
+    )
+
+    repository.Save(aggregate)
+
+    outbox.Write(
+        aggregate.ReleaseDomainEvents()
+    )
+
+    return Success
+```
+
+Transaction and idempotency behavior remain defined by the Application Services architecture.
+
+---
+
+# Authorization Service Interface
+
+A conceptual interface may be defined as:
+
+```text
+AuthorizationService
+
+Authorize(
+    AuthorizationRequest
+) -> AuthorizationDecision
+```
+
+Example request:
+
+```text
+AuthorizationRequest
+- principal
+- organizationId
+- permission
+- commandType
+- resource
+- relationships
+- requestedAt
+```
+
+Example decision:
+
+```text
+AuthorizationDecision
+- outcome
+- policyId
+- policyVersion
+- reasonCode
+- evaluatedAt
+```
+
+---
+
+# Policy Enforcement Point
+
+The Application Service is the primary Policy Enforcement Point.
+
+It is responsible for:
+
+- submitting authorization requests
+- stopping denied commands
+- preventing repository writes
+- preventing Aggregate command invocation
+- returning stable application errors
+- recording security-relevant metadata
+
+---
+
+# Policy Decision Point
+
+The Authorization Service is the Policy Decision Point.
+
+It evaluates:
+
+- principal type
+- Organization membership
+- roles
+- permissions
+- resource relationships
+- command-specific conditions
+
+The Authorization Service must not mutate domain state.
+
+---
+
+# Policy Information Point
+
+Authorization data may be supplied by:
+
+- Organization membership repository
+- role assignment repository
+- resource relationship queries
+- principal directory
+- policy configuration
+
+These sources provide facts.
+
+They do not make the final authorization decision independently.
+
+---
+
+# Work Application Service Example
+
+```text
+CompleteWorkService.Execute(command, context):
+
+    require context.principal is authenticated
+
+    work =
+        workRepository.Get(
+            context.organizationId,
+            command.workId
+        )
+
+    relationship =
+        workRelationshipResolver.Resolve(
+            context.principal.id,
+            work
+        )
+
+    authorization =
+        authorizationService.Authorize(
+            principal = context.principal,
+            organizationId = context.organizationId,
+            permission = work.complete,
+            commandType = CompleteWork,
+            resource = work.Reference,
+            relationships = relationship
+        )
+
+    require authorization is Allow
+
+    actor =
+        ActorReference.FromHuman(
+            context.principal
+        )
+
+    work.CompleteWork(
+        actor,
+        command.completionSummary
+    )
+
+    save work and events
+```
+
+The Application Service verifies authority.
+
+The Work Aggregate verifies completion validity.
+
+---
+
+# Decision Application Service Example
+
+```text
+ApproveDecisionService.Execute(command, context):
+
+    decision =
+        decisionRepository.Get(
+            context.organizationId,
+            command.decisionId
+        )
+
+    authorization =
+        authorizationService.Authorize(
+            principal = context.principal,
+            organizationId = context.organizationId,
+            permission = decision.approve,
+            commandType = ApproveDecision,
+            resource = decision.Reference,
+            relationships =
+                DecisionReviewerRelationship
+        )
+
+    require authorization is Allow
+
+    actor =
+        ActorReference.FromHuman(
+            context.principal
+        )
+
+    decision.ApproveDecision(
+        actor,
+        command.rationale
+    )
+
+    save decision and events
+```
+
+The Application Service must not set:
+
+```text
+decision.status = Approved
+```
+
+directly.
+
+---
+
+# Memory Application Service Example
+
+```text
+ApproveMemoryService.Execute(command, context):
+
+    memory =
+        memoryRepository.Get(
+            context.organizationId,
+            command.memoryId
+        )
+
+    authorization =
+        authorizationService.Authorize(
+            principal = context.principal,
+            organizationId = context.organizationId,
+            permission = memory.approve,
+            commandType = ApproveMemory,
+            resource = memory.Reference,
+            relationships =
+                MemoryReviewerRelationship
+        )
+
+    require authorization is Allow
+
+    actor =
+        ActorReference.FromHuman(
+            context.principal
+        )
+
+    memory.ApproveMemory(
+        actor,
+        command.reviewNote
+    )
+
+    save memory and events
+```
+
+Memory approval remains a Human-authoritative action.
+
+---
+
+# Creation Command Authorization
+
+Creation commands have no existing Aggregate to load.
+
+Examples:
+
+- CreateWork
+- CreateDecision
+
+The policy is evaluated against the Organization.
+
+```text
+CreateWorkService.Execute(command, context):
+
+    authorization =
+        authorizationService.Authorize(
+            principal = context.principal,
+            organizationId = context.organizationId,
+            permission = work.create,
+            commandType = CreateWork,
+            resource = OrganizationReference
+        )
+
+    require authorization is Allow
+
+    work =
+        Work.Create(
+            organizationId = context.organizationId,
+            creator = ActorReference.FromHuman(
+                context.principal
+            ),
+            ...
+        )
+
+    save work and events
+```
+
+The command must not supply a different Organization identifier than the trusted context.
+
+---
+
+# Coordinated Application Service Authorization
+
+A use case may coordinate multiple Aggregates.
+
+Example:
+
+```text
+RequestBlockingDecision
+```
+
+Authorization must cover the entire use case.
+
+Required checks may include:
+
+- permission to request a Decision for the Work
+- relationship to the Work
+- permission to create a Decision
+- same Organization for both Aggregates
+
+---
+
+# Coordinated Authorization Flow
+
+```text
+Human Command
+      │
+      ▼
+Authorize Work operation
+      │
+      ▼
+Authorize Decision creation
+      │
+      ▼
+Load Work
+      │
+      ▼
+Create Decision
+      │
+      ▼
+Execute Aggregate commands
+      │
+      ▼
+Commit both changes
+```
+
+A partial authorization result must not lead to a partial domain change.
+
+---
+
+# Transactional Authorization Considerations
+
+Authorization should be evaluated close to the state-changing transaction.
+
+For high-authority commands, recommended execution is:
+
+```text
+BEGIN
+
+Load current membership and role data
+
+Evaluate policy
+
+Load Aggregate
+
+Execute command
+
+Persist Aggregate and Outbox
+
+COMMIT
+```
+
+This reduces the gap between authorization evaluation and state mutation.
+
+---
+
+# Authorization Data Consistency
+
+The MVP may use the same PostgreSQL database for:
+
+- membership
+- roles
+- permissions
+- Aggregates
+- audit metadata
+
+This permits consistent authorization reads within the same transaction where required.
+
+---
+
+# Authorization Race Conditions
+
+A role may be revoked while a command is executing.
+
+Example:
+
+```text
+10:00:00 Authorization check succeeds
+10:00:01 Reviewer role revoked
+10:00:02 Decision approval commits
+```
+
+The implementation must define a consistent rule.
+
+Recommended MVP rule:
+
+> Authorization is valid when evaluated inside the successful command transaction against the current committed role data visible to that transaction.
+
+Stronger locking may be introduced for highly sensitive operations.
+
+---
+
+# Expected Version and Authorization
+
+Optimistic concurrency and authorization solve different problems.
+
+```text
+Authorization
+
+Determines who may attempt the command
+```
+
+```text
+Expected Version
+
+Determines whether the Aggregate changed since the caller read it
+```
+
+Both checks are required where applicable.
+
+---
+
+# Read Authorization
+
+Read operations must also be Organization-scoped.
+
+Examples:
+
+- view Work
+- view Decision
+- view Memory
+- list review queue
+- inspect audit records
+
+Read permission categories may include:
+
+```text
+work.read
+decision.read
+memory.read
+authorization.read_audit
+```
+
+The MVP may grant broad read access within an Organization, but this must be explicit.
+
+---
+
+# Read Model Filtering
+
+List queries must apply authorization filtering before returning results.
+
+Incorrect:
+
+```text
+Load all Decisions
+
+↓
+
+Filter unauthorized Decisions in application memory
+```
+
+Correct:
+
+```text
+Query only Decisions visible to principal
+```
+
+Authorization-aware query services may use:
+
+- Organization scope
+- role scope
+- assignment scope
+- review assignment
+- resource relationship filters
+
+---
+
+# Field-Level Authorization
+
+Field-level authorization is not required for most MVP domain content.
+
+The MVP should prefer resource-level policies.
+
+Field-level restrictions may be used for sensitive administrative data such as:
+
+- role assignments
+- security audit metadata
+- authentication identifiers
+
+Complex field-level business authorization is outside the MVP.
+
+---
+
+# Secretary Invocation Flow
+
+A Human Member may request Secretary assistance.
+
+```text
+Human Member
+      │
+      │ Request suggestion
+      ▼
+Authorize Human request
+      │
+      ▼
+Invoke Secretary
+      │
+      ▼
+Generate advisory output
+      │
+      ▼
+Record Secretary Contribution
+```
+
+The Human request authorizes generation of advisory content.
+
+It does not pre-authorize later authoritative use.
+
+---
+
+# Secretary Principal Resolution
+
+When the Secretary records an advisory contribution:
+
+```text
+principalType = Secretary
+actorType = Secretary
+```
+
+The contribution should also preserve:
+
+```text
+requestedByHumanMemberId
+requestCommandId
+correlationId
+generationId
+```
+
+The Secretary must not be recorded as a Human Member.
+
+---
+
+# Secretary Contribution Authorization
+
+A Secretary contribution may be accepted only when:
+
+- the Secretary identity is trusted
+- the source Organization matches
+- the related resource exists
+- the resource permits advisory contributions
+- a valid Human or System request caused the generation
+- the content passes validation
+
+The contribution remains non-authoritative.
+
+---
+
+# Secretary Output Adoption
+
+A Human Member adopts Secretary output through a separate Human command.
+
+Example:
+
+```text
+SecretaryContributionCreated
+      │
+      ▼
+Human reviews contribution
+      │
+      ▼
+Human invokes EditDecisionDraft
+```
+
+The audit trail records:
+
+- Secretary as generator
+- Human Member as adopting editor
+
+---
+
+# No Implicit Adoption
+
+The following is prohibited:
+
+```text
+Secretary generates draft
+
+↓
+
+Decision Draft replaced automatically
+```
+
+The correct flow requires explicit Human action.
+
+---
+
+# Event Handler Authorization
+
+Asynchronous event handlers execute as the System principal.
+
+They do not use ordinary Human role permissions.
+
+Instead, they require narrowly scoped operational policies.
+
+---
+
+# Operational Policy Inputs
+
+An event-handler authorization request may include:
+
+```text
+systemPrincipalId
+handlerName
+eventType
+eventId
+organizationId
+targetResourceType
+targetResourceId
+correlationId
+causationId
+```
+
+---
+
+# Event Handler Preconditions
+
+Before executing an operational command, a handler verifies:
+
+1. the System principal is trusted
+2. the event type is supported
+3. the event schema version is supported
+4. the event belongs to one Organization
+5. the target resource belongs to the same Organization
+6. the event has not already been processed
+7. the event is a valid cause for the operation
+8. the System operation is explicitly permitted
+
+---
+
+# Decision Outcome Handler
+
+The System may execute:
+
+```text
+RecordDecisionOutcome
+```
+
+only when caused by a committed event such as:
+
+```text
+DecisionApproved
+
+DecisionRejected
+
+DecisionWithdrawn
+```
+
+The handler cannot invent an outcome.
+
+---
+
+# Decision Outcome Authorization Flow
+
+```text
+Decision Outcome Event
+      │
+      ▼
+Validate Event Contract
+      │
+      ▼
+Authenticate Internal System Principal
+      │
+      ▼
+Verify Organization Match
+      │
+      ▼
+Authorize RecordDecisionOutcome
+      │
+      ▼
+Load Work
+      │
+      ▼
+Work.RecordDecisionOutcome(...)
+      │
+      ▼
+Commit
+```
+
+---
+
+# Work Completion Prohibition
+
+A Decision outcome handler must never call:
+
+```text
+Work.CompleteWork(...)
+```
+
+Even when the Completion Gate becomes Satisfied.
+
+Work completion requires a new Human-authoritative command.
+
+---
+
+# Memory Generation Handler
+
+The System may execute:
+
+```text
+CreateGeneratedMemory
+```
+
+only when caused by a committed:
+
+```text
+WorkCompleted
+```
+
+event.
+
+The resulting Memory state is:
+
+```text
+Generated
+```
+
+The handler may not submit or approve Memory.
+
+---
+
+# Memory Generation Authorization Flow
 
 ```text
 WorkCompleted
       │
       ▼
-GenerateInitialMemoryJob
+Validate Source Event
       │
-      ├── validates Work organization
-      ├── checks Memory does not already exist
-      ├── creates Generated Memory
-      └── records causation
+      ▼
+Authorize System Generation
+      │
+      ▼
+Generate Candidate
+      │
+      ▼
+Create Memory in Generated State
+      │
+      ▼
+Commit
 ```
 
-The job may generate Memory because this authority is explicitly defined.
+---
 
-It may not approve the generated Memory.
+# Reconciliation Authorization
+
+Reconciliation jobs execute as the System principal.
+
+They may:
+
+- detect missing processing
+- requeue an event
+- request a supported operational command
+- record operational findings
+
+They may not:
+
+- repair domain state through direct database updates
+- approve business content
+- complete Work
+- create Human intent
+- bypass handler authorization
 
 ---
 
-## Security Invariants
+# Retry Authorization
 
-The following authorization invariants must always hold:
+A retry does not require new Human authorization when it repeats the same already-authorized operation.
 
-### Organization Isolation
-
-- An Actor cannot access another Organization's Resource by changing an identifier.
-- Cross-Organization references are rejected.
-- Search and AI retrieval preserve Organization isolation.
-- Event consumers preserve Organization isolation.
-
-### Human Approval
-
-- Decision approval is performed only by an authorized human Member.
-- Memory approval is performed only by an authorized human Member.
-- Knowledge publication is performed only by an authorized human Member.
-- Confidence confirmation is performed only by an authorized human Member.
-
-### AI Limitation
-
-- A Secretary cannot receive human approval authority.
-- A Secretary cannot grant permissions.
-- A Secretary cannot change Membership status.
-- A Secretary cannot bypass Resource visibility.
-- A Secretary cannot convert recommendations into authoritative state changes.
-
-### Historical Attribution
-
-- Deactivating a Member does not remove past authorship.
-- Role changes do not rewrite historical authorization.
-- Published approval records remain immutable.
-- Audit history remains append-only.
-
-### Default Deny
-
-- Missing permission means denied.
-- Unknown Membership state means denied.
-- Unknown Organization context means denied.
-- Failed policy evaluation means denied for authoritative actions.
-
----
-
-## Recommended MVP Authorization Model
-
-For the MVP, authorization should remain simple enough to implement safely.
-
-Recommended roles:
+The retry must preserve:
 
 ```text
-Owner
-Member
-Reviewer
-Viewer
+original commandId or eventId
+original correlationId
+original causationId
+original actor attribution
+policy context where required
 ```
 
-Recommended default permissions:
-
-### Owner
-
-- Full Organization administration
-- All operational permissions
-- Decision approval
-- Memory approval
-- Resource archival
-- Audit access
-
-### Member
-
-- Create and participate in Work
-- Propose and revise Decisions
-- View permitted Resources
-- Request reviews
-
-### Reviewer
-
-- Member permissions
-- Approve or reject Decisions
-- Approve or reject Memory
-
-### Viewer
-
-- Read permitted Resources only
-
-Knowledge permissions may remain inactive until the Knowledge roadmap phase.
-
-The domain restrictions for future Knowledge should still remain documented.
+A retry may not broaden the original scope.
 
 ---
 
-## Recommended MVP Policies
+# Stale Authorization on Retry
+
+For Human commands, a delayed retry should not rely indefinitely on an old authorization decision.
+
+Recommended rules:
+
+- immediate technical retry may reuse the same transaction attempt semantics
+- later resubmission must evaluate current Human authorization
+- asynchronous System processing validates current operational policy
+- original Human attribution remains unchanged
+
+---
+
+# Background Worker Identity
+
+Each Worker instance should have a stable internal identity.
+
+Example:
 
 ```text
-Decision self-approval:
-Allowed
-
-Memory approval:
-One authorized human reviewer
-
-Knowledge publication:
-Not implemented in MVP
-
-Cross-Organization access:
-Forbidden
-
-Secretary approval authority:
-Forbidden
-
-Archived Resource restoration:
-Forbidden
-
-Default visibility:
-Organization, unless explicitly restricted
+SystemPrincipal
+- principalId = worker-memory-generation
+- principalType = System
+- organizationScope = dynamic from event
+- allowedCapabilities =
+    memory.create_generated
 ```
 
-These defaults may be strengthened in later versions without changing Aggregate identities.
+A Worker must not possess permissions unrelated to its function.
 
 ---
 
-## Future Extensions
+# Worker Capability Separation
 
-Future versions may support:
+Recommended operational identities:
 
-- Attribute-based access control
-- Policy-as-code
-- Team-scoped permissions
-- Capability-scoped permissions
-- Risk-based approval
-- Approval quorum
-- Multi-stage review
-- External guest access
-- Legal hold
-- Field-level confidentiality
-- Regional data boundaries
-- Regulatory policy packs
-- Just-in-time elevation
-- Emergency access
-- Machine-to-machine identities
-- Fine-grained AI retrieval controls
+```text
+outbox-publisher
 
-These extensions must preserve:
+decision-outcome-worker
 
-- Organization isolation,
-- human authority,
-- auditability,
-- least privilege,
-- and Aggregate invariants.
+memory-generation-worker
+
+reconciliation-worker
+```
+
+Separating identities supports least privilege and clearer auditing.
+
+A single physical process may host multiple logical System principals.
 
 ---
 
-## Open Questions
+# Worker Organization Scope
 
-The following questions remain open before Blueprint v1.0.0:
+A Worker may process events for multiple Organizations.
 
-- Should roles be fixed or Organization-configurable?
-- Should permissions support explicit deny rules?
-- Should Decision self-approval remain enabled after the MVP?
-- Should Memory approval require a reviewer different from the Work owner?
-- Should Knowledge publication require two reviewers?
-- Should Capability owners automatically receive publication authority?
-- Should confidential Work automatically produce confidential Memory?
-- Should Published Knowledge ever contain restricted Evidence?
-- How should AI explain Knowledge without revealing restricted Evidence?
-- Should Members be able to belong to multiple Organizations?
-- How should temporary external reviewers be represented?
-- Should delegation be included in v1.0.0?
-- Which policy changes require elevated approval?
-- How long should authorization audit records be retained?
-- Should high-risk actions require recent re-authentication?
-- Should access to archived Resources require a separate permission?
-- How should emergency access be governed?
-- Should System jobs use separate machine identities?
-- How should authorization be tested against semantic search and vector indexes?
+However, each handler execution must be scoped to exactly one Organization.
+
+The Worker must never combine data from different Organizations in one domain command.
 
 ---
 
-## Related Documents
+# Internal Service Authentication
 
-- `docs/architecture/overview.md`
-- `docs/architecture/domain-model.md`
-- `docs/architecture/aggregates/work.md`
-- `docs/architecture/aggregates/decision.md`
-- `docs/architecture/aggregates/memory.md`
-- `docs/architecture/aggregates/knowledge.md`
-- `docs/architecture/state-machines/work.md`
-- `docs/architecture/state-machines/decision.md`
-- `docs/architecture/state-machines/memory.md`
-- `docs/architecture/state-machines/knowledge.md`
-- `docs/product/mvp.md`
-- `docs/product/roadmap.md`
-- `docs/glossary.md`
+System principals must be authenticated through trusted internal mechanisms.
+
+Examples:
+
+- workload identity
+- signed internal token
+- process-bound credential
+- platform service account
+
+A public client must never be able to claim:
+
+```text
+principalType = System
+```
+
+---
+
+# Impersonation Prohibition
+
+Impersonation is prohibited in the MVP.
+
+No principal may act as another principal.
+
+Examples of prohibited behavior:
+
+```text
+Admin acts as Reviewer Jane
+
+Secretary acts as Human Member
+
+System records approval as OrganizationOwner
+
+Support operator completes Work as customer
+```
+
+---
+
+# Actor Override Prohibition
+
+Commands must not contain an arbitrary actor override.
+
+Prohibited:
+
+```text
+ApproveDecisionCommand
+- decisionId
+- approvedByMemberId
+```
+
+Correct:
+
+```text
+ApproveDecisionCommand
+- decisionId
+- rationale
+```
+
+The actor is derived from trusted context.
+
+---
+
+# Administrative Operations
+
+An Owner or Admin may perform an operation under their own identity when policy permits.
+
+Example:
+
+```text
+Admin completes Work
+```
+
+The audit trail records the Admin.
+
+It must not record the Work assignee as the actor unless that assignee executed the command.
+
+---
+
+# Support Access
+
+Customer support impersonation is outside the MVP.
+
+Future support-access features would require:
+
+- explicit break-glass workflow
+- customer-visible audit
+- time-limited access
+- reason capture
+- strong authentication
+- restricted capabilities
+
+Such features must not be implemented as silent impersonation.
+
+---
+
+# Delegation
+
+Business authority delegation is not included in the MVP.
+
+The system does not support:
+
+- delegated approval
+- temporary proxy reviewer
+- acting on behalf of another Member
+- Secretary approval delegation
+
+Future delegation must preserve the identities of:
+
+- delegator
+- delegate
+- authority scope
+- start and end time
+- actual executing actor
+
+---
+
+# Authorization Audit
+
+Every authoritative command must produce an auditable authorization record.
+
+The audit record should capture:
+
+```text
+authorizationAuditId
+requestId
+commandId
+correlationId
+principalId
+principalType
+organizationId
+commandType
+resourceType
+resourceId
+permission
+policyId
+policyVersion
+outcome
+reasonCode
+evaluatedAt
+```
+
+---
+
+# Domain Audit and Security Audit
+
+Domain audit and authorization audit serve different purposes.
+
+---
+
+## Domain Audit
+
+Records what happened in the business domain.
+
+Examples:
+
+- Decision approved
+- Work completed
+- Memory rejected
+
+---
+
+## Authorization Audit
+
+Records why the actor was permitted or denied.
+
+Examples:
+
+- Reviewer permission found
+- Organization matched
+- permission missing
+- Human authority required
+
+Both records may share correlation metadata.
+
+---
+
+# Allow Audit
+
+Successful authoritative actions should record:
+
+- Human actor
+- permission evaluated
+- policy version
+- target resource
+- Organization
+- authorization time
+- resulting domain event reference
+
+This supports traceability from permission decision to state change.
+
+---
+
+# Deny Audit
+
+Security-relevant denials should record:
+
+- principal identity
+- attempted command
+- resource reference where safe
+- Organization
+- denial reason
+- policy version
+- request metadata
+
+Repeated denials may indicate:
+
+- client defects
+- stale UI state
+- role misconfiguration
+- malicious activity
+
+---
+
+# Denial Privacy
+
+External error messages should avoid leaking sensitive information.
+
+Example external response:
+
+```text
+You are not authorized to perform this operation.
+```
+
+Secure internal audit may record:
+
+```text
+OrganizationMismatch
+```
+
+The external response should not reveal another Organization’s resource existence.
+
+---
+
+# Audit Transaction Boundary
+
+For allowed state-changing commands, authorization metadata should be committed consistently with the domain operation where practical.
+
+Recommended pattern:
+
+```text
+BEGIN
+
+Evaluate authorization
+
+Execute Aggregate command
+
+Save Aggregate
+
+Write Outbox
+
+Write authorization audit reference
+
+COMMIT
+```
+
+If the transaction rolls back, the system must not record the command as successfully authorized and executed.
+
+---
+
+# Denied Command Audit Boundary
+
+Denied commands do not enter a domain mutation transaction.
+
+Their audit records may be written separately.
+
+Failure to write a denial audit record must not grant access.
+
+---
+
+# Audit Immutability
+
+Authorization audit records are append-only.
+
+They must not be edited to reflect later role changes.
+
+Corrections should be represented by additional records.
+
+---
+
+# Audit Retention
+
+Retention policy should account for:
+
+- legal requirements
+- security investigation
+- Organization policy
+- privacy obligations
+- operational cost
+
+The exact retention duration is an implementation and compliance decision.
+
+---
+
+# Sensitive Audit Data
+
+Audit records should not store unnecessary business content.
+
+Recommended:
+
+```text
+resourceId
+commandType
+reasonCode
+```
+
+Avoid storing:
+
+- full Decision content
+- full Memory content
+- generated AI prompts
+- authentication secrets
+- raw access tokens
+
+---
+
+# Security Monitoring
+
+Authorization events should support monitoring for:
+
+- repeated denied approvals
+- cross-Organization access attempts
+- attempts to use Secretary for Human-only commands
+- invalid System principal claims
+- role escalation attempts
+- revoked Member activity
+- unusual administrative access
+
+---
+
+# Alerting
+
+High-severity alerts should be considered for:
+
+```text
+principalType spoofing
+
+cross-Organization mutation attempts
+
+System identity misuse
+
+Owner role escalation attempts
+
+repeated Human-authority violations
+```
+
+Alerting is operational.
+
+It must not alter Aggregate state automatically.
+
+---
+
+# Authorization Observability
+
+Recommended metrics include:
+
+```text
+authorization_allow_total
+
+authorization_deny_total
+
+authorization_deny_by_reason
+
+authorization_evaluation_duration
+
+cross_organization_denial_total
+
+human_authority_denial_total
+
+system_policy_denial_total
+
+secretary_authority_violation_total
+```
+
+Metrics should not include sensitive content.
+
+---
+
+# Correlation and Audit Trace
+
+A complete authoritative workflow should be traceable.
+
+Example:
+
+```text
+Human ApproveDecision Command
+      │
+      ├── Authorization Allow Record
+      │
+      ├── DecisionApproved Domain Event
+      │
+      ├── Outbox Record
+      │
+      └── System RecordDecisionOutcome Handler
+              │
+              ├── Operational Authorization Record
+              └── WorkDecisionOutcomeRecorded Event
+```
+
+All records share the same correlationId.
+
+---
+
+# Policy Change Audit
+
+Role and permission changes must also be audited.
+
+Recommended fields:
+
+```text
+changeId
+organizationId
+changedBy
+targetMemberId
+previousRoles
+newRoles
+reason
+changedAt
+correlationId
+```
+
+Policy changes affect future authorization decisions only.
+
+---
+
+# Authorization Failure Semantics
+
+Authorization failures must produce no domain mutation.
+
+The following must not occur after Deny:
+
+- Aggregate command execution
+- Aggregate version change
+- Domain Event creation
+- Outbox message creation
+- state history entry
+
+---
+
+# Stable Application Errors
+
+Recommended application-level authorization errors:
+
+```text
+Unauthenticated
+
+Forbidden
+
+OrganizationAccessDenied
+
+HumanAuthorityRequired
+
+OperationalAuthorityDenied
+```
+
+Detailed internal reason codes remain in secure logs and audit records.
+
+---
+
+# HTTP Mapping Guidance
+
+A transport layer may map errors as follows:
+
+```text
+Unauthenticated
+    → HTTP 401
+
+Forbidden
+    → HTTP 403
+
+OrganizationAccessDenied
+    → HTTP 404 or 403 according to disclosure policy
+
+HumanAuthorityRequired
+    → HTTP 403
+
+OperationalAuthorityDenied
+    → HTTP 403
+```
+
+Transport mapping is outside the Domain Layer.
+
+---
+
+# Authorization Rules for Events
+
+An event is evidence of a committed fact.
+
+It is not a reusable permission token.
+
+An event handler may execute only the operational follow-up explicitly associated with that event type.
+
+Example:
+
+```text
+WorkCompleted
+```
+
+may authorize:
+
+```text
+CreateGeneratedMemory
+```
+
+It does not authorize:
+
+```text
+ApproveMemory
+```
+
+---
+
+# Capability Whitelisting
+
+Each System handler should use an explicit capability whitelist.
+
+Example:
+
+```text
+DecisionOutcomeWorker
+- work.record_decision_outcome
+```
+
+It must not receive:
+
+```text
+work.complete
+decision.approve
+memory.approve
+```
+
+---
+
+# Authorization Enforcement Rules
+
+The following rules are mandatory:
+
+1. Resolve principals only from trusted authentication context.
+2. Scope every command and query to one Organization.
+3. Use default deny.
+4. Evaluate Human authority explicitly.
+5. Never allow command payloads to choose the authoritative actor.
+6. Never allow Secretary or System to impersonate a Human.
+7. Restrict System handlers to event-caused operational commands.
+8. Audit authoritative Allow decisions.
+9. Audit security-relevant Deny decisions.
+10. Preserve actor, correlation, and causation through asynchronous workflows.
+11. Do not expose cross-Organization resource existence.
+12. Do not treat events as general-purpose authority.
+13. Do not retry later Human commands without current authorization.
+14. Do not permit authorization failure to produce domain state changes.
+15. Do not duplicate Aggregate lifecycle rules inside authorization policies.
+
+# Failure and Recovery Semantics
+
+Authorization failures and authorization infrastructure failures must be handled explicitly.
+
+No failure mode may result in implicit permission.
+
+The default response is always:
+
+```text
+Deny
+```
+
+---
+
+# Failure Categories
+
+Authorization failures are classified as:
+
+```text
+Authentication Failure
+
+Authorization Denial
+
+Policy Data Failure
+
+Policy Evaluation Failure
+
+Organization Scope Failure
+
+Audit Persistence Failure
+
+Concurrency Failure
+
+Configuration Failure
+```
+
+Each category has different operational handling.
+
+---
+
+# Authentication Failure
+
+Authentication failure means the request has no trusted principal.
+
+Examples:
+
+- missing session
+- expired access token
+- invalid signature
+- disabled identity
+- unsupported authentication method
+
+Result:
+
+```text
+Command rejected
+
+No Aggregate loaded for mutation
+
+No Domain Event emitted
+
+No Outbox message created
+```
+
+---
+
+# Authorization Denial
+
+Authorization denial means the principal is authenticated but lacks permission.
+
+Examples:
+
+- missing required permission
+- inactive Organization membership
+- missing resource relationship
+- principal type prohibited
+- Human authority required
+- Organization mismatch
+
+Result:
+
+```text
+Command rejected
+
+No domain mutation
+
+Denial optionally audited
+```
+
+Authorization denial is not retried automatically.
+
+---
+
+# Policy Data Failure
+
+Policy data failure occurs when required authorization facts cannot be loaded safely.
+
+Examples:
+
+- role repository unavailable
+- membership record corrupted
+- policy version missing
+- relationship lookup timeout
+
+Result:
+
+```text
+Deny
+```
+
+The system must not infer permission from cached or incomplete data unless the cache is explicitly valid for that command.
+
+---
+
+# Policy Evaluation Failure
+
+Policy evaluation failure occurs when the policy engine cannot produce a reliable result.
+
+Examples:
+
+- unexpected policy exception
+- invalid policy configuration
+- unsupported command mapping
+- malformed authorization request
+
+Result:
+
+```text
+Deny
+
+Record operational failure
+
+Alert where appropriate
+```
+
+---
+
+# Organization Scope Failure
+
+Organization scope failure occurs when:
+
+- request Organization is missing
+- principal Organization scope is invalid
+- target resource belongs to another Organization
+- event and target resource Organizations differ
+
+Result:
+
+```text
+Deny
+
+Do not disclose foreign resource details
+
+Record security-relevant audit event
+```
+
+---
+
+# Audit Persistence Failure
+
+Authorization audit persistence failure must not change the authorization outcome.
+
+For denied commands:
+
+```text
+Audit write fails
+
+↓
+
+Command remains denied
+```
+
+For allowed state-changing commands, two strategies are acceptable.
+
+---
+
+## Strategy A: Transactional Audit
+
+Authorization audit metadata is written in the same transaction as the domain change.
+
+```text
+BEGIN
+
+Authorize
+
+Execute Aggregate command
+
+Save Aggregate
+
+Write Outbox
+
+Write Authorization Audit
+
+COMMIT
+```
+
+If the audit write fails:
+
+```text
+Entire transaction rolls back
+```
+
+This provides the strongest consistency.
+
+---
+
+## Strategy B: Reliable Asynchronous Audit
+
+The domain transaction stores a durable audit event in the Transactional Outbox.
+
+```text
+BEGIN
+
+Authorize
+
+Execute Aggregate command
+
+Save Aggregate
+
+Write Domain Events
+
+Write AuthorizationEvaluated Event
+
+COMMIT
+```
+
+A Worker persists the final security audit record asynchronously.
+
+The audit event must be durable and retryable.
+
+---
+
+# Recommended MVP Audit Strategy
+
+For authoritative state-changing commands, use one of:
+
+- transactional audit record
+- transactional Outbox audit event
+
+The final choice should be consistent across the system.
+
+Silent loss of successful authorization evidence is prohibited.
+
+---
+
+# Concurrency Failure
+
+Authorization and domain concurrency may fail independently.
+
+Example:
+
+```text
+Reviewer permission is valid
+
+Decision version is stale
+```
+
+Result:
+
+```text
+Authorization = Allow
+
+Domain execution = ConcurrencyConflict
+```
+
+The command must not be represented as successfully completed.
+
+A retry must re-evaluate current authorization.
+
+---
+
+# Configuration Failure
+
+Configuration failure includes:
+
+- unknown permission name
+- command without policy mapping
+- duplicate conflicting policies
+- invalid role mapping
+- unsupported principal type
+
+Result:
+
+```text
+Deny
+
+Record high-severity operational error
+```
+
+Missing policy configuration must never fall back to broad access.
+
+---
+
+# Recovery Principles
+
+Authorization recovery follows these principles:
+
+1. Never recover by bypassing authorization.
+2. Never edit domain state directly.
+3. Never grant temporary broad access to clear a backlog.
+4. Re-evaluate current policy before replaying Human commands.
+5. Preserve original actor attribution.
+6. Preserve Organization scope.
+7. Audit administrative recovery actions.
+8. Keep Secretary and System authority restrictions unchanged.
+
+---
+
+# Human Command Recovery
+
+A failed Human command may be resubmitted.
+
+The resubmitted command must evaluate:
+
+- current authentication
+- current membership
+- current roles
+- current permissions
+- current resource relationships
+- current Aggregate version
+
+A previous Allow decision is not a permanent authorization token.
+
+---
+
+# System Handler Recovery
+
+A failed System handler may retry the same operational action when:
+
+- the original event remains valid
+- the handler capability remains permitted
+- Organization scope still matches
+- the event has not already been processed
+- the Aggregate can still accept the operation
+
+The retry preserves the original causation chain.
+
+---
+
+# Authorization Replay
+
+Authorization audit records may be replayed for reporting or analysis.
+
+They must not be replayed as commands.
+
+An old authorization record proves only:
+
+> A decision was evaluated at that time under that policy version.
+
+It does not grant present authority.
+
+---
+
+# Break-Glass Access
+
+Break-glass administrative access is outside the MVP.
+
+No hidden override should exist.
+
+Examples of prohibited MVP mechanisms:
+
+```text
+superuser bypass
+
+skipAuthorization flag
+
+forceApprove endpoint
+
+support impersonation token
+```
+
+Emergency access requires a separate future design.
+
+---
+
+# Authorization Testing Strategy
+
+Authorization tests must verify both permission success and permission failure.
+
+Testing should cover:
+
+- principal-type restrictions
+- Organization isolation
+- role permissions
+- resource relationships
+- Human-authority requirements
+- System operational capabilities
+- Secretary advisory boundaries
+- audit behavior
+- failure semantics
+
+---
+
+# Test Layers
+
+Authorization is tested at four layers:
+
+```text
+Policy Unit Tests
+
+Application Service Tests
+
+Integration Tests
+
+End-to-End Security Tests
+```
+
+---
+
+# Policy Unit Tests
+
+Policy unit tests verify authorization decisions from controlled inputs.
+
+Example:
+
+```text
+Given:
+    principalType = HumanMember
+    role = Reviewer
+    permission = decision.approve
+    same Organization
+    reviewer relationship exists
+
+When:
+    ApproveDecision policy is evaluated
+
+Then:
+    Allow
+```
+
+---
+
+## Policy Denial Test
+
+```text
+Given:
+    principalType = Secretary
+    permission request = decision.approve
+
+When:
+    ApproveDecision policy is evaluated
+
+Then:
+    Deny
+    reasonCode = HumanAuthorityRequired
+```
+
+---
+
+# Role Mapping Tests
+
+Role mapping tests verify:
+
+- Owner permission set
+- Admin permission set
+- Member permission set
+- Reviewer permission set
+- revoked roles grant nothing
+- role assignments remain Organization-scoped
+- one Organization’s role does not apply to another
+
+---
+
+# Relationship Tests
+
+Resource relationship tests verify:
+
+- Work Assignee may perform permitted Work actions
+- unrelated Member is denied restricted Work actions
+- Decision Reviewer may review assigned Decisions
+- Decision Contributor may edit Drafts but not approve
+- Memory Editor may edit Generated Memory
+- unrelated Reviewer cannot review outside assigned scope when assignments are required
+
+---
+
+# Human Authority Tests
+
+Mandatory tests include:
+
+```text
+Secretary cannot CompleteWork
+
+Secretary cannot SubmitDecisionForReview
+
+Secretary cannot ApproveDecision
+
+Secretary cannot RejectDecision
+
+Secretary cannot SubmitMemoryForReview
+
+Secretary cannot ApproveMemory
+
+System cannot CompleteWork
+
+System cannot ApproveDecision
+
+System cannot RejectDecision
+
+System cannot ApproveMemory
+```
+
+These tests protect the central authority model.
+
+---
+
+# Organization Isolation Tests
+
+Every protected command should have a cross-Organization denial test.
+
+Example:
+
+```text
+Given:
+    Human belongs to org-A
+    Decision belongs to org-B
+
+When:
+    Human requests ApproveDecision
+
+Then:
+    resource is not exposed
+    command is denied
+    Decision remains unchanged
+    no Domain Event is emitted
+```
+
+---
+
+# Creation Scope Tests
+
+Creation tests must verify:
+
+- resource Organization comes from trusted context
+- payload cannot select another Organization
+- Human must have creation permission in the current Organization
+- Secretary cannot create authoritative resources unless explicitly represented as advisory content
+- System cannot create Human intent
+
+---
+
+# Actor Attribution Tests
+
+Tests must verify that:
+
+- actor identity comes from authenticated context
+- payload actor fields are ignored or rejected
+- Admin actions are recorded as Admin actions
+- Secretary contributions are recorded as Secretary contributions
+- System handler actions are recorded as System operations
+- original Human causation remains traceable
+
+---
+
+# Event Handler Authorization Tests
+
+Example:
+
+```text
+Given:
+    valid DecisionApproved event
+    trusted decision-outcome-worker
+    matching Organization
+    event not yet processed
+
+When:
+    RecordDecisionOutcome handler runs
+
+Then:
+    operational authorization succeeds
+    Work command executes
+```
+
+---
+
+## Invalid Source Event Test
+
+```text
+Given:
+    memory-generation-worker
+    unsupported event type
+    event requests ApproveMemory
+
+When:
+    handler authorization is evaluated
+
+Then:
+    Deny
+    no Memory approval occurs
+```
+
+---
+
+# Event Causation Tests
+
+Tests must verify:
+
+- DecisionApproved can cause RecordDecisionOutcome
+- DecisionApproved cannot cause CompleteWork
+- WorkCompleted can cause CreateGeneratedMemory
+- WorkCompleted cannot cause ApproveMemory
+- retry preserves source event identity
+- unrelated events do not grant capability
+
+---
+
+# Application Service Tests
+
+Application Service tests verify the enforcement sequence.
+
+Required order:
+
+```text
+Resolve principal
+
+↓
+
+Resolve Organization
+
+↓
+
+Authorize
+
+↓
+
+Execute Aggregate command
+
+↓
+
+Persist
+```
+
+A denied authorization must stop execution before mutation.
+
+---
+
+# Denied Command Side-Effect Tests
+
+For every denial scenario, verify:
+
+```text
+Aggregate command not called
+
+Repository save not called
+
+Outbox write not called
+
+Aggregate version unchanged
+
+No Domain Event emitted
+```
+
+---
+
+# Aggregate Validation After Authorization
+
+Tests must verify that authorization success does not bypass domain validation.
+
+Example:
+
+```text
+Reviewer has decision.approve permission
+
+Decision is Draft
+
+Authorization = Allow
+
+Aggregate = Reject invalid state
+```
+
+No approval event is emitted.
+
+---
+
+# Authorization Infrastructure Tests
+
+Integration tests should use real persistence for:
+
+- memberships
+- role assignments
+- permission mappings
+- resource relationships
+- audit records
+- policy versions
+
+The tests should verify Organization-scoped indexes and constraints.
+
+---
+
+# Transaction Tests
+
+Transactional tests should verify:
+
+- authorization audit and domain mutation commit together when configured
+- rollback removes domain mutation and success audit
+- denied commands produce no Outbox event
+- authorization data is read consistently
+- concurrency conflicts do not create successful execution records
+
+---
+
+# Cache Tests
+
+Where authorization caching is implemented, verify:
+
+- cache key includes Organization
+- cache key includes principal
+- cache key includes permission or command
+- role revocation invalidates or expires cache
+- cached decisions cannot cross Organization boundaries
+- Human-authority restrictions are never bypassed
+
+---
+
+# Failure Injection Tests
+
+Failure injection should cover:
+
+- membership repository unavailable
+- permission repository timeout
+- audit database failure
+- policy engine exception
+- malformed System principal
+- unsupported event schema
+- role revoked during execution
+
+Expected result:
+
+```text
+No unauthorized mutation
+```
+
+---
+
+# Security Regression Suite
+
+The following cases should be permanent regression tests:
+
+1. Secretary attempts to approve Decision.
+2. System attempts to complete Work.
+3. Member from Organization A accesses Organization B.
+4. Command payload attempts actor override.
+5. Public client claims System principal.
+6. Revoked Reviewer attempts approval.
+7. Event handler uses unsupported source event.
+8. Administrative role attempts to bypass Aggregate state.
+9. Retry uses stale Human authorization.
+10. Missing policy mapping fails closed.
+
+---
+
+# Property-Based Tests
+
+Property-based tests are recommended for core invariants.
+
+Examples:
+
+```text
+For every non-Human principal:
+    authoritative commands are denied
+```
+
+```text
+For every Organization mismatch:
+    protected resource command is denied
+```
+
+```text
+For every authorization Deny:
+    domain state remains unchanged
+```
+
+---
+
+# Implementation Guidance
+
+Authorization should be implemented as an explicit application capability.
+
+It should not be scattered across:
+
+- controllers
+- repositories
+- UI components
+- Aggregate field setters
+- background job code
+
+---
+
+# Recommended Package Structure
+
+```text
+authorization/
+
+    application/
+        AuthorizationService
+        AuthorizationRequest
+        AuthorizationDecision
+        PolicyEvaluator
+
+    domain/
+        Principal
+        PrincipalType
+        Permission
+        Role
+        RoleAssignment
+        PolicyReference
+        DenialReason
+
+    infrastructure/
+        MembershipRepository
+        RoleAssignmentRepository
+        PermissionRepository
+        RelationshipResolver
+        AuthorizationAuditRepository
+
+    policies/
+        WorkPolicies
+        DecisionPolicies
+        MemoryPolicies
+        OrganizationPolicies
+        SystemPolicies
+        SecretaryPolicies
+```
+
+The exact language-specific structure may differ.
+
+The responsibility boundaries should remain equivalent.
+
+---
+
+# Permission Constants
+
+Permission names should be centrally defined.
+
+Example:
+
+```text
+WorkPermissions.Create
+WorkPermissions.Complete
+
+DecisionPermissions.Submit
+DecisionPermissions.Approve
+
+MemoryPermissions.Submit
+MemoryPermissions.Approve
+```
+
+String literals distributed across services should be avoided.
+
+---
+
+# Command-to-Policy Registry
+
+Every protected command should have an explicit policy registration.
+
+Example:
+
+```text
+CreateWork
+    -> WorkCreatePolicy
+
+CompleteWork
+    -> WorkCompletePolicy
+
+ApproveDecision
+    -> DecisionApprovePolicy
+
+CreateGeneratedMemory
+    -> SystemMemoryGenerationPolicy
+```
+
+Startup validation should fail when a protected command has no policy mapping.
+
+---
+
+# Typed Principal Model
+
+Principal types should use explicit types or discriminated representations.
+
+Preferred:
+
+```text
+HumanMemberPrincipal
+
+SecretaryPrincipal
+
+SystemPrincipal
+```
+
+Avoid relying only on arbitrary strings such as:
+
+```text
+"type": "human"
+```
+
+Runtime validation remains required at trust boundaries.
+
+---
+
+# Human Actor Construction
+
+Human ActorReference should be constructed only from a trusted Human principal.
+
+Example:
+
+```text
+ActorReference.FromHuman(principal)
+```
+
+This constructor must reject:
+
+- Secretary principal
+- System principal
+- anonymous principal
+- missing Organization identity
+
+---
+
+# System Actor Construction
+
+System ActorReference should preserve:
+
+```text
+systemPrincipalId
+handlerName
+organizationId
+sourceEventId
+correlationId
+causationId
+```
+
+It must not create a Human actor representation.
+
+---
+
+# Repository Scoping
+
+Protected repositories should require Organization scope.
+
+Preferred interface:
+
+```text
+Get(
+    organizationId,
+    aggregateId
+)
+```
+
+Avoid:
+
+```text
+GetById(
+    aggregateId
+)
+```
+
+unless the repository is used only after a verified globally trusted lookup.
+
+---
+
+# Relationship Resolver
+
+Resource relationships should be resolved through explicit interfaces.
+
+Example:
+
+```text
+WorkRelationshipResolver.Resolve(
+    memberId,
+    workId
+)
+```
+
+Possible outputs:
+
+```text
+Creator
+
+Assignee
+
+Participant
+
+Administrator
+
+None
+```
+
+The resolver provides facts.
+
+The policy determines whether those facts grant permission.
+
+---
+
+# Policy Composition
+
+Policies may be composed from reusable predicates.
+
+Example:
+
+```text
+ApproveDecisionPolicy =
+    IsHumanMember
+    AND SameOrganization
+    AND ActiveMembership
+    AND HasPermission(decision.approve)
+    AND HasReviewerRelationship
+```
+
+Composition must remain readable and auditable.
+
+---
+
+# Avoid Role Checks in Application Services
+
+Avoid:
+
+```text
+if user.role == "Reviewer":
+    approve()
+```
+
+Prefer:
+
+```text
+authorizationService.Authorize(
+    permission = decision.approve,
+    ...
+)
+```
+
+This supports role evolution without rewriting each service.
+
+---
+
+# Policy Data Versioning
+
+Role and permission configuration should have explicit versions where practical.
+
+An authorization audit record may store:
+
+```text
+roleAssignmentVersion
+permissionModelVersion
+policyVersion
+```
+
+This improves historical explainability.
+
+---
+
+# Database Constraints
+
+Database constraints provide defense in depth.
+
+They do not replace authorization policies.
+
+---
+
+# Organization Membership Constraint
+
+Recommended uniqueness:
+
+```text
+UNIQUE (
+    organization_id,
+    member_id
+)
+```
+
+Where membership history requires multiple records, use an active-record uniqueness strategy.
+
+---
+
+# Active Role Assignment Constraint
+
+Recommended uniqueness:
+
+```text
+UNIQUE (
+    organization_id,
+    member_id,
+    role
+)
+WHERE revoked_at IS NULL
+```
+
+This prevents duplicate active assignments.
+
+---
+
+# Principal Type Constraint
+
+Persisted principal types should be constrained to supported values:
+
+```text
+HumanMember
+
+Secretary
+
+System
+```
+
+Unknown types must not be treated as Human.
+
+---
+
+# Organization Foreign Keys
+
+Organization-owned records should include:
+
+```text
+organization_id
+```
+
+Foreign keys and composite constraints should prevent invalid cross-Organization associations where possible.
+
+Examples:
+
+- Work assignment
+- Decision reviewer assignment
+- Memory reviewer assignment
+- role assignment
+
+---
+
+# Cross-Organization Relationship Constraint
+
+Where supported by schema design, relationship tables should use composite foreign keys.
+
+Example:
+
+```text
+work_participants (
+    organization_id,
+    work_id,
+    member_id
+)
+```
+
+The referenced Work and membership must belong to the same Organization.
+
+---
+
+# Permission Mapping Constraint
+
+Role-to-permission mappings should prevent duplicate entries.
+
+Recommended uniqueness:
+
+```text
+UNIQUE (
+    role,
+    permission
+)
+```
+
+Custom Organization permission models are outside the MVP unless explicitly introduced.
+
+---
+
+# Audit Append-Only Constraint
+
+Authorization audit records should not be updated through ordinary application commands.
+
+Recommended controls:
+
+- repository exposes Insert only
+- database account denies Update and Delete
+- correction uses a new audit record
+- archival follows controlled policy
+
+---
+
+# Processed Event Constraints
+
+Operational System handlers should use uniqueness such as:
+
+```text
+UNIQUE (
+    consumer_name,
+    event_id
+)
+```
+
+This supports idempotent authorization and execution.
+
+---
+
+# System Capability Constraints
+
+System principal capability mappings should be explicit.
+
+Example:
+
+```text
+system_principal_capabilities (
+    system_principal_id,
+    capability
+)
+```
+
+Recommended uniqueness:
+
+```text
+UNIQUE (
+    system_principal_id,
+    capability
+)
+```
+
+---
+
+# Data Access Security
+
+Application-level Organization scoping is mandatory.
+
+PostgreSQL Row-Level Security may be added as defense in depth.
+
+RLS is not required for the MVP if:
+
+- repository scoping is mandatory
+- integration tests verify isolation
+- database access paths are controlled
+
+---
+
+# Row-Level Security Considerations
+
+If RLS is used:
+
+- Organization context must be set safely per transaction
+- connection pooling must not leak context
+- System Workers must still process one Organization at a time
+- administrative database roles must be restricted
+- tests must verify isolation under real pooling behavior
+
+RLS must not replace application policy evaluation.
+
+---
+
+# Policy Storage
+
+MVP policies should preferably be defined in version-controlled code.
+
+Benefits include:
+
+- reviewable changes
+- deterministic deployment
+- test coverage
+- explicit versioning
+- reduced runtime misconfiguration
+
+Dynamic user-authored policies are outside the MVP.
+
+---
+
+# Feature Flags
+
+Feature flags must not weaken authority invariants.
+
+Invalid feature flags include:
+
+```text
+allowSecretaryApproval
+
+autoCompleteWork
+
+skipOrganizationCheck
+```
+
+Feature flags may enable optional non-authoritative functionality only.
+
+---
+
+# Administrative Interfaces
+
+Role management interfaces must:
+
+- display current Organization scope
+- identify the Member receiving authority
+- show the role being assigned
+- require an authorized Human action
+- produce an audit record
+- prevent unsupported self-escalation
+
+---
+
+# User Interface Guidance
+
+The UI should reflect authorization results but must not enforce security alone.
+
+The UI may:
+
+- hide unavailable actions
+- disable buttons
+- explain missing permissions
+- show review assignments
+
+The server must always re-evaluate authorization.
+
+---
+
+# Error Message Guidance
+
+User-facing messages should be clear without exposing sensitive detail.
+
+Examples:
+
+```text
+You do not have permission to approve this Decision.
+```
+
+```text
+This action requires a Human reviewer.
+```
+
+```text
+The requested resource is unavailable.
+```
+
+Detailed security reason codes remain internal.
+
+---
+
+# Logging Guidance
+
+Authorization logs should use structured fields.
+
+Example:
+
+```text
+authorization.outcome
+authorization.permission
+authorization.policy_id
+authorization.policy_version
+principal.id
+principal.type
+organization.id
+resource.type
+resource.id
+command.type
+correlation.id
+```
+
+Logs must not include credentials or full protected content.
+
+---
+
+# Performance Guidance
+
+Authorization evaluation should remain predictable and bounded.
+
+Recommended practices:
+
+- indexed membership lookup
+- indexed active role lookup
+- bounded relationship queries
+- no large resource scans
+- no external network dependency for ordinary policy checks
+- short-lived safe caching where justified
+
+---
+
+# MVP Exclusions
+
+The following authorization capabilities are outside the MVP:
+
+- custom role builders
+- user-authored policies
+- attribute-based policy language
+- cross-Organization collaboration
+- guest accounts
+- external partner access
+- delegated approval
+- temporary proxy authority
+- approval quorum
+- multi-stage approval chains
+- field-level business authorization
+- support impersonation
+- break-glass access
+- anonymous domain commands
+- marketplace permissions
+- API client permission management
+- Knowledge authorization
+- Evidence authorization
+- Capability authorization
+- AI Employee authority
+- autonomous Secretary approval
+- automatic Work completion
+- Memory-to-Knowledge promotion authority
+
+These may be introduced only through explicit future architecture.
+
+---
+
+# Future Extension Principles
+
+Future authorization extensions must preserve:
+
+1. Human authority for final business decisions.
+2. Organization isolation.
+3. explicit principal identity.
+4. default deny.
+5. auditability.
+6. no AI impersonation.
+7. Aggregate invariant enforcement.
+8. event causation boundaries.
+
+New roles may expand Human permissions.
+
+They must not silently grant Human authority to non-Human principals.
+
+---
+
+# AI Employee Future Phase
+
+AI Employees are planned for a later roadmap phase.
+
+Their authorization model is not defined by the MVP Secretary principal.
+
+Future AI Employees may require:
+
+- delegated capability scopes
+- Human supervision
+- action budgets
+- approval checkpoints
+- revocation
+- enhanced audit
+- policy-specific autonomy levels
+
+They must not inherit unrestricted Human Member authority.
+
+---
+
+# Knowledge Future Phase
+
+Knowledge promotion is outside the MVP.
+
+Future authorization must separately define:
+
+- who may propose promotion
+- who may approve promotion
+- whether multiple reviewers are required
+- source Evidence requirements
+- revocation and supersession
+- access controls
+
+Approved Memory must not be treated as authorized Knowledge in the MVP.
+
+---
+
+# Implementation Checklist
+
+Before implementation is considered complete, verify:
+
+- every protected command has a policy
+- every policy defaults to Deny
+- every authoritative command requires HumanMember
+- every repository query is Organization-scoped
+- every System handler has a capability whitelist
+- Secretary cannot execute authoritative transitions
+- actor identity comes from trusted context
+- role changes are audited
+- denied commands produce no mutation
+- policy infrastructure fails closed
+- cross-Organization tests pass
+- authorization audit is durable
+- current authorization is re-evaluated for Human retries
+- events authorize only defined operational follow-up
+- Aggregate business validation remains independent
+
+---
+
+# Design Summary
+
+The AIOS authorization architecture uses:
+
+```text
+Organization-Scoped Authorization
+
+Role-Based Permissions
+
+Resource Relationships
+
+Principal-Type Restrictions
+
+Explicit Human Authority
+
+System Capability Whitelisting
+
+Secretary Advisory Boundaries
+
+Default Deny
+
+Auditable Policy Decisions
+```
+
+Authorization determines whether a principal may attempt a command.
+
+The Domain Model determines whether that command is valid.
+
+---
+
+# Core Guarantees
+
+The authorization model guarantees:
+
+- only authenticated principals execute protected operations
+- every operation belongs to one Organization
+- cross-Organization access is denied
+- only Human Members exercise business authority
+- Secretary output remains advisory
+- System actions remain operational
+- actor identity cannot be overridden by payload
+- event handlers cannot create new Human intent
+- denied commands do not mutate domain state
+- policy failures do not grant access
+- authoritative actions remain auditable
+
+---
+
+# Architect Review
+
+## Human Authority
+
+**Rating: ★★★★★**
+
+The model establishes a clear and enforceable distinction between Human, Secretary, and System principals.
+
+Final business authority remains exclusively Human.
+
+---
+
+## Organization Isolation
+
+**Rating: ★★★★★**
+
+Organization scope is enforced across commands, queries, relationships, events, and repositories.
+
+Cross-Organization access fails closed.
+
+---
+
+## Policy Clarity
+
+**Rating: ★★★★★**
+
+Roles, permissions, resource relationships, principal restrictions, and command policies are clearly separated.
+
+This supports maintainable policy evolution.
+
+---
+
+## Secretary Safety
+
+**Rating: ★★★★★**
+
+The Secretary is structurally limited to advisory actions.
+
+The design prevents submission, approval, rejection, completion, and promotion by AI assistance.
+
+---
+
+## System Safety
+
+**Rating: ★★★★★**
+
+System principals receive narrow operational capabilities tied to valid event causation.
+
+System automation cannot create new Human business intent.
+
+---
+
+## Auditability
+
+**Rating: ★★★★★**
+
+Principal identity, policy version, Organization scope, command, resource, correlation, and causation are preserved.
+
+Historical actions remain explainable after role changes.
+
+---
+
+## Failure Safety
+
+**Rating: ★★★★★**
+
+Authentication, policy data, evaluation, configuration, and infrastructure failures all fail closed.
+
+No authorization failure path grants implicit permission.
+
+---
+
+## Testability
+
+**Rating: ★★★★★**
+
+The policy model supports focused unit tests, Application Service tests, integration tests, security regression tests, and property-based invariant testing.
+
+---
+
+## MVP Scope Discipline
+
+**Rating: ★★★★★**
+
+The design avoids premature complexity such as delegation, quorum approval, dynamic policies, impersonation, and cross-Organization collaboration.
+
+Future extension points remain explicit.
+
+---
+
+## Final Assessment
+
+```text
+Architecture Quality:        ★★★★★
+Human Authority:             ★★★★★
+Organization Isolation:      ★★★★★
+AI Safety Boundary:          ★★★★★
+Operational Security:        ★★★★★
+Auditability:                ★★★★★
+Implementation Readiness:    ★★★★★
+MVP Scope Discipline:        ★★★★★
+```
+
+The authorization architecture is ready for implementation within the AIOS Modular Monolith.
+
+It is fully aligned with:
+
+- Work Aggregate
+- Decision Aggregate
+- Memory Aggregate
+- Application Services
+- Transactional Outbox
+- Background Workers
+- Organization isolation
+- explicit Human authority
+- Secretary advisory behavior
+- System operational behavior
+- eventual cross-Aggregate consistency
+
+**Architect Review Result: APPROVED**
