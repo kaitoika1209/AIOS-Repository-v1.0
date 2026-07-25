@@ -99,7 +99,7 @@ Before the MVP is operated in production, AIOS MUST provide:
 - PostgreSQL, Outbox, Worker, queue-age, and Work-to-Memory workflow metrics
 - durable audit for successful Human-authoritative transitions and privileged operational actions
 - separate HTTP liveness/readiness, Worker liveness/readiness, asynchronous workflow health, and restricted administrative diagnostics
-- bounded retry, idempotency, retry-exhaustion visibility, and dead-letter handling
+- bounded retry, idempotency, retry-exhaustion visibility, dead-letter handling, and typed Operations Application Service commands for Worker pause/resume, replay, and dead-letter retry/skip
 - database backup, point-in-time recovery capability, and a verified restore procedure
 - actionable alerts for database unavailability, authoritative-write failure, Outbox or Worker stoppage, Memory-generation failure, and Organization-isolation violation
 - the five MVP runbooks identified in the Operational Runbooks section
@@ -118,7 +118,7 @@ After the baseline is working, AIOS SHOULD add:
 - deployment automation beyond the minimum rollback procedure
 - expanded runbooks for component-specific and administrative failures
 - richer Organization-scoped health diagnostics and automated reconciliation dashboards
-- tested replay, repair, and projection-rebuild commands
+- tested Organization containment, read-only mode, projection-rebuild, and generalized repair commands
 
 Deferral requires a named owner and an explicit trigger for implementation, such as traffic volume, incident history, or customer requirement.
 
@@ -5317,18 +5317,26 @@ Production investigation queries should:
 
 ---
 
-# Manual Repair During Incident
+# Exceptional Manual Database Repair During Incident
 
-Manual repair is allowed only when:
+Direct database modification is not a normal operational interface. Replay, Worker control, dead-letter actions, containment, and supported repairs MUST use the Operations Application Service.
 
-- supported recovery paths are insufficient
-- impact justifies intervention
-- repair is reviewed
-- before-state evidence is preserved
-- affected Organization scope is explicit
-- validation criteria are defined
-- operator identity is recorded
-- follow-up reconciliation is executed
+Break-glass database repair is allowed only when:
+
+- supported typed recovery paths are unavailable or demonstrably insufficient
+- continued impact justifies direct intervention
+- a Human Operator with the break-glass permission is authenticated
+- affected Organization and resource scope are explicit
+- a reviewed, version-controlled repair artifact is used; ad hoc console editing is prohibited
+- before-state evidence and transaction boundaries are defined
+- expected row count, preconditions, postconditions, and rollback or forward-fix plan are documented
+- approval follows the operational risk policy
+- the database role is time-limited and least-privileged
+- dry-run or read-only validation is performed where feasible
+- operator identity, tool version, statements hash, and result are durably audited
+- follow-up reconciliation and invariant validation are executed
+
+The repair MUST run in a bounded transaction, fail closed on unexpected row count or precondition mismatch, and avoid cross-Organization mutation. A successful SQL commit is not sufficient validation; the owning module's invariants and affected event or projection state must be checked before incident resolution.
 
 ---
 
@@ -6935,7 +6943,7 @@ They should use:
 
 # Operational Approval
 
-High-risk operations require Human approval.
+High-risk operations require explicit Human approval before execution.
 
 Examples:
 
@@ -6943,39 +6951,270 @@ Examples:
 - skipping a dead letter
 - applying data repair
 - restoring a database
-- changing maintenance mode globally
+- changing maintenance or read-only mode globally
 - enabling an emergency bypass
 - rotating platform-wide encryption keys
 
+Approval is a distinct durable fact containing the approver, operationId, command fingerprint, scope, risk class, reason, and expiry. Approval of one fingerprint MUST NOT authorize a changed target, mode, or scope.
+
+For a one-to-three-person MVP team, requester and approver separation is required when two authorized Humans are available. When staffing makes separation impossible during an active incident, a single Human may use an explicitly authorized break-glass path only when the policy permits it. Break-glass execution requires an incident reference, short expiry, durable justification, heightened alerting, and retrospective review; it does not weaken Organization isolation or Human business authority.
+
 ---
 
-# Operational Commands
+# Operations Application Service
 
-Operational actions should use explicit commands.
+AIOS MUST expose privileged state-changing recovery actions through a restricted Operations Application Service inside the Modular Monolith. It is a management-plane Application Service, not a Domain Aggregate and not a public business API.
 
-Examples:
+The service coordinates:
+
+- operator authentication and operational authorization
+- explicit Organization or platform scope
+- command validation and risk classification
+- durable intent audit before execution
+- idempotency and concurrency control
+- dispatch to the owning module's public Application Port
+- asynchronous operation state where execution spans transactions
+- result validation and durable result audit
+
+The service MUST NOT reach directly into another module's tables or repositories to bypass its rules. A module may expose a narrow operational port for recovery, but the module remains owner of its state and invariants.
+
+The AI Secretary and other AI Principals cannot invoke this service. `SystemAutomation` may invoke only explicitly allowlisted low-risk capabilities under bounded policy; it cannot approve its own action or acquire Human business authority.
+
+---
+
+# Management-Plane Boundary
+
+The Operations Application Service is available only through an authenticated management-plane endpoint or approved CLI that calls that endpoint.
+
+Required controls:
+
+- short-lived Human or workload identity; no shared operator password or permanent bearer token
+- network restriction appropriate to the deployment
+- default-deny operational permissions
+- separate permissions for request, approval, execution, and status query where risk requires them
+- explicit Organization, Worker type, consumer, projection, or platform scope
+- rate limiting and bounded query results
+- CSRF protection for browser-based administration
+- no raw SQL, shell command, repository object, or arbitrary code in the request contract
+
+The management endpoint may be deployed in the same process for the MVP, but its routes, authorization policy, audit, and resource limits remain distinct from the customer-facing data plane.
+
+---
+
+# Operational Command Envelope
+
+Every state-changing operational request MUST use a typed envelope containing at least:
+
+```text
+operationId
+commandType
+idempotencyKey
+requesterPrincipal
+scopeType
+organizationId nullable
+targetType
+targetId
+expectedVersion nullable
+reasonCode
+reason
+incidentOrChangeReference
+requestedAt
+expiresAt
+dryRun
+correlationId
+approvalReference nullable
+commandSchemaVersion
+```
+
+Rules:
+
+- `operationId`, internal `correlationId`, and the authoritative command identity are server-owned
+- `organizationId` is mandatory for Organization-scoped operations and is derived or verified against the authenticated operator request
+- platform scope must be stated explicitly; an omitted Organization MUST NOT silently mean every Organization
+- `reasonCode` is a bounded enum; free-text reason is length-limited and follows the telemetry data policy
+- `expiresAt` prevents approval or execution of stale recovery intent
+- `dryRun` changes no authoritative or control state other than its own audit and result records
+- a dry-run result is advisory and does not reserve the target version for later execution
+
+---
+
+# Operational Operation State
+
+Multi-step operational commands use a durable PostgreSQL operation record.
+
+```text
+Requested
+AwaitingApproval
+Approved
+Executing
+Succeeded
+Failed
+Cancelled
+Expired
+```
+
+Required invariants:
+
+- only the permitted state transitions are accepted
+- terminal states are immutable except for append-only review metadata
+- execution cannot start before required approval is durable and unexpired
+- the approved command fingerprint must equal the executed command fingerprint
+- cancellation is allowed only before an irreversible step and does not imply rollback
+- a timed-out caller does not cancel an already accepted operation
+- `Unknown` is a diagnostic query outcome, not a stored successful state
+
+Short operations MAY update the control state and result atomically in one transaction. Long operations use a Worker, durable progress checkpoints, leases, and a Transactional Outbox result event.
+
+---
+
+# Idempotency and Concurrency
+
+Operational idempotency is mandatory, not best-effort.
+
+The idempotency key is scoped by authenticated operator, command type, target scope, and canonical command fingerprint. Repeating the same request returns the existing operation. Reusing the key with a different fingerprint returns a conflict and MUST NOT execute.
+
+Concurrency rules:
+
+- control records use optimistic version checks or a PostgreSQL row lock within a bounded transaction
+- `expectedVersion` is required when stale execution could reverse or overwrite a newer control decision
+- only one active operation of an incompatible type may hold the same target lock
+- locks and leases are durable, expire safely, and have an observable owner
+- no network or provider call occurs while a database lock or transaction is held
+- completion records the target version before and after execution
+
+A client retry after timeout queries by `operationId` or idempotency key; it does not create a second action.
+
+---
+
+# Durable Intent and Result Boundary
+
+Privileged operations follow Class B audit durability unless a mutation must be Class A with the owning authoritative state.
+
+Execution sequence:
+
+1. authenticate the operator and authorize the exact command and scope
+2. validate schema, target existence, expected version, reason, expiry, and risk class
+3. persist the operation and intent audit durably
+4. obtain required Human approval and persist it when policy requires approval
+5. acquire the bounded target execution lease or lock
+6. revalidate authorization, approval, scope, fingerprint, and target version
+7. execute through the owning module's operational Application Port
+8. persist operation result, validation evidence, and any required Outbox record
+9. release the lease and expose the terminal result
+
+If intent audit cannot be persisted, execution MUST NOT start. If execution commits but result publication fails, PostgreSQL operation state remains authoritative and reconciliation republishes the result; the command MUST NOT be executed again merely because a response or notification was lost.
+
+---
+
+# MVP Operational Commands
+
+The production MVP MUST implement and test these typed commands because existing incident and dead-letter runbooks depend on them:
 
 ```text
 PauseWorker
-
 ResumeWorker
-
 RequestReplay
-
 ApproveReplay
-
 StartReplay
-
-EnterMaintenanceMode
-
-ExitMaintenanceMode
-
-RequestDataRepair
-
-ApplyDataRepair
+RetryDeadLetter
+SkipDeadLetter
+GetOperationStatus
 ```
 
-These commands should be idempotent where practical.
+`PauseWorker` stops new claims for the explicit Worker type and scope. By default it does not terminate in-flight work. The operation records pause mode, effective time, control-record version, and remaining active leases.
+
+`ResumeWorker` requires the expected pause version. It MUST NOT resume a newer or differently scoped pause accidentally.
+
+Replay identifies the immutable source event, target consumer, Organization, replay mode, and original processing status. It uses the replay correlation contract, preserves the original event, and cannot bypass consumer idempotency silently.
+
+`RetryDeadLetter` re-enters the defined consumer recovery path without deleting the dead-letter evidence. `SkipDeadLetter` requires explicit Human approval, reason, ordering-impact classification, and post-skip reconciliation. There is no generic delete-dead-letter command.
+
+---
+
+# Worker Pause Semantics
+
+Worker pause control is durable PostgreSQL state read before new claims.
+
+Supported MVP mode:
+
+```text
+StopNewClaims
+```
+
+In-flight work finishes or expires under its existing lease policy. Force termination or lease cancellation is not an implicit effect of pause and requires a separate future high-risk command.
+
+Pause scope is explicit:
+
+```text
+WorkerType
+OrganizationAndWorkerType
+PlatformWorkerType
+```
+
+An Organization-scoped pause MUST NOT stop another Organization. A platform-wide pause requires platform scope, stronger permission, and an incident or change reference.
+
+---
+
+# Replay and Dead-Letter Safety
+
+Before replay or dead-letter retry, the service MUST evaluate:
+
+- target event and consumer contract version
+- source Organization and authorization scope
+- current processed-event and dead-letter state
+- Aggregate or partition ordering impact
+- whether the consumer creates an irreversible external side effect
+- consumer idempotency capability
+- later events already processed for the same ordering key
+- required dry-run or Human approval policy
+
+The result records whether ordering was preserved, intentionally broken, or not applicable. If ordering would be broken without an approved recovery policy, execution is rejected.
+
+Replay completion means the requested delivery reached its defined terminal consumer result. It does not imply that a Human business decision was approved or that Work, Decision, or Memory state changed successfully unless the owning domain command independently committed that fact.
+
+---
+
+# Operational Result Contract
+
+Every command returns or makes queryable:
+
+```text
+operationId
+commandType
+status
+scope
+target
+requestedAt
+startedAt nullable
+completedAt nullable
+targetVersionBefore nullable
+targetVersionAfter nullable
+affectedCount
+resultCode
+failureCode nullable
+validationSummary
+intentAuditId
+approvalAuditId nullable
+resultAuditId nullable
+outboxEventId nullable
+correlationId
+```
+
+Failure codes are stable bounded enums. Raw exception text, SQL, secrets, prompts, provider responses, and cross-Organization identifiers are not returned through the ordinary result contract.
+
+---
+
+# Production-Hardening Operational Commands
+
+After the MVP control surface is proven, AIOS SHOULD add typed commands for:
+
+- Organization containment and release
+- enter and exit read-only mode with explicit scope and expiry
+- projection rebuild with checkpoint, validation, and atomic cutover
+- bounded integrity-repair plans with before and after validation
+- feature containment and controlled restoration
+
+Generalized repair tooling is not an MVP requirement. It MUST NOT accept arbitrary SQL or code; each repair type has a versioned schema, explicit preconditions, affected scope, dry-run, approval policy, and validation contract.
 
 ---
 
@@ -6985,28 +7224,33 @@ Operational commands may be initiated by:
 
 ```text
 HumanOperator
-
 SystemAutomation
 ```
 
-System automation remains constrained to explicitly approved operational capabilities.
+`HumanOperator` is an authenticated Human Principal with an explicit operational permission. Operational permission does not confer Organization membership or Human business authority.
 
-A System principal does not gain Human business authority.
+`SystemAutomation` is constrained to versioned, allowlisted command types, scopes, thresholds, and rate limits. It cannot approve its own operation, skip a dead letter, apply data repair, weaken Organization isolation, approve a Decision, complete Work, or approve Memory.
 
 ---
 
 # Operational Audit
 
-Every privileged operational command should record:
+Every privileged operational command records durable append-only evidence for:
 
-- principal
-- scope
-- command
-- reason
-- approval reference
-- result
-- correlationId
-- timestamp
+- requester and executor Principal
+- command type and schema version
+- canonical command fingerprint
+- scope and target
+- reason code and bounded reason
+- incident or change reference
+- expected and observed versions
+- dry-run flag
+- approval reference and approver where required
+- intent, start, completion, failure, cancellation, or expiry timestamps
+- result code and validation outcome
+- correlationId and operationId
+
+Reading cross-Organization operation details and invoking break-glass access are themselves audited. Audit content follows the telemetry classification and retention policy.
 
 ---
 
@@ -7089,12 +7333,13 @@ The operational control architecture must preserve:
 17. Maintenance mode is explicit, scoped, and Human-controlled.
 18. Automation may recover operations but may not make Human business decisions.
 19. High-risk replay and repair operations require explicit approval.
-20. Operational commands remain attributable and idempotent where practical.
+20. Operational commands are typed, durably attributable, idempotent, and concurrency-controlled.
 21. External dependency failure cannot fabricate authoritative success.
 22. Read-only mode does not use non-authoritative fallback state.
 23. Automatic rollback is not used when rollback would corrupt schema or event compatibility.
 24. Every temporary release flag has a removal plan.
 25. Incident resolution includes recovery validation, not only alert clearance.
+26. MVP recovery controls execute through the Operations Application Service, not ad hoc SQL, shell commands, or arbitrary scripts.
 
 ---
 
@@ -7116,6 +7361,8 @@ Centralized Secret Management
 Rolling or Blue-Green Deployment
 
 Explicit Maintenance Modes
+
+Restricted Operations Application Service
 
 Bounded Operational Automation
 ```
