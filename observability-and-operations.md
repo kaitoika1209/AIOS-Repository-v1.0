@@ -2254,22 +2254,26 @@ Trace baggage must not contain:
 
 # Audit Architecture
 
-Durable audit complements logs and traces.
+Audit supports accountability and security investigation. It is distinct from ordinary logs, metrics, and traces.
 
-Audit records should be:
+Audit evidence MUST be:
 
 - append-oriented
-- transactionally persisted when required
-- queryable by Organization
-- queryable by actor
-- linked to command and event identifiers
+- assigned a durability class before implementation
+- transactionally persisted when required by that class
+- queryable by Organization and actor under authorization
+- linked to command, correlation, and event identifiers
 - protected from ordinary update and deletion
+- bounded against deliberate write amplification
+- free of unnecessary business content and secrets
+
+The Aggregate and Domain Event remain authoritative for business state. Audit records prove who acted, which policy was evaluated, what operation was attempted, and whether durable execution evidence exists.
 
 ---
 
 # Audit Categories
 
-Recommended categories:
+Required categories:
 
 ```text
 Authorization
@@ -2293,12 +2297,124 @@ ConfigurationChange
 
 ---
 
+# Audit Durability Classes
+
+Every audit-producing operation MUST select exactly one class.
+
+## Class A — Transactional Mandatory
+
+Use for successful state changes whose accountability must be atomic with the authoritative mutation.
+
+Examples:
+
+- Work completion
+- Decision approval, rejection, or withdrawal
+- Memory approval or rejection
+- Organization ownership transfer
+- role or permission changes
+- Human-authoritative Membership changes
+- System capability-policy changes
+
+Required behavior:
+
+- the business transaction writes either the final audit row or a durable audit event to the Transactional Outbox
+- commandId or another stable idempotency key prevents duplicate success evidence
+- if durable evidence cannot be written, the authoritative mutation rolls back
+- a rolled-back command MUST NOT be recorded as successfully executed
+
+A durable Outbox audit event satisfies the transaction boundary only when it is retryable and the final audit projection can be reconciled.
+
+## Class B — Durable Independent
+
+Use for privileged operational actions and security-relevant denials that have no domain mutation transaction.
+
+Examples:
+
+- replay, dead-letter skip, or projection rebuild
+- data repair
+- Worker pause or resume
+- Organization containment
+- maintenance-mode changes
+- cross-Organization denial
+- Human-authority violation
+- denied Platform Operator command
+- repeated denial pattern promoted by security policy
+
+Required behavior:
+
+- a privileged operational action MUST NOT execute until its intent audit is durable
+- completion or failure is appended as a second result record
+- denial remains denied when audit persistence fails
+- audit-write failure creates an operational or security alert
+- retries use a stable operation or audit id
+
+## Class C — Best-Effort Security Telemetry
+
+Use for ordinary authenticated denials that are expected during normal product use and do not indicate a security boundary attack.
+
+Examples:
+
+- stale UI submits an operation no longer permitted by lifecycle state
+- a Member attempts an unavailable action
+- an expected policy denial without cross-Organization or Human-authority implications
+
+Required behavior:
+
+- emit structured security telemetry when capacity permits
+- do not synchronously block the denial response on durable audit storage
+- retain bounded counters for telemetry loss
+- promote the event to Class B when policy, repetition, or context makes it security-relevant
+
+Class C MUST NOT be used for successful Human-authoritative mutations.
+
+## Class D — Rate-Limited or Aggregated
+
+Use for unauthenticated, malformed, automated, or repeated traffic that could create audit-table or telemetry-pipeline denial of service.
+
+Examples:
+
+- repeated invalid tokens
+- malformed requests
+- credential-stuffing patterns
+- repeated identical denials from one bounded client identity
+- high-volume probing of nonexistent resources
+
+Required behavior:
+
+- deny the request independently of audit success
+- apply per-route, per-principal or protected client-fingerprint, and global limits
+- aggregate repeated observations by bounded reason and time window
+- sample detailed records after the configured threshold
+- expose accepted, aggregated, sampled, and dropped counters
+- never store credentials, raw tokens, or unbounded attacker-controlled text
+
+Rate limiting audit evidence MUST NOT weaken authentication, authorization, Organization isolation, or Human authority.
+
+---
+
+# Audit Classification Matrix
+
+| Audit scenario | Class | Persistence boundary | Failure behavior |
+|---|---|---|---|
+| Successful Human-authoritative transition | A | Same transaction as mutation, directly or through Outbox | Roll back mutation |
+| Successful role, ownership, or permission change | A | Same transaction as mutation, directly or through Outbox | Roll back mutation |
+| Replay, repair, containment, or Worker control | B | Durable intent before execution; append result | Do not execute without intent audit |
+| Cross-Organization or Human-authority denial | B | Separate durable audit | Remain denied and alert on audit loss |
+| Ordinary authenticated policy denial | C | Best-effort bounded telemetry | Remain denied; count telemetry loss |
+| Unauthenticated, malformed, or denial-flood traffic | D | Rate-limited, sampled, or aggregated | Remain denied; protect service capacity |
+
+The classification is based on security and accountability impact, not on the volume that happens to be observed in one environment.
+
+---
+
 # Authorization Audit
 
-Every authoritative command should record:
+Every accepted authoritative command MUST produce Class A authorization evidence containing:
 
 ```text
 principal
+
+principal type
 
 organization
 
@@ -2306,14 +2422,28 @@ permission
 
 resource
 
-policy version
+policy identifier and version
 
-Allow or Deny
+Allow outcome
 
 reason code
 
 evaluated time
+
+command identifier
+
+resulting Domain Event or Outbox reference
 ```
+
+Denied commands do not enter the domain mutation transaction.
+
+Deny evidence follows the durability classes:
+
+- security-relevant denial: Class B
+- ordinary authenticated denial: Class C
+- unauthenticated, malformed, or flood traffic: Class D
+
+A failed Deny audit write never changes the authorization outcome to Allow.
 
 ---
 
@@ -2425,15 +2555,30 @@ Neither should replace the other.
 
 # Audit Failure
 
-For authoritative Human actions, required audit persistence should occur inside the same transaction.
-
-If audit persistence fails:
+Failure behavior is determined by durability class.
 
 ```text
-the authoritative command should roll back
+Class A evidence fails
+    → roll back the authoritative mutation
+
+Class B intent evidence fails
+    → do not execute the privileged operation
+
+Class B denial evidence fails
+    → keep the request denied and raise an audit-persistence alert
+
+Class C telemetry fails
+    → keep the request denied and increment the loss counter
+
+Class D storage limit is reached
+    → keep the request denied, aggregate or drop details, and increment the loss counter
 ```
 
-This policy may be relaxed only through an explicit risk decision.
+Silent loss of successful authoritative execution evidence is prohibited.
+
+Audit failure MUST NOT grant permission, cross an Organization boundary, delegate Human authority, or turn a failed command into a successful one.
+
+The Class A rule may be changed only by an ADR that defines equivalent durable evidence, reconciliation, failure semantics, and operational ownership.
 
 ---
 
