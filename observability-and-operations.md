@@ -423,19 +423,212 @@ These events require structured audit and security telemetry.
 
 # Principle 9: Telemetry Is Privacy-Aware
 
-Logs and traces must avoid unnecessary storage of:
+Telemetry is production data and MUST be governed as such.
+
+Identifiers, hashes, timestamps, model references, and correlation chains can be sensitive even when business content is absent. Hashing alone is not anonymization.
+
+AIOS MUST minimize collection, classify fields before export, enforce retention, restrict access, and keep tenant-security telemetry separate from Organization-accessible audit.
+
+---
+
+# Telemetry Data Classes
+
+Every telemetry field MUST belong to one class.
+
+## T0 — Aggregate Operational Metadata
+
+Examples:
+
+- service name and version
+- environment
+- normalized route template
+- operation type
+- bounded status, outcome, and error category
+- duration and count
+- configured provider category
+
+T0 contains no tenant, principal, resource, or content identifier.
+
+## T1 — Correlation and Execution Identifiers
+
+Examples:
+
+- requestId
+- commandId
+- correlationId
+- causationId
+- eventId
+- traceId
+- spanId
+- generationAttemptId
+
+T1 can link activity across systems and is therefore internal operational data.
+
+## T2 — Tenant, Principal, and Resource Identifiers
+
+Examples:
+
+- organizationId
+- principalId
+- membershipId
+- workId
+- decisionId
+- memoryId
+- provider account reference
+- raw or tokenized client network identifier
+
+T2 is sensitive and linkable. It is never an ordinary metric label.
+
+## T3 — Business and Personal Content
+
+Examples:
 
 - Work content
 - Decision rationale
 - Memory content
-- email addresses
-- authentication subjects
-- invitation tokens
-- token hashes
-- secrets
-- full external-provider payloads
+- prompt or generated response
+- email address
+- invitation data
+- free-form error payload
+- customer-supplied metadata
+- content fingerprint
 
-Use identifiers, classifications, hashes, and bounded redacted metadata instead.
+T3 is prohibited from ordinary telemetry unless a separately approved incident-capture procedure explicitly permits a minimal redacted field.
+
+## T4 — Secrets and Credentials
+
+Examples:
+
+- password
+- authentication token
+- authorization header
+- cookie
+- API key
+- database credential
+- invitation token
+- encryption key
+- full token hash used for authentication
+
+T4 is prohibited from all telemetry and audit payloads.
+
+---
+
+# Telemetry Field Matrix
+
+| Surface | T0 | T1 | T2 | T3 | T4 |
+|---|---|---|---|---|---|
+| Metrics | Allowed | Trace exemplar only, never a label | Prohibited | Prohibited | Prohibited |
+| Traces | Allowed | Allowed | Tokenized by default; raw only in approved restricted capture | Prohibited | Prohibited |
+| Ordinary operational logs | Allowed | Allowed | Tokenized by default; selected raw identifiers only in restricted sinks | Prohibited except bounded redacted error metadata | Prohibited |
+| Restricted security logs | Allowed | Allowed | Raw when required for investigation and access is restricted | Minimal normalized reason data only | Prohibited |
+| Organization-accessible audit | Allowed | Allowed | Raw only within the same Organization scope | Normalized action metadata; no business body | Prohibited |
+| Platform-security audit | Allowed | Allowed | Raw when required and access is audited | Minimal normalized reason data only | Prohibited |
+| PostgreSQL operational records | Allowed | Allowed | Raw under explicit Organization scope | Only schema-approved bounded fields | Prohibited |
+
+A field not listed or classified is denied by default.
+
+Model name and provider may be T0 only when values come from bounded configuration. A caller-supplied model string is untrusted text and MUST be normalized before telemetry.
+
+---
+
+# Identifier Handling
+
+Raw T2 identifiers are permitted only where they are necessary for authorized diagnosis, audit, reconciliation, or deletion.
+
+Ordinary logs and traces SHOULD use a scoped tokenized reference instead of raw principal or resource identifiers.
+
+Tokenization requirements:
+
+- use a keyed, non-reversible construction such as HMAC
+- scope tokens by environment and, where practical, Organization
+- version the tokenization key
+- restrict re-identification or mapping access to an audited Platform Operator capability
+- do not reuse one global token across unrelated external systems
+- support key rotation without silently merging old and new identities
+
+Tokenization reduces exposure but does not make the data anonymous.
+
+Organization IDs may remain raw in PostgreSQL audit and operational tables because tenant scoping, repair, and deletion require them. They MUST NOT appear in metric labels or unrestricted exports.
+
+---
+
+# Telemetry Encryption and Transport
+
+All production telemetry stores MUST use encryption at rest.
+
+Telemetry in transit MUST use authenticated encryption, normally TLS.
+
+Requirements:
+
+- managed encryption keys or an approved key-management service
+- separate credentials for producers, readers, and administrators
+- no key or secret material in telemetry
+- encrypted backups
+- key rotation according to the secret-management policy
+- access to decrypted restricted telemetry is auditable
+
+Disabling certificate validation or exporting telemetry over plaintext is prohibited.
+
+---
+
+# Telemetry Residency and Export
+
+T1, T2, and T3-derived telemetry MUST remain in the approved data region for the associated deployment unless a contract, data-processing agreement, and architecture decision permit export.
+
+Cross-region or third-party export requires:
+
+- field-level classification
+- destination and subprocessors
+- encryption
+- retention and deletion capability
+- access model
+- incident-notification responsibility
+- documented Organization and jurisdiction impact
+
+Unrestricted export of raw Organization, principal, resource, prompt, response, or content-fingerprint data is prohibited.
+
+Vendor support bundles are exports and follow the same rules.
+
+---
+
+# Platform Security Telemetry and Organization Audit
+
+Platform-security telemetry and Organization-accessible audit serve different audiences.
+
+Organization-accessible audit:
+
+- is scoped to one Organization
+- explains authorized actions on that Organization
+- does not expose other Organizations, platform detection logic, protected network identifiers, or internal threat intelligence
+
+Platform-security telemetry:
+
+- may correlate activity across Organizations only for an authorized security purpose
+- requires Platform Security or restricted Platform Operator access
+- records access and export
+- is not directly exposed to Organization administrators
+- does not become a source of business authority
+
+A sanitized Organization audit export MUST be generated from an authorized application service, not by granting direct access to the platform log backend.
+
+---
+
+# Telemetry Deletion and Legal Hold
+
+Telemetry deletion follows Organization deletion, data-subject obligations, contractual retention, and security requirements.
+
+Required behavior:
+
+- delete or irreversibly de-identify T2 and T3-derived telemetry when its approved retention expires
+- propagate Organization deletion to searchable telemetry indexes and operational projections
+- retain minimal audit evidence only when a documented legal, contractual, fraud, or security basis requires it
+- minimize or pseudonymize retained subject identifiers where accountability permits
+- record legal-hold creation, scope, owner, reason, and release
+- prevent routine retention jobs from deleting records under active legal hold
+- delete expired backup copies through the normal backup lifecycle; surgical modification of immutable backups is not required
+- record deletion-job success, failure, and backlog without reintroducing deleted identifiers into metrics
+
+A legal hold extends retention but does not broaden access.
 
 ---
 
@@ -1487,15 +1680,26 @@ Do not log:
 
 # Content Fingerprints
 
-Where troubleshooting requires identifying content consistency, use:
+Content fingerprints are T3-derived sensitive data.
+
+Where consistency diagnosis requires a fingerprint, use a versioned keyed construction over normalized content rather than a plain hash.
 
 ```text
-contentHash
+contentFingerprintVersion
+
+contentFingerprint
 ```
 
-rather than content itself.
+Requirements:
 
-Hashes must not be treated as anonymization when the source space is guessable.
+- compute with a keyed HMAC or equivalent approved construction
+- scope by environment and, where practical, Organization
+- never use the fingerprint as authentication or authorization input
+- never place it in metric labels
+- store it only in restricted logs, traces, audit, or operational records when necessary
+- apply the same residency, retention, access, and deletion policy as the source class
+
+A fingerprint detects equality for an approved operational purpose. It is not anonymous data and MUST NOT replace proper version identifiers when the domain provides them.
 
 ---
 
@@ -1667,27 +1871,26 @@ WorkerResumed
 
 ---
 
-# Log Retention
+# Telemetry Retention
 
-Log retention should vary by category.
+Initial MVP production defaults:
 
-Suggested categories:
+| Data set | Default retention |
+|---|---:|
+| Metrics | 30 days |
+| Sampled traces | 7 days |
+| Application, Worker, deployment, database, and access logs | 30 days |
+| Restricted security logs | 90 days |
+| Class A and Class B durable audit | 365 days |
+| Persisted Class C denial telemetry | Maximum 30 days |
+| Class D aggregated security observations | 30 days |
+| Terminal operational workflow records and health history | 90 days after terminal resolution |
 
-```text
-Application Operational Logs
+Longer retention requires a documented legal, contractual, security, or operational need. Shorter retention must not break an active incident investigation, SLO window, reconciliation requirement, or mandatory audit period.
 
-Security Logs
+Retention configuration MUST be versioned, monitored, and tested. Expiry-job failure and retention backlog are operational alerts.
 
-Deployment Logs
-
-Database Logs
-
-Worker Failure Logs
-
-Access Logs
-```
-
-Final retention periods depend on compliance, privacy, and cost requirements.
+Legal hold overrides automatic expiry only for the explicitly recorded scope.
 
 ---
 
@@ -1701,27 +1904,29 @@ Stronger immutable storage may be used for security logs.
 
 ---
 
-# Log Access
+# Telemetry Access
 
-Access should be role-based.
+Telemetry access MUST follow least privilege.
 
-Examples:
+| Role | Default access |
+|---|---|
+| Developer | T0 and T1 application telemetry for assigned environments |
+| Platform Operator | Infrastructure, Worker, and operational records required for recovery |
+| Platform Security | Restricted authorization, isolation, and threat telemetry |
+| Database Administrator | PostgreSQL operational telemetry without business content |
+| Organization Administrator | Organization-scoped audit export only; no direct platform log or trace access |
 
-```text
-Developers
-    application operational logs
+Requirements:
 
-Operators
-    infrastructure and Worker logs
+- production access uses named identity and MFA
+- access to T2 or restricted security telemetry is logged
+- cross-Organization search requires a typed capability, reason, and durable audit
+- bulk export is disabled by default
+- shared credentials and unrestricted permanent access are prohibited
+- break-glass access is time-bounded and reviewed
+- vendor access is separately approved and time-bounded
 
-Security Operators
-    authorization and isolation logs
-
-Database Administrators
-    PostgreSQL operational logs
-```
-
-Restricted payload access should require additional authority.
+Possession of telemetry access does not grant permission to change business state or execute operational commands.
 
 ---
 
@@ -2217,9 +2422,11 @@ It is optional for the MVP.
 
 # Trace Retention
 
-Trace retention may be shorter than audit retention.
+Sampled production traces have an initial default retention of 7 days.
 
-Traces are diagnostic data, not durable business history.
+Traces are diagnostic data, not durable business history. They MUST NOT be retained longer merely to compensate for missing audit or operational state.
+
+Incident-specific trace retention requires recorded scope, owner, expiry, and data classification.
 
 ---
 
