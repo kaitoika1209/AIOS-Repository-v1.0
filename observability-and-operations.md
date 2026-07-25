@@ -1087,95 +1087,221 @@ Plain unstructured text should be limited to local development.
 
 ---
 
-# Operational Log Record Model
+# Operational Log Envelope
 
-Each structured log record uses an operational-log identity that is separate from any Domain Event, Integration Message, durable Operational Event, or Audit Record referenced by the log.
-
-The base envelope should contain:
+Every structured operational log uses one fixed base envelope:
 
 ```text
+logSchemaVersion
 timestamp
 severity
 operationalLogName
+operationalLogClass
 operationalLogCategory
 message
 serviceName
 serviceVersion
 environment
-requestId
-commandId
-correlationId
-causationId
-traceId
-spanId
-organizationId
-principalType
-principalId
-aggregateType
-aggregateId
-domainEventId
-domainEventType
-integrationMessageId
-integrationMessageType
-operationalEventId
-operationalEventType
-auditRecordId
-auditAction
-consumerName
-workerId
-attempt
 outcome
-errorCategory
-errorCode
 durationMs
+attributes
 ```
 
-Only applicable fields are populated.
+The base keys have one meaning and type across every service. `outcome` and `durationMs` may be null only when the registered operational-log class does not have a terminal outcome or measurable duration.
+
+`attributes` contains only registered namespaced extension attributes. A module MUST NOT add an ad hoc top-level key to the base envelope.
 
 ---
 
-# Required Log Fields
+# Required Base Fields
 
-Every production log MUST include:
+Every production log MUST populate:
 
 ```text
+logSchemaVersion
 timestamp
 severity
 operationalLogName
+operationalLogClass
 operationalLogCategory
 serviceName
 serviceVersion
 environment
-logSchemaVersion
+attributes
 ```
 
-Every request or Worker operation additionally includes a server-owned correlation identifier.
+`message` is a bounded Human-readable summary and is never the machine identity. It may be omitted from high-volume records when the operational-log registry permits omission.
+
+---
+
+# Extension Attribute Namespaces
+
+Canonical attribute keys use lower snake case after a registered namespace:
+
+```text
+identity.*
+http.*
+domain.*
+authorization.*
+event.*
+worker.*
+ai.*
+database.*
+projection.*
+reconciliation.*
+deployment.*
+backup.*
+operations.*
+security.*
+error.*
+```
+
+Examples:
+
+```text
+identity.command_id
+identity.correlation_id
+identity.organization_id
+domain.command_type
+domain.expected_version
+domain.resulting_version
+authorization.permission
+event.domain_event_id
+event.integration_message_type
+worker.attempt
+ai.generation_attempt_id
+operations.operation_id
+```
+
+Attribute names are part of the telemetry contract. Aliases such as `commandType`, `domain.commandType`, and `domain.command_type` MUST NOT coexist.
+
+---
+
+# Standard Identity Attributes
+
+Cross-cutting identifiers use:
+
+```text
+identity.request_id
+identity.command_id
+identity.correlation_id
+identity.causation_id
+identity.trace_id
+identity.span_id
+identity.organization_id
+identity.principal_type
+identity.principal_id
+identity.membership_id
+```
+
+Artifact-specific event and audit identities use:
+
+```text
+event.domain_event_id
+event.domain_event_type
+event.integration_message_id
+event.integration_message_type
+event.operational_event_id
+event.operational_event_type
+operations.audit_record_id
+operations.audit_action
+```
+
+Generic `eventName`, `eventType`, `eventId`, or unqualified `operationId` attributes are prohibited.
+
+---
+
+# Operational Log Class Registry
+
+Every `operationalLogName` MUST have one version-controlled registry entry containing:
+
+```text
+operationalLogName
+operationalLogClass
+owner
+category
+defaultSeverity
+requiredBaseFields
+requiredAttributes
+optionalAttributes
+privacyClasses
+samplingPolicy
+introducedLogSchemaVersion
+deprecatedLogSchemaVersion nullable
+```
+
+The MVP class contract is:
+
+| Class | Required attributes in addition to the base envelope |
+|---|---|
+| `CommandCompletion` | `identity.command_id`, `identity.correlation_id`, `identity.organization_id` when scoped, `identity.principal_type`, `domain.command_type`, `domain.aggregate_type`, `domain.aggregate_id`, `domain.expected_version` when used, `domain.resulting_version` on success |
+| `AuthorizationDecision` | `identity.correlation_id`, `identity.principal_type`, `identity.organization_id` when scoped, `authorization.permission`, `authorization.resource_type`, `authorization.outcome`, `authorization.reason_code`, `authorization.policy_version` |
+| `WorkerAttempt` | `identity.correlation_id`, `worker.worker_type`, `worker.worker_id`, `worker.operation_id`, `worker.attempt`, `worker.maximum_attempts` |
+| `OutboxRelay` | one registered Domain Event or Integration Message identity pair, `event.outbox_record_id`, `worker.attempt` |
+| `ConsumerDelivery` | one registered message identity pair, `event.consumer_name`, `worker.attempt`; `event.processed_marker_id` is required for `ConsumerEffectsCommitted` |
+| `MemoryGeneration` | `identity.correlation_id`, `identity.organization_id`, `domain.work_id`, `ai.generation_attempt_id`, `ai.generation_policy_version`, `worker.attempt` |
+| `SecurityViolation` | `identity.correlation_id`, `identity.principal_type`, `authorization.resource_type`, `authorization.reason_code`; protected identifiers follow the restricted-sink policy |
+| `PrivilegedOperation` | `operations.operation_id`, `operations.command_type`, `operations.scope_type`, `operations.reason_code`, `operations.audit_record_id` when durable intent or result exists |
+| `ProjectionOrReconciliation` | `identity.organization_id` when scoped, `projection.projection_name` or `reconciliation.finding_type`, and the registered source high-water mark or finding reference |
+| `DeploymentOrRecovery` | the registered deployment, migration, backup, restore, or incident reference appropriate to the log name |
+
+Conditional requirements are explicit registry rules. The phrase “when available” MUST NOT be used for an attribute required to interpret a terminal success, security violation, authoritative command completion, or privileged operation.
+
+---
+
+# Schema Ownership and Validation
+
+The Observability module owns the base envelope, namespace registry, compatibility policy, and validation tooling. Each producing module owns the semantic accuracy of its registered log names and extension attributes. A change affecting both requires review by both owners.
+
+CI MUST validate representative records for every registered `operationalLogName` against:
+
+- the base schema
+- its class contract
+- required and prohibited attributes
+- attribute types and bounded enums
+- privacy classification and sink policy
+- sampling prohibition where applicable
+
+Production ingestion records a bounded contract-violation counter and routes malformed security-critical or audit-linked logs to a restricted diagnostic path. A malformed optional log MUST NOT roll back valid business state.
+
+---
+
+# Compatibility Rules
+
+Compatible changes include adding an optional registered attribute or a new operational-log name that does not change an existing meaning.
+
+Breaking changes include:
+
+- adding a required attribute to an existing log name
+- removing or renaming an attribute
+- changing an attribute type, unit, privacy class, or meaning
+- changing the completion boundary represented by a log name
+- moving a field between the base envelope and `attributes`
+- changing sampling eligibility for accountability- or security-critical records
+
+A breaking change requires a new `logSchemaVersion`, versioned registry fixtures, and either dual emission or a documented compatible query migration window. Consumers MUST ignore unknown optional attributes but MUST NOT reinterpret an unknown required contract as a known success.
 
 ---
 
 # Telemetry Identity Namespace
 
-The following names are not interchangeable:
+The following semantic names remain distinct:
 
 ```text
-domainEventType            # committed domain fact
-integrationMessageType     # stable consumer-facing message contract
-operationalEventType       # explicitly persisted operational fact
-operationalLogName         # telemetry record identity
-auditAction                # accountability action in durable audit
+domainEventType            # event.domain_event_type
+integrationMessageType     # event.integration_message_type
+operationalEventType       # event.operational_event_type
+operationalLogName         # base telemetry record identity
+auditAction                # operations.audit_action
 ```
 
-The corresponding identifiers use the same namespace-specific prefixes shown in the base envelope. A log MUST NOT use generic `eventName` or `eventType` fields because their meaning changes between producers and queries.
-
-When a Domain Event is mapped to an Integration Message, the log may carry both identity pairs. They identify different artifacts even when the MVP temporarily uses the same payload or identifier value.
-
-An ordinary structured log record is not an Operational Event and MUST NOT be placed in the Outbox, processed-event store, or audit table merely because it has a stable name. Conversely, emitting a log does not prove that an event was committed, a message was relayed, consumer effects were committed, or an audit record was stored.
+An ordinary structured log record is not an Operational Event and does not prove that an event was committed, a message was relayed, consumer effects committed, or an audit record stored.
 
 ---
 
 # Operational Log Name
 
-`operationalLogName` is stable and machine-queryable. It names the observed processing stage, not the underlying business fact.
+`operationalLogName` names the observed processing stage, not the underlying business fact.
 
 Preferred:
 
@@ -1188,7 +1314,7 @@ ConsumerEffectsCommitted
 MemoryGenerationFailed
 ```
 
-Avoid free-text messages as the primary identity. Avoid names such as `DomainEventPublished` or `DomainEventProcessed`, because they do not state whether the Outbox relay, transport acknowledgement, handler execution, or consumer transaction completed.
+Avoid names such as `DomainEventPublished` or `DomainEventProcessed`, because they do not state which transaction or delivery boundary completed.
 
 ---
 
@@ -1420,17 +1546,17 @@ Production SQL logging should not record full parameter values by default.
 It may record:
 
 ```text
-query name
+database.query_name
 
-operation type
+database.operation
 
-duration
+durationMs in the base envelope
 
-row count
+database.row_count
 
-timeout
+database.timeout
 
-database error code
+error.database_code
 ```
 
 Sensitive bind values must be redacted.
@@ -1470,19 +1596,19 @@ DatabaseQuerySlow
 Recommended fields:
 
 ```text
-operationName
+database.operation
 
-durationMs
+durationMs in the base envelope
 
-rowsExamined when available
+database.rows_examined when registered
 
-rowsReturned
+database.rows_returned
 
-organizationScoped
+database.organization_scoped
 
-transactionId when available
+database.transaction_id when registered
 
-traceId
+identity.trace_id
 ```
 
 Do not include unrestricted SQL parameters.
@@ -1491,7 +1617,7 @@ Do not include unrestricted SQL parameters.
 
 # Transaction Logging
 
-Important transaction events may include:
+Important transaction operational log names may include:
 
 ```text
 TransactionStarted
@@ -1513,22 +1639,29 @@ High-volume success events may be traced rather than logged individually.
 
 # Aggregate Command Logging
 
-An authoritative command should produce one completion log.
+An authoritative command should produce one `CommandCompletion` log.
 
 Example:
 
 ```json
 {
+  "logSchemaVersion": 3,
   "operationalLogName": "WorkCommandCompleted",
-  "commandType": "CompleteWork",
-  "organizationId": "org-...",
-  "aggregateType": "Work",
-  "aggregateId": "work-...",
-  "expectedVersion": 8,
-  "resultingVersion": 9,
-  "principalType": "HumanMember",
+  "operationalLogClass": "CommandCompletion",
+  "operationalLogCategory": "DomainWorkflow",
   "outcome": "Succeeded",
-  "durationMs": 42
+  "durationMs": 42,
+  "attributes": {
+    "identity.command_id": "command-...",
+    "identity.correlation_id": "corr-...",
+    "identity.organization_id": "org-...",
+    "identity.principal_type": "HumanMember",
+    "domain.command_type": "CompleteWork",
+    "domain.aggregate_type": "Work",
+    "domain.aggregate_id": "work-...",
+    "domain.expected_version": 8,
+    "domain.resulting_version": 9
+  }
 }
 ```
 
@@ -1540,7 +1673,7 @@ The actual Work content must not be logged.
 
 Authorization outcomes should be observable.
 
-Recommended log events:
+Recommended operational log names:
 
 ```text
 AuthorizationAllowed
@@ -1559,32 +1692,32 @@ Denied authoritative actions should not be silently sampled away.
 Recommended fields:
 
 ```text
-principalType
+identity.principal_type
 
-principalId
+identity.principal_id
 
-membershipId
+identity.membership_id
 
-organizationId
+identity.organization_id
 
-commandType
+domain.command_type
 
-permission
+authorization.permission
 
-resourceType
+authorization.resource_type
 
-resourceId when disclosure policy permits
+authorization.resource_id when disclosure policy permits
 
-reasonCode
+authorization.reason_code
 
-policyVersion
+authorization.policy_version
 ```
 
 ---
 
 # Human Authority Violation Logging
 
-Attempts by non-Human principals to perform Human-authoritative commands require a dedicated event.
+Attempts by non-Human principals to perform Human-authoritative commands require a dedicated `SecurityViolation` operational log.
 
 Example:
 
@@ -1595,21 +1728,21 @@ HumanAuthorityBoundaryViolation
 Fields:
 
 ```text
-principalType
+identity.principal_type
 
-principalId
+identity.principal_id
 
-attemptedCommand
+domain.command_type
 
-organizationId
+identity.organization_id
 
-resourceType
+authorization.resource_type
 
-resourceId
+authorization.resource_id
 
-reasonCode
+authorization.reason_code
 
-correlationId
+identity.correlation_id
 ```
 
 This should normally be severity:
@@ -1646,7 +1779,7 @@ Internal security telemetry may contain protected identifiers under restricted a
 
 Every Worker attempt should be observable.
 
-Recommended Worker events:
+Recommended Worker operational log names:
 
 ```text
 WorkerBatchStarted
@@ -1672,7 +1805,7 @@ High-volume successful item logs may be sampled.
 
 Metrics remain the primary tool for throughput.
 
-Failures, retries, lease expiry, and poison events must not be sampled away.
+Failures, retries, lease expiry, and poison-event failure logs must not be sampled away.
 
 ---
 
@@ -1681,23 +1814,23 @@ Failures, retries, lease expiry, and poison events must not be sampled away.
 A retry log must include:
 
 ```text
-operationId
+worker.operation_id
 
-attempt
+worker.attempt
 
-maximumAttempts
+worker.maximum_attempts
 
-errorCategory
+error.category
 
-errorCode
+error.code
 
-nextAttemptAt
+worker.next_attempt_at
 
-retryDelayMs
+worker.retry_delay_ms
 
-workerId
+worker.worker_id
 
-correlationId
+identity.correlation_id
 ```
 
 ---
@@ -1786,14 +1919,14 @@ MessageContractRejected
 Required fields include:
 
 ```text
-eventCategory
-domainEventId and domainEventType when category = Domain
-integrationMessageId and integrationMessageType when category = Integration
-schemaVersion
-consumerName
-validationErrorCode
-payloadFingerprint when permitted
-organizationId when safely available
+event.category
+event.domain_event_id and event.domain_event_type when category = Domain
+event.integration_message_id and event.integration_message_type when category = Integration
+event.schema_version
+event.consumer_name
+error.validation_code
+security.payload_fingerprint when permitted
+identity.organization_id when safely available
 ```
 
 Exactly one primary message identity pair is required. Both pairs may be present only for an explicitly recorded Domain-to-Integration mapping. Do not log the full invalid payload by default.
@@ -1827,29 +1960,29 @@ MemoryGenerationAbandoned
 Every Memory generation log MUST include, when available:
 
 ```text
-organizationId
+identity.organization_id
 
-workId
+domain.work_id
 
-generationAttemptId
+ai.generation_attempt_id
 
-sourceEventId
+event.domain_event_id
 
-generationPolicyVersion
+ai.generation_policy_version
 
-attemptNumber
+worker.attempt
 
-status
+ai.status
 
-failureCategory
+error.category
 
-errorCode
+error.code
 
-correlationId
+identity.correlation_id
 
-causationId
+identity.causation_id
 
-traceId
+identity.trace_id
 ```
 
 Provider-completion logs MUST report duration, outcome, provider, and configured model reference without prompt or response content.
@@ -1863,19 +1996,19 @@ Success and terminal-failure logs MUST be emitted from committed durable state. 
 When an external AI provider is used, logs may include:
 
 ```text
-providerName
+ai.provider_category
 
-modelReference
+ai.model_slot
 
-requestDurationMs
+ai.provider_duration_ms
 
-responseStatusClass
+ai.response_status_class
 
-tokenUsageCategory
+ai.token_usage_category
 
-generationPolicyVersion
+ai.generation_policy_version
 
-promptTemplateVersion
+ai.prompt_template_version
 ```
 
 Do not log:
@@ -1896,9 +2029,9 @@ Content fingerprints are T3-derived sensitive data.
 Where consistency diagnosis requires a fingerprint, use a versioned keyed construction over normalized content rather than a plain hash.
 
 ```text
-contentFingerprintVersion
+security.content_fingerprint_version
 
-contentFingerprint
+security.content_fingerprint
 ```
 
 Requirements:
@@ -1955,19 +2088,19 @@ ReconciliationScanCompleted
 Reconciliation logs should include:
 
 ```text
-findingType
+reconciliation.finding_type
 
-severity
+reconciliation.severity
 
-organizationId
+identity.organization_id
 
-aggregateType
+domain.aggregate_type
 
-aggregateId
+domain.aggregate_id
 
-sourceEventId
+event.domain_event_id
 
-resolutionReference
+reconciliation.resolution_reference
 ```
 
 ---
@@ -1989,19 +2122,19 @@ MigrationCompleted
 Recommended fields:
 
 ```text
-migrationId
+deployment.migration_id
 
-module
+deployment.module
 
-databaseName
+database.name
 
-applicationVersion
+deployment.application_version
 
-durationMs
+durationMs in the base envelope
 
-outcome
+outcome in the base envelope
 
-errorCode
+error.code
 ```
 
 ---
@@ -3096,55 +3229,46 @@ Degraded
 
 # Log Schema Version
 
-Structured log records MUST include:
+Structured log records use:
 
 ```text
-logSchemaVersion
+logSchemaVersion = 3
 ```
 
-Changing a field name, identity namespace, required-field rule, or operational-log meaning requires a compatible schema evolution or a new version. Renaming an operational log does not rename a Domain Event or Integration Message contract.
+Version 3 fixes the base envelope and moves specialized fields into registered namespaced `attributes`. The compatibility rules in the Operational Log Envelope section govern later changes.
 
 ---
 
-# Example Base Log Schema
+# Example Operational Log Record
 
 ```json
 {
-  "logSchemaVersion": 2,
+  "logSchemaVersion": 3,
   "timestamp": "2026-07-24T12:00:00Z",
   "severity": "Info",
   "operationalLogName": "ConsumerEffectsCommitted",
+  "operationalLogClass": "ConsumerDelivery",
   "operationalLogCategory": "Consumer",
   "message": "The consumer effects and processed-event marker committed.",
   "serviceName": "aios-memory-worker",
   "serviceVersion": "1.0.0",
   "environment": "production",
-  "requestId": null,
-  "commandId": null,
-  "correlationId": "corr-...",
-  "causationId": "domain-event-...",
-  "traceId": "trace-...",
-  "spanId": "span-...",
-  "organizationId": "org-...",
-  "principalType": "System",
-  "principalId": "system-memory-worker",
-  "aggregateType": "Memory",
-  "aggregateId": "memory-...",
-  "domainEventId": "domain-event-...",
-  "domainEventType": "WorkCompleted",
-  "integrationMessageId": null,
-  "integrationMessageType": null,
-  "operationalEventId": null,
-  "operationalEventType": null,
-  "auditRecordId": null,
-  "auditAction": null,
-  "consumerName": "memory-generation",
-  "workerId": "worker-03",
-  "attempt": 1,
   "outcome": "Succeeded",
-  "errorCategory": null,
-  "errorCode": null,
-  "durationMs": 184
+  "durationMs": 184,
+  "attributes": {
+    "identity.correlation_id": "corr-...",
+    "identity.causation_id": "domain-event-...",
+    "identity.organization_id": "org-...",
+    "identity.principal_type": "System",
+    "domain.aggregate_type": "Memory",
+    "domain.aggregate_id": "memory-...",
+    "event.domain_event_id": "domain-event-...",
+    "event.domain_event_type": "WorkCompleted",
+    "event.consumer_name": "memory-generation",
+    "event.processed_marker_id": "processed-event-...",
+    "worker.worker_id": "worker-03",
+    "worker.attempt": 1
+  }
 }
 ```
 
@@ -3152,49 +3276,38 @@ Changing a field name, identity namespace, required-field rule, or operational-l
 
 # Log Field Cardinality
 
-Fields intended for aggregation must remain bounded.
-
-Low-cardinality examples:
+Low-cardinality base fields and attributes may be indexed for aggregation. Examples include:
 
 ```text
 serviceName
-
 environment
-
 operationalLogName
-
+operationalLogClass
+operationalLogCategory
 outcome
-
-errorCategory
-
-consumerName
-
-aggregateType
+error.category
+event.consumer_name
+domain.aggregate_type
 ```
 
-High-cardinality examples:
+High-cardinality attributes include:
 
 ```text
-organizationId
-
-aggregateId
-
-commandId
-
-domainEventId
-
-integrationMessageId
-
-operationalEventId
-
-auditRecordId
-
-traceId
-
-principalId
+identity.organization_id
+identity.command_id
+identity.correlation_id
+identity.trace_id
+identity.principal_id
+domain.aggregate_id
+event.domain_event_id
+event.integration_message_id
+event.operational_event_id
+operations.audit_record_id
+worker.operation_id
+ai.generation_attempt_id
 ```
 
-High-cardinality fields belong in logs and traces, not ordinary metric labels.
+High-cardinality attributes belong only in permitted logs and traces, not ordinary metric labels. Their namespace does not change their privacy class.
 
 ---
 
@@ -3321,6 +3434,7 @@ The observability foundation must preserve:
 19. Timestamps use UTC.
 20. Telemetry schema changes are versioned.
 21. Reconciliation detects failure of an independently owned guarantee; it never replaces preventive enforcement or directly mutates authoritative Domain state.
+22. Specialized log attributes use registered namespaces and class contracts; modules cannot add ad hoc top-level fields.
 
 ---
 
