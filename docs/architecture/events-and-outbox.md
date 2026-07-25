@@ -240,55 +240,79 @@ The two may use the same payload in the MVP only when:
 
 # Operational Event
 
-An Operational Event represents infrastructure or processing activity.
+An Operational Event is an explicitly modeled, durable operational fact that another component must process, reconcile, or replay.
 
-Examples:
+Examples may include:
 
 ```text
-OutboxPublicationFailed
-
-EventProcessingRetried
-
 MemoryGenerationAttemptFailed
-
 SessionInvalidationCompleted
-
-ReconciliationFindingCreated
+ReconciliationRecoveryScheduled
 ```
 
-Operational Events do not represent authoritative business decisions.
+An Operational Event has an explicit contract, owner, persistence boundary, retention rule, and consumer policy. It does not represent an authoritative business decision.
+
+A structured log such as `OutboxRelayFailed` or `ConsumerDeliveryRetryScheduled` is an Operational Log Record, not an Operational Event. A metric, trace span, alert, or audit record is also not automatically an Operational Event.
 
 ---
 
 # Operational Event Authority
 
-Operational Events may be emitted by:
+Operational Events may be produced by Background Workers, reconciliation services, or infrastructure adapters only when durable downstream processing is required.
 
-- Background Workers
-- Outbox publishers
-- reconciliation services
-- infrastructure adapters
-- monitoring components
-
-They must not be confused with Domain Events.
+They MUST NOT approve a Decision, complete Work, approve Memory, grant Human authority, or become evidence that an Aggregate transition occurred. Observability-only activity remains outside the event contract registry and Outbox.
 
 ---
 
 # Event Categories
 
-Recommended categories:
+The event contract registry uses:
 
 ```text
 Domain
-
 Integration
-
 Operational
-
-Audit
 ```
 
-An event record should identify its category explicitly where multiple categories share storage or tooling.
+Audit is a separate durable record class identified by `auditAction`; it is not an Event category in the MVP EventEnvelope. A Domain Event and its mapped Integration Message remain distinct artifacts even when the MVP uses equivalent payload fields.
+
+---
+
+# Cross-Document Terminology Boundary
+
+| Artifact | Semantic field | Identifier field | Meaning | Authoritative for |
+|---|---|---|---|---|
+| Domain Event | `domainEventType` | `domainEventId` | Committed domain fact emitted by an Aggregate | Fact that the source Aggregate transition committed |
+| Integration Message | `integrationMessageType` | `integrationMessageId` | Stable consumer-facing transport contract | Delivery input only; never unrestricted command authority |
+| Operational Event | `operationalEventType` | `operationalEventId` | Durable operational fact requiring processing or replay | Its explicitly bounded operational workflow only |
+| Operational Log Record | `operationalLogName` | no generic event identifier | Diagnostic observation about a processing stage | Nothing; telemetry is non-authoritative |
+| Audit Record | `auditAction` | `auditRecordId` | Accountability and authorization evidence | Recorded accountability, not domain state |
+
+The generic `eventId`, `eventType`, and `eventCategory` names remain valid only inside the versioned EventEnvelope and event-store schema defined by this document. At mapping, logging, audit, API, and dashboard boundaries, code and schemas MUST use the artifact-specific names above.
+
+---
+
+# Delivery-Stage Vocabulary
+
+The following stages are distinct:
+
+```text
+Domain Event committed
+    -> Outbox record persisted
+        -> Outbox record claimed
+            -> Integration Message relayed or internal delivery acknowledged
+                -> Consumer delivery started
+                    -> Consumer effects and processed-event marker committed
+```
+
+`Published`, `Processed`, or `Completed` MUST NOT be used without the subject and completed boundary. In operational telemetry, use stage-specific names such as:
+
+```text
+OutboxRecordRelayed
+ConsumerEffectsCommitted
+```
+
+Publication success does not imply consumer success. Consumer handler return does not imply committed effects.
 
 ---
 
@@ -501,9 +525,9 @@ Event type names must remain stable within a schema version.
 
 ---
 
-# Event Category
+# EventEnvelope Category
 
-Recommended values:
+Inside the versioned EventEnvelope, `eventCategory` uses:
 
 ```text
 Domain
@@ -511,11 +535,9 @@ Domain
 Integration
 
 Operational
-
-Audit
 ```
 
-Consumers may use category to apply different handling policies.
+Consumers may use the category to select the registered handling policy. Audit is represented by an Audit Record with `auditAction` and `auditRecordId`, not by an MVP EventEnvelope category. Outside the EventEnvelope schema, use `domainEventType`, `integrationMessageType`, or `operationalEventType` rather than a generic `eventType`.
 
 ---
 
@@ -1387,6 +1409,9 @@ The following invariants must always hold:
 16. Unknown event contracts fail visibly.
 17. Failed events remain recoverable.
 18. Events do not replace Aggregate state as the MVP source of truth.
+19. Operational Log Records, metrics, traces, alerts, and Audit Records are not EventEnvelope contracts.
+20. Outbox relay acknowledgement and consumer-effect commit are distinct lifecycle facts.
+21. Artifact-specific terminology is mandatory outside the generic EventEnvelope schema.
 
 ---
 
