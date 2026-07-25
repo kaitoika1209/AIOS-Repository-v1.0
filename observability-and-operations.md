@@ -92,6 +92,7 @@ Only uppercase **MUST**, **SHOULD**, and **MAY** are normative. Lowercase wordin
 Before the MVP is operated in production, AIOS MUST provide:
 
 - structured JSON logs with a stable base envelope and redaction
+- bounded telemetry exporters with queue limits, timeouts, retry ceilings, loss counters, disk quotas where used, and shutdown deadlines
 - server-owned request and workflow correlation
 - error capture for unhandled application and Worker failures
 - RED metrics for HTTP traffic
@@ -807,31 +808,195 @@ The exact exporter and backend may vary by environment.
 
 ---
 
-# Telemetry Failure Behavior
+# Telemetry Failure and Backpressure Contract
 
-Business operations should not normally fail because optional telemetry export is unavailable.
+Optional telemetry export MUST NOT roll back or reject a valid business operation, but it also MUST NOT consume unbounded memory, disk, threads, connections, or shutdown time. Telemetry is allowed to degrade; the authoritative service is not allowed to fail merely to preserve optional telemetry.
+
+Required durable audit is not an exporter concern. It follows the Audit Durability Classes and is written to PostgreSQL under the required transaction policy. It MUST NOT pass through a lossy log, metric, or trace queue.
 
 Examples:
 
 ```text
 Trace export failure
-    must not reject Work completion
+    → do not reject Work completion
+    → bound or drop spans
+    → increment a local loss counter
 ```
 
 ```text
 Metrics export failure
-    must not roll back Decision approval
+    → do not roll back Decision approval
+    → retain only bounded current aggregates
+    → discard expired samples
 ```
 
-Durable authorization audit is different.
+```text
+Required Class A audit persistence failure
+    → fail the authoritative command transaction
+    → do not report the command as successful
+```
 
-If required audit persistence fails inside an authoritative command transaction, the transaction should fail according to audit policy.
+---
+
+# Telemetry Delivery Classes
+
+| Delivery class | Data | Failure behavior |
+|---|---|---|
+| Authoritative durability | Class A audit, authoritative state, Transactional Outbox | Commit atomically or fail according to the transaction policy; never drop |
+| Durable operational accountability | Class B audit and approved privileged-operation records | Persist through the bounded durable audit path; do not redirect to optional exporters |
+| High-priority diagnostic telemetry | security violations, fatal errors, integrity failures | Attempt first within bounded capacity; aggregate repeated records; may be lost only after capacity protection activates |
+| Ordinary operational telemetry | informational logs, standard error details, metrics | Buffer or aggregate within fixed budgets; drop or coalesce on saturation |
+| Sampled diagnostic telemetry | traces, debug logs, verbose spans | Sample or drop first |
+
+No non-authoritative telemetry class has an unlimited delivery guarantee. A higher priority changes the order of admission and dropping; it does not permit unbounded resource use.
+
+---
+
+# Bounded Export Queues
+
+Every in-process exporter MUST define fixed limits for:
+
+- maximum queued records and bytes
+- maximum batch size
+- maximum concurrent export requests
+- per-request connection and response timeout
+- maximum retry age or retry attempts
+- maximum backoff interval
+- maximum process memory allocated to telemetry
+
+Limits are configuration validated at startup. A missing or unlimited value is invalid in production.
+
+When a queue reaches its limit, the exporter MUST apply a documented non-blocking admission policy. The default order is:
+
+1. drop new debug spans and verbose trace data
+2. drop or sample repetitive informational logs
+3. coalesce metric updates and discard expired metric samples
+4. aggregate repeated warning, error, and security records by bounded reason code
+5. drop additional diagnostic detail rather than block an authoritative transaction or Worker lease
+
+The process MUST NOT allocate a second unbounded overflow queue. Caller threads, event loops, and Worker claim loops MUST NOT synchronously wait for a remote telemetry backend.
+
+---
+
+# Export Timeout and Retry Policy
+
+Remote export calls MUST use explicit connection and response deadlines. Retries MUST use exponential backoff with jitter and a ceiling.
+
+Exporters MUST NOT:
+
+- retry forever at full rate
+- create one retry task per failed record
+- retain expired data merely because the backend is unavailable
+- share retry state with business-command idempotency
+- consume the HTTP request budget or Worker lease extension budget
+- hold PostgreSQL transactions open during remote export
+
+Authentication failure, invalid configuration, and other non-transient exporter errors open an exporter circuit and suppress hot retries until the configured probe interval or a configuration change. A backend recovery closes the circuit only after a successful bounded probe.
+
+---
+
+# Resource and Bulkhead Isolation
+
+Telemetry export uses resource pools isolated from authoritative request and Worker execution where practical.
+
+Required rules:
+
+- remote exporters use their own bounded network concurrency
+- an exporter MUST NOT consume the PostgreSQL connection pool reserved for authoritative commands and Workers
+- optional local collectors or agents have explicit CPU and memory limits
+- log serialization and enrichment have bounded record size and execution time
+- oversized records are truncated or rejected under the telemetry data policy before queue admission
+- telemetry backpressure MUST NOT extend an Outbox lease or Worker lease indefinitely
+
+If the deployment writes logs to stdout or a local agent, the writer and collector MUST be configured so a blocked pipe cannot indefinitely block application execution. The application uses a bounded non-blocking queue or an equivalent runtime mechanism and applies the same loss policy when the sink stops reading.
+
+---
+
+# Local Disk Spooling
+
+Disk spooling is optional and MUST NOT be treated as unlimited durability.
+
+When enabled, each process or node MUST define:
+
+- maximum spool bytes
+- maximum record age
+- approved storage path
+- encryption and file permissions appropriate to the highest retained data class
+- rotation and deletion behavior
+- behavior when the disk budget is reached
+
+The spool MUST NOT share an unbounded volume with PostgreSQL data, WAL, backups, or other authoritative storage. When the spool budget is exhausted, the exporter drops data according to priority and increments loss counters; it MUST NOT consume remaining system disk or make HTTP readiness fail solely to preserve optional telemetry.
+
+Secrets, raw prompts, generated content, and T4 data remain prohibited even in a local spool.
+
+---
+
+# Backend-Unavailable Behavior
+
+When a centralized log, metric, or trace backend is unavailable:
+
+- authoritative commands and required audit continue under their normal PostgreSQL policy
+- the exporter circuit opens after its bounded failure threshold
+- in-memory queues remain within configured limits
+- optional disk spooling remains within its quota
+- expired samples and low-priority records are dropped
+- local loss and queue-pressure counters remain available through the process metrics or authenticated diagnostic surface
+- the incident is raised from independent platform monitoring when the outage or loss threshold is sustained
+- HTTP and Worker readiness remain unchanged unless the failing component is actually required for safe business processing
+
+Telemetry backend recovery MUST NOT trigger an uncontrolled catch-up burst. Export resumes with bounded concurrency and preserves current service capacity before draining retained telemetry.
+
+---
+
+# Shutdown Flush Contract
+
+Shutdown attempts a best-effort flush of accepted optional telemetry within a fixed deadline. The MVP default is five seconds, and the configured deadline MUST be shorter than the process termination grace period.
+
+After the deadline:
+
+- optional logs, metrics, and traces may be dropped
+- the process records a bounded `telemetry_shutdown_drop_total` observation when possible
+- shutdown proceeds without waiting indefinitely for the backend
+- authoritative transactions already accepted follow their normal graceful-shutdown and recovery rules
+- required durable audit is committed with its authoritative transaction or the transaction is not reported as successful
+
+A telemetry flush MUST NOT delay lease release, transaction rollback, or safe process termination beyond their own deadlines.
+
+---
+
+# Telemetry Self-Observability
+
+Each exporter SHOULD expose bounded local metrics such as:
+
+```text
+telemetry_export_attempt_total{signal,outcome}
+telemetry_export_failure_total{signal,reason_code}
+telemetry_export_dropped_total{signal,priority,reason_code}
+telemetry_export_queue_utilization_ratio{signal}
+telemetry_export_oldest_queued_seconds{signal}
+telemetry_export_circuit_open{signal}
+telemetry_spool_bytes{signal}
+telemetry_shutdown_flush_timeout_total{signal}
+```
+
+Labels MUST come from bounded configuration or enums. They MUST NOT include Organization, Aggregate, request, command, event, trace, span, raw exception, endpoint path, or exporter URL values.
+
+Because the primary telemetry backend may be unavailable, critical exporter-health alerts require an independent signal where feasible, such as collector supervision, platform resource monitoring, or an authenticated direct scrape. Lack of exporter evidence is represented as `Unknown` or `Stale`, not `Healthy`.
+
+Alert conditions SHOULD include:
+
+- sustained queue utilization above the configured threshold
+- any sustained loss of high-priority diagnostic telemetry
+- rapidly increasing optional telemetry drops
+- spool usage approaching its fixed quota
+- an exporter circuit remaining open beyond the allowed interval
+- repeated shutdown flush timeouts
 
 ---
 
 # Telemetry Priority
 
-Recommended priority order:
+The system priority order is:
 
 ```text
 1. Authoritative domain persistence
@@ -840,16 +1005,14 @@ Recommended priority order:
 
 3. Transactional Outbox
 
-4. Operational logs
+4. High-priority bounded diagnostic telemetry
 
-5. Metrics
+5. Ordinary operational logs and metrics
 
-6. Traces
+6. Sampled traces and debug telemetry
 ```
 
-The first three may participate in the business transaction.
-
-Logs, metrics, and traces should normally be emitted outside the database commit dependency.
+The first three may participate in the business transaction. Items four through six are emitted outside the database commit dependency and remain bounded and lossy under failure.
 
 ---
 
@@ -3111,7 +3274,7 @@ The observability foundation must preserve:
 13. Worker lease expiry is observable and recoverable.
 14. Event contract failures do not expose full payloads.
 15. Trace context is propagated but never trusted for authorization.
-16. Operational telemetry failure does not normally roll back valid business operations.
+16. Optional telemetry export is bounded and cannot roll back valid business operations or consume unbounded process resources.
 17. Audit failure may roll back authoritative commands where audit is required.
 18. Replay and repair operations are fully attributable.
 19. Timestamps use UTC.
