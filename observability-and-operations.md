@@ -7157,18 +7157,39 @@ An Organization-scoped pause MUST NOT stop another Organization. A platform-wide
 
 # Replay and Dead-Letter Safety
 
-Before replay or dead-letter retry, the service MUST evaluate:
+The Consumer Ordering and Failure-Continuation Contract in `docs/architecture/events-and-outbox.md` is authoritative for whether a failed delivery may be quarantined while later deliveries continue. The Operations Application Service MUST load the registered `orderingRequirement`, `orderingKeyStrategy`, `failureContinuationPolicy`, `sideEffectClass`, and `skipPolicy`; an operator request cannot override those fields ad hoc.
+
+Before replay, dead-letter retry, or skip, the service MUST evaluate:
 
 - target event and consumer contract version
 - source Organization and authorization scope
-- current processed-event and dead-letter state
-- Aggregate or partition ordering impact
-- whether the consumer creates an irreversible external side effect
-- consumer idempotency capability
-- later events already processed for the same ordering key
-- required dry-run or Human approval policy
+- current processed-event, dead-letter, and durable ordering-key state
+- Aggregate, business-key, partition, or consumer-wide ordering impact
+- registered failure-continuation and skip policies
+- whether the consumer creates an irreversible or outcome-ambiguous external side effect
+- consumer technical and business idempotency capability
+- later events already processed or blocked for the same ordering key
+- required dry-run, reconciliation, compensation, or Human approval policy
 
-The result records whether ordering was preserved, intentionally broken, or not applicable. If ordering would be broken without an approved recovery policy, execution is rejected.
+Operational behavior follows the registered policy:
+
+```text
+ContinueIndependent
+    → quarantine the failed delivery and continue only the explicitly safe independent scope
+
+BlockOrderingKey
+    → keep later deliveries for the same consumer and key blocked
+
+BlockConsumer
+    → stop the consumer until the contract or configuration failure is resolved
+
+RequireExternalRecovery
+    → keep the key blocked until the external outcome is reconciled or compensated
+```
+
+The result records whether ordering was preserved, intentionally broken, or not applicable. `SkipDeadLetter` records `orderingBroken = true` when continuity is intentionally broken and cannot unblock the key until required reconciliation, rebuild, or compensation validation succeeds. If ordering would be broken without an approved owning-module recovery policy, execution is rejected.
+
+A blocked key degrades the affected asynchronous workflow and Organization workflow-health record without making unrelated Organizations, consumers, ordering keys, or HTTP readiness unhealthy. Consumer-wide blocks and irreversible-effect uncertainty receive higher operational severity than one rebuildable projection entry.
 
 Replay completion means the requested delivery reached its defined terminal consumer result. It does not imply that a Human business decision was approved or that Work, Decision, or Memory state changed successfully unless the owning domain command independently committed that fact.
 
