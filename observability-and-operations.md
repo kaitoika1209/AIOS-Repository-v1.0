@@ -97,7 +97,7 @@ Before the MVP is operated in production, AIOS MUST provide:
 - RED metrics for HTTP traffic
 - PostgreSQL, Outbox, Worker, queue-age, and Work-to-Memory workflow metrics
 - durable audit for successful Human-authoritative transitions and privileged operational actions
-- HTTP and Worker health surfaces sufficient to distinguish synchronous and asynchronous failure
+- separate HTTP liveness/readiness, Worker liveness/readiness, asynchronous workflow health, and restricted administrative diagnostics
 - bounded retry, idempotency, retry-exhaustion visibility, and dead-letter handling
 - database backup, point-in-time recovery capability, and a verified restore procedure
 - actionable alerts for database unavailability, authoritative-write failure, Outbox or Worker stoppage, Memory-generation failure, and Organization-isolation violation
@@ -116,7 +116,7 @@ After the baseline is working, AIOS SHOULD add:
 - Organization-scoped containment
 - deployment automation beyond the minimum rollback procedure
 - expanded runbooks for component-specific and administrative failures
-- operational-health projections for tenant-specific workflow failures
+- richer Organization-scoped health diagnostics and automated reconciliation dashboards
 - tested replay, repair, and projection-rebuild commands
 
 Deferral requires a named owner and an explicit trigger for implementation, such as traffic volume, incident history, or customer requirement.
@@ -4182,93 +4182,217 @@ Security isolation, Human authority, immutable approval, exactly-one Memory, and
 
 ---
 
-# Health Checks
+# Health Surfaces
 
-Health checks determine whether components are functioning sufficiently for operation.
+AIOS exposes separate health surfaces for synchronous HTTP serving, Worker processes, asynchronous workflow progression, and privileged diagnosis. A combined green or red status MUST NOT be used to represent all four concerns.
 
-Health checks are not business diagnostics.
+| Surface | Primary question | Primary consumer | May affect traffic routing |
+|---|---|---|---|
+| HTTP liveness | Should this HTTP process be restarted? | process supervisor | restart only |
+| HTTP readiness | Can this HTTP process safely accept its supported traffic? | load balancer / orchestrator | yes |
+| Worker liveness | Should this Worker process be restarted? | process supervisor | restart only |
+| Worker readiness | Can this Worker safely claim and process its assigned work? | Worker scheduler / orchestrator | Worker scheduling only |
+| Asynchronous workflow health | Are durable workflows progressing within policy? | operators and alerts | no |
+| Administrative diagnostic health | Why is a component or workflow unhealthy? | authorized operators | no |
+
+Health status is operational evidence, not authoritative domain state. Work, Decision, Memory, authorization, and event-processing facts remain authoritative in PostgreSQL.
 
 ---
 
-# Liveness
+# HTTP Liveness
 
-Liveness answers:
+HTTP liveness answers:
 
 ```text
-Should this process be restarted?
+Should this HTTP process be restarted?
 ```
 
-Checks should include:
+It checks only conditions that a process restart can plausibly repair, such as:
 
 - process responsiveness
-- deadlock detection where applicable
-- fatal initialization failures
+- fatal runtime failure
+- unrecoverable deadlock or event-loop stall where detectable
+- failure to complete mandatory process initialization
 
-Liveness should not depend on transient external systems.
+HTTP liveness MUST NOT depend on PostgreSQL, Outbox lag, Worker status, an AI provider, or the telemetry backend. A transient dependency outage must not cause a restart loop.
+
+The endpoint MUST return a minimal status and MUST NOT expose dependency names, connection details, versions, or error text publicly.
 
 ---
 
-# Readiness
+# HTTP Readiness
 
-Readiness answers:
+HTTP readiness answers:
 
 ```text
-Can this process safely receive traffic?
+Can this HTTP process safely accept the traffic routed to it?
 ```
 
-Checks may include:
+It MUST include only dependencies and conditions required to serve the instance's supported HTTP operations safely:
 
-- database connectivity
-- migration compatibility
-- configuration validity
-- connection pool availability
-- required dependency availability
+- mandatory configuration and secrets are loaded
+- active schema and migration versions are compatible
+- PostgreSQL connectivity and required connection-pool capacity are available
+- the process can start a transaction and perform the read or write class required by its routed operations
+- security-critical policy configuration is valid
+
+HTTP readiness MUST NOT fail solely because:
+
+- a background Worker is stopped or unready
+- Memory generation is delayed or its provider is unavailable
+- Outbox messages are old while new authoritative transactions can still commit safely
+- a projection or reconciliation job is stale
+- an optional telemetry exporter or centralized observability backend is unavailable
+
+Those conditions are exposed through Worker or asynchronous workflow health and alerts. If a dependency is required by only one HTTP operation, the operation SHOULD fail with a bounded explicit response or be removed from routing by an operation-specific capability gate; it SHOULD NOT make unrelated HTTP operations unready.
+
+If PostgreSQL is reachable but the process cannot atomically persist the authoritative mutation, required audit, and Outbox record, write-serving readiness MUST fail. A deliberately read-only instance MAY remain ready only for routes explicitly configured as read-only.
 
 ---
 
 # Startup Checks
 
-On startup the application should verify:
+Startup checks determine whether a process may enter its normal lifecycle. They are separate from recurring liveness and readiness probes.
 
-- configuration loaded
-- migrations compatible
+Before an HTTP process becomes ready, it MUST verify:
+
+- configuration loaded and schema-valid
 - database reachable
-- secrets available
-- telemetry initialized
+- migrations compatible
+- required secrets available
+- authorization policy configuration valid
+- required telemetry initialization completed without making the remote telemetry backend a hard dependency
 
-Failure should prevent accepting traffic.
-
----
-
-# Worker Health
-
-Worker readiness should additionally verify:
-
-- claim capability
-- database write access
-- required queues accessible
-- dependency initialization complete
+A failure prevents readiness. Restart behavior is controlled by the deployment platform and must avoid an unbounded crash loop for persistent configuration or migration faults.
 
 ---
 
-# Health Response
+# Worker Liveness
 
-Health endpoints should return structured responses.
+Worker liveness answers:
 
-Example:
+```text
+Should this Worker process be restarted?
+```
+
+It checks process responsiveness, fatal runtime failure, and a locally stalled execution loop. It MUST NOT depend on queue age, AI provider availability, or the progress of another Worker type.
+
+Long-running jobs MUST update a bounded heartbeat or lease. A missed heartbeat marks the execution suspect for recovery, but liveness MUST distinguish an active long-running operation from a dead Worker.
+
+---
+
+# Worker Readiness
+
+Worker readiness is scoped by Worker type and answers:
+
+```text
+Can this Worker safely claim and process its assigned work now?
+```
+
+It MUST verify:
+
+- claim and lease capability
+- PostgreSQL read and write access required by that Worker
+- required queue or Outbox schema compatibility
+- required dependency initialization and credentials
+- retry and backoff controls are operational
+- the Worker type is not administratively paused
+
+One Worker type becoming unready MUST NOT make unrelated Worker types or the HTTP process unready. A temporary external-provider outage MAY leave a Worker ready when it can safely claim, defer, and back off without consuming attempts incorrectly; otherwise only that Worker type becomes unready.
+
+Worker readiness does not prove progress. A Worker can be ready yet make no useful progress because of poison events, lock contention, repeated retries, or per-Organization ordering blocks.
+
+---
+
+# Asynchronous Workflow Health
+
+Asynchronous workflow health answers:
+
+```text
+Are committed workflows progressing within their operational policy?
+```
+
+It is derived from durable PostgreSQL facts and bounded operational projections, including:
+
+- oldest unrelayed Outbox record
+- oldest unprocessed consumer delivery
+- Worker last-success and lease state
+- retry exhaustion and dead-letter state
+- Work-to-Memory generation state
+- `organization_workflow_health` status and projection freshness
+
+Queue lag, terminal failure, stale projections, and lack of progress change asynchronous workflow health and trigger alerts. They MUST NOT directly change HTTP load-balancer readiness.
+
+Asynchronous workflow health MUST be queryable by workflow type and authorized Organization scope. Metric backends receive only bounded aggregate status counts; Organization identifiers remain in PostgreSQL, logs, traces, and authorized diagnostic results.
+
+---
+
+# Administrative Diagnostic Health
+
+Administrative diagnostic health correlates component and workflow evidence for incident investigation. It MAY report database, Outbox, Worker-type, workflow, projection, and provider conditions in one response, but it is not a liveness or readiness endpoint and MUST NOT be configured as a load-balancer or restart probe.
+
+The diagnostic surface MUST:
+
+- require an authenticated operator with an explicit operational role
+- enforce Organization scope and default-deny cross-Organization access
+- redact secrets, connection strings, raw exception messages, prompts, and business content
+- use stable bounded reason codes rather than unbounded error text
+- audit privileged or cross-Organization access under the audit durability policy
+- apply rate limits, time bounds, and pagination to detailed queries
+
+---
+
+# Health Failure Matrix
+
+| Condition | HTTP liveness | HTTP readiness | Affected Worker readiness | Async workflow health |
+|---|---|---|---|---|
+| HTTP process deadlock | Unhealthy | Unhealthy | Unchanged | May become degraded later |
+| PostgreSQL unavailable | Healthy unless process stalls | Unhealthy | Unhealthy for DB-dependent Workers | Degraded or Unknown |
+| Schema incompatible | Healthy | Unhealthy | Unhealthy for incompatible Workers | Unknown until compatible processing resumes |
+| Memory Worker stopped | Healthy | Healthy | Unhealthy for Memory Worker only | Degraded or Critical by age/policy |
+| AI provider unavailable | Healthy | Healthy | Memory Worker-specific policy | Degraded by retries or age |
+| Outbox lag above threshold | Healthy | Healthy while new transactions remain safe | Publisher may be ready but not progressing | Degraded or Critical |
+| Telemetry backend unavailable | Healthy | Healthy | Unchanged | Health evidence may be Stale; transactional audit remains required |
+| `organization_workflow_health` stale | Healthy | Healthy | Unchanged | Unknown or Stale, never implicitly Healthy |
+
+`Unknown` and `Stale` are explicit outcomes. Missing evidence MUST NOT be presented as `Healthy`.
+
+---
+
+# Health Response Contracts
+
+Each process probe returns only its own status. An HTTP readiness response MUST NOT embed overall Worker or workflow status.
+
+Minimal public or orchestrator-facing example:
 
 ```json
 {
-  "status": "Healthy",
-  "checks": {
-    "database": "Healthy",
-    "outbox": "Healthy",
-    "workers": "Healthy"
-  }
+  "status": "Ready"
 }
 ```
 
-Avoid exposing internal infrastructure details publicly.
+An authenticated diagnostic response may use bounded component records:
+
+```json
+{
+  "status": "Degraded",
+  "observedAt": "2025-01-01T00:00:00Z",
+  "components": [
+    {
+      "componentType": "MemoryWorker",
+      "status": "Unready",
+      "reasonCode": "PROVIDER_CREDENTIAL_UNAVAILABLE"
+    },
+    {
+      "componentType": "WorkToMemoryWorkflow",
+      "status": "Degraded",
+      "reasonCode": "OLDEST_PENDING_OVER_THRESHOLD"
+    }
+  ]
+}
+```
+
+Responses MUST NOT expose stack traces, raw database errors, hostnames, credentials, provider responses, tenant data, or other infrastructure details to unauthenticated callers.
 
 ---
 
@@ -4538,7 +4662,7 @@ The operational metrics architecture must preserve:
 5. Worker retries are visible.
 6. Human-authority violations are measurable.
 7. Organization isolation violations are measurable.
-8. Health checks distinguish liveness from readiness.
+8. HTTP and Worker health distinguish liveness from readiness, and asynchronous workflow health remains separate from traffic routing.
 9. Dashboards are audience-specific.
 10. Alerts remain actionable and low-noise.
 11. Workflow latency is measured end-to-end.
