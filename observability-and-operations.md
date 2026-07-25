@@ -3458,19 +3458,37 @@ Measure:
 requests per second
 ```
 
-Dimensions should include:
+The HTTP request counter uses only server-derived, bounded dimensions:
 
 ```text
 service
-
-endpoint
-
+route_template
+http_method
 operation
-
-result
+outcome_class
 ```
 
-Avoid Organization identifiers as metric labels.
+Conceptual metric:
+
+```text
+http_server_requests_total{
+    service,
+    route_template,
+    http_method,
+    operation,
+    outcome_class
+}
+```
+
+`route_template` is the matched framework route template, for example:
+
+```text
+/organizations/{organizationId}/works/{workId}
+```
+
+It is not the request path. `operation` is a server-owned value from the version-controlled operation registry, for example `work.complete` or `decision.approve`; it is not a controller name, caller-supplied GraphQL operation name, RPC method string, or arbitrary span name.
+
+Organization and resource identifiers are prohibited as metric labels even when they appear as route parameters.
 
 ---
 
@@ -4002,57 +4020,145 @@ Restored Outbox rows retain at-least-once delivery semantics. For an external si
 
 ---
 
-# Metric Labels
+# Metric Label Contract
 
-Labels MUST remain bounded.
+Metric labels MUST be bounded, server-derived, non-sensitive, and registered before production use.
 
 Permitted label categories include:
 
 ```text
 service
-
 environment
-
+route_template
+http_method
 operation
-
 worker
-
 consumer
-
 workflow_type
-
 status
-
 outcome
-
+outcome_class
 error_category
+provider_category
+model_slot
 ```
 
-Prohibited high-cardinality labels include:
+`provider_category` and `model_slot` are bounded configuration aliases. Provider account identifiers, deployment identifiers, and arbitrary provider model names are prohibited.
+
+---
+
+# HTTP Route Template Rules
+
+`route_template` MUST be obtained from the server-side router after route matching. A permitted value is a static template such as:
+
+```text
+/organizations/{organizationId}/works/{workId}
+```
+
+The following are prohibited metric-label values:
+
+```text
+/organizations/org-123/works/work-456
+raw URL path
+query string
+URL fragment
+host name supplied by the request
+route parameter value
+user-agent
+referer
+```
+
+The ambiguous label name `endpoint` is prohibited. HTTP metrics use `route_template`; non-HTTP metrics use a more precise bounded dimension owned by that metric.
+
+Unmatched, rejected-before-routing, or framework-unknown requests use one fixed value:
+
+```text
+route_template = unmatched
+```
+
+They MUST NOT derive a template by copying or heuristically rewriting the raw path. This prevents an attacker from creating one time series per requested URL.
+
+---
+
+# Operation Label Registry
+
+Every permitted `operation` value is declared in version-controlled configuration or code with:
+
+```text
+operation
+owner
+protocol
+route_template or worker_type
+introduced_version
+deprecated_version nullable
+```
+
+Examples:
+
+```text
+work.create
+work.complete
+decision.submit
+decision.approve
+memory.approve
+outbox.relay
+memory.generate
+```
+
+Unknown runtime values collapse to the fixed value `unknown` and increment the contract-violation metric. A caller-supplied value MUST NOT extend the registry.
+
+---
+
+# Prohibited High-Cardinality Labels
+
+Prohibited labels and values include:
 
 ```text
 organizationId
-
 aggregateId
-
 workId
-
+decisionId
+memoryId
 generationAttemptId
-
-eventId
-
+domainEventId
+integrationMessageId
 commandId
-
+requestId
+correlationId
 traceId
-
+spanId
+principalId
+membershipId
 raw URL path
-
+query string
 exception message
+SQL text
+arbitrary model name
+external provider request identifier
 ```
 
-These identifiers belong in protected PostgreSQL operational records, logs, and traces.
+These values belong only in the protected PostgreSQL operational records, logs, or traces permitted by the telemetry data policy. Trace exemplars may reference a trace identifier without turning it into a metric label.
 
-The absence of organizationId from metrics MUST NOT make Organization-specific failures invisible. AIOS uses the operational-health projection below for bounded administrative detection.
+---
+
+# Label Cardinality Enforcement
+
+The build or startup validation MUST compare each label source with its registered bounded set. The runtime MUST NOT create a new label value from untrusted input when validation is bypassed or stale.
+
+Required self-observation:
+
+```text
+metric_label_contract_violation_total{metric,label,reason_code}
+metric_series_budget_exceeded_total{metric}
+```
+
+`metric`, `label`, and `reason_code` themselves come from bounded registries.
+
+Each service defines a series budget per metric based on the Cartesian product of registered label values plus the fixed `unknown` or `unmatched` fallback. Exceeding the budget raises an operational alert and drops or coalesces the invalid dimension; it MUST NOT create the unbounded series first.
+
+Changing a route template, operation value, label name, or bounded value set is a reviewed telemetry-contract change. Dashboards, alerts, recording rules, and SLI queries are updated in the same release or through a compatible overlap window.
+
+The absence of `organizationId` from metrics MUST NOT make Organization-specific failures invisible. AIOS uses the protected operational-health projection below for bounded administrative detection.
 
 ---
 
@@ -4279,7 +4385,7 @@ Expected validation and authorization failures count as available because the pl
 Primary data source:
 
 ```text
-Normalized ingress request counter by route template, operation, and outcome class
+Normalized ingress request counter using registered `route_template`, `operation`, and `outcome_class` labels
 ```
 
 ---
@@ -4293,7 +4399,7 @@ The SLI reports P50, P95, and P99 by normalized operation category. Raw URL path
 Primary data source:
 
 ```text
-Ingress duration histogram using normalized route templates
+Ingress duration histogram using the registered `route_template` label
 ```
 
 External AI-provider time is not included in an HTTP latency SLI when the request only enqueues asynchronous work.
@@ -4924,6 +5030,7 @@ The operational metrics architecture must preserve:
 10. Alerts remain actionable and low-noise.
 11. Workflow latency is measured end-to-end.
 12. Metrics never become authoritative business state.
+13. HTTP metric labels use only registered route templates and operations; raw paths and caller-supplied dimensions never create time series.
 
 ---
 
