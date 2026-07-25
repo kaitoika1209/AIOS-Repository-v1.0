@@ -8745,59 +8745,51 @@ PITR is the preferred recovery mechanism for major data loss or corruption.
 
 ---
 
-# Recovery Point Objective
+# Recovery Objectives
 
-The MVP should define an initial:
-
-```text
-Recovery Point Objective
-```
-
-Example target:
+The production MVP adopts the following initial objectives for the complete PostgreSQL consistency boundary:
 
 ```text
-RPO <= 15 minutes
+Recovery Point Objective (RPO) <= 15 minutes
+
+Authoritative Service Recovery Time Objective (RTO) <= 4 hours
+
+Asynchronous Workflow Recovery Target <= 8 hours
 ```
 
-Managed continuous WAL archiving may support a lower RPO.
+RPO is the maximum interval between the latest UTC point that can be restored and the failure or corruption boundary selected by the incident. It covers Aggregate state, revisions, Identity and Membership, authorization audit, Outbox, processed commands and events, dead letters, replay state, and reconciliation records together.
 
-The final value is a product and operations decision.
+RTO begins when the Incident Commander or authorized recovery operator declares that production database restoration is required. It ends only when the restored production service has passed integrity, authorization, Organization-isolation, write-transaction, required-audit, and Outbox validation and can safely accept its supported authoritative reads and writes.
+
+Restoring PostgreSQL alone does not satisfy RTO. DNS or connection cutover, secrets, application compatibility, controlled startup, and recovery validation are included.
+
+The asynchronous workflow target begins at the same declaration and ends when Outbox publication, consumer processing, Work-to-Memory generation, and Organization workflow-health projections are progressing under policy with no unexplained recovery-created gap. Backlog drainage may continue after RTO only within this separate target.
+
+These are normative MVP targets, not examples. Changing a target requires a versioned operational decision or ADR with business impact, owner, effective date, and validation plan.
 
 ---
 
-# Recovery Time Objective
+# Backup Frequency and Continuity
 
-The MVP should also define:
-
-```text
-Recovery Time Objective
-```
-
-Example target:
+The production MVP MUST provide:
 
 ```text
-RTO <= 4 hours
+Continuous WAL archiving
+
+Automated physical base backup at least every 24 hours
+
+Automated backup integrity verification after every base backup
+
+Documented restore test at least monthly
+
+Full disaster-recovery exercise at least quarterly
 ```
 
-The target must be validated through recovery exercises.
+Managed PostgreSQL services may provide equivalent mechanisms, but a provider status of `Successful` is not proof of recoverability.
 
----
+WAL archive continuity is monitored independently from base-backup success. The platform alerts before the 15-minute RPO is consumed and raises a Critical incident when the latest confirmed restorable point exceeds 15 minutes.
 
-# Backup Frequency
-
-A possible initial policy:
-
-```text
-Continuous WAL archive
-
-Daily automated base backup
-
-Periodic logical integrity export
-
-Regular restore test
-```
-
-Exact frequency depends on environment and compliance requirements.
+Before an irreversible or high-risk migration, operators MUST verify backup and WAL continuity and identify a tested recovery point. A snapshot taken immediately before deployment does not replace continuous WAL archiving or the regular restore test.
 
 ---
 
@@ -8813,32 +8805,25 @@ Access must be limited to backup and recovery operators.
 
 ---
 
-# Backup Retention
+# Backup Retention and Immutability
 
-Backup retention must consider:
+The production MVP maintains:
 
-- accidental deletion window
-- corruption discovery delay
-- compliance obligations
-- storage cost
-- privacy deletion requirements
-- Organization archival policy
+```text
+PITR restore window >= 14 consecutive days
 
-Final durations are outside the architecture’s fixed MVP scope.
+Daily base-backup recovery chain >= 14 days
 
----
+At least one deletion-resistant backup tier >= 30 days
+```
 
-# Backup Immutability
+Longer retention may be required by contract, regulation, corruption-discovery risk, or Organization archival policy. A shorter retention period requires an approved architecture and business-risk decision and MUST NOT reduce the active 14-day PITR window silently.
 
-At least one backup tier should resist accidental or malicious deletion.
+At least one backup tier must resist accidental or malicious deletion through controls such as object lock, immutable snapshots, a separate backup account, a restricted deletion role, or multi-party approval.
 
-Possible controls:
+Backup copies remain within the approved data region unless a contract, data-processing agreement, and architecture decision authorize another region. Expiry, Organization deletion, and legal hold follow the platform data-governance policy; direct modification of immutable backup contents is not required, but expired copies are removed through the normal lifecycle when no hold applies.
 
-- object lock
-- immutable snapshots
-- separate backup account
-- restricted deletion role
-- multi-party approval
+Backup credentials and encryption keys are separated from ordinary application credentials. An application compromise MUST NOT grant backup deletion or restore authority.
 
 ---
 
@@ -8852,165 +8837,162 @@ Backup access may expose all Organizations and therefore requires platform-level
 
 # Restore Testing
 
-A backup is not considered reliable until restore is tested.
+A backup is not considered recoverable until an isolated restore test proves it.
 
-Restore tests should verify:
+The monthly restore test MUST:
 
-- database starts successfully
-- migrations are consistent
-- Aggregate state loads
-- foreign keys validate
-- Outbox state is preserved
-- processed-event state is preserved
-- authorization checks work
-- Organization isolation remains intact
-- Workers recover safely
+- select a timestamp within the retained PITR window
+- restore a base backup and required WAL into an isolated approved environment
+- record requested and actual restored timestamps and measured data-loss interval
+- verify database startup and migration compatibility
+- validate foreign keys, uniqueness, and required database constraints
+- load representative Aggregate and revision state
+- verify required audit, Outbox, processed-command, processed-event, dead-letter, replay, and reconciliation records
+- run authorization and cross-Organization isolation tests with controlled identities
+- execute representative read and authoritative write transactions without contacting production integrations
+- verify Worker claim recovery and duplicate-delivery protections in disabled or simulated external-effect mode
+- record elapsed restore and validation time against RTO
+
+A failed or incomplete restore test invalidates backup confidence, creates a tracked operational finding, and is remediated before the next routine test. A backup-job success counter cannot close that finding.
 
 ---
 
-# Disaster Recovery
+# Disaster Recovery Authorization
 
-Disaster recovery restores both authoritative state and asynchronous processing safety.
+Production restore is a high-risk platform operation. It requires a typed Operations Application Service command or an equivalent approved provider workflow with:
+
+- authenticated Human Operator
+- incident or change reference
+- requested restore point and reason
+- explicit production scope
+- Human approval under the operational risk policy
+- idempotent operation identity
+- durable audit stored outside the database being replaced when necessary
+- result and validation evidence
+
+The AI Secretary and ordinary System Workers cannot request, approve, or execute production restore.
 
 ---
 
 # Recovery Sequence
 
-Recommended recovery flow:
+The required recovery flow is:
 
 ```text
-Provision Recovery Database
+Declare restore and freeze conflicting writes
 
 ↓
 
-Restore Base Backup and WAL
+Preserve incident and provider evidence
 
 ↓
 
-Verify Database Integrity
+Provision isolated recovery database
 
 ↓
 
-Disable External Consumers Temporarily
+Restore base backup and WAL to the approved UTC point
 
 ↓
 
-Start Application in Controlled Mode
+Verify cryptographic, database, schema, and invariant integrity
 
 ↓
 
-Recover Expired Claims
+Start the application in FullMaintenance or RestrictedWrites mode
 
 ↓
 
-Inspect Outbox and Consumer State
+Keep Outbox publishers, mutation Workers, and external integrations paused
 
 ↓
 
-Run Reconciliation
+Recover expired claims and inspect replay risk
 
 ↓
 
-Resume Workers
+Reconcile Outbox, processed-event, external-effect, and workflow state
 
 ↓
 
-Resume User Traffic
+Enable traffic and Workers in an approved controlled order
+
+↓
+
+Validate RPO, RTO, backlog, Organization isolation, and Human authority
 ```
 
----
-
-# Controlled Startup
-
-After restore, Worker processing may initially remain paused.
-
-This allows operators to inspect:
-
-- restore point
-- pending events
-- claimed events
-- processed-event history
-- duplicate-delivery risk
-- migration level
-- Organization integrity
+Workers and external consumers MUST NOT start automatically merely because PostgreSQL accepts connections.
 
 ---
 
-# Expired Claim Recovery After Restore
+# Post-Restore Claim and Queue Recovery
 
-Any claim held by a Worker before failure may now be stale.
+Recovery resets only expired or explicitly abandoned claims for:
 
-Recovery must reset expired:
+- Outbox publication
+- consumer processing
+- Memory generation
+- reconciliation and cleanup jobs
 
-- Outbox publication claims
-- consumer processing claims
-- Memory generation claims
-- cleanup-job leases
+Before publication resumes, operators query durable records for:
 
----
+- pending, claimed, failed, and administratively paused Outbox rows
+- processed-event and dead-letter status
+- blocked consumer ordering keys
+- replay and operational command state
+- WorkCompleted records without a reviewable Memory draft or durable generation operation
+- stale Organization workflow-health projections
 
-# Duplicate Delivery After Restore
+Pending Outbox rows at the restore point remain eligible under at-least-once delivery. Recovery does not mark them `Published` from logs or assumptions.
 
-External brokers may redeliver messages already processed before the restored database point.
-
-Consumers must rely on:
-
-- processed-event records
-- Aggregate business idempotency
-- projection version checks
-- external integration idempotency keys
+The event-consumer and ordering rules in `docs/architecture/events-and-outbox.md` remain authoritative during recovery.
 
 ---
 
-# Restore Before Prior Publication
+# External Side Effects After Restore
 
-A restore point may contain:
+Database restoration can rewind local evidence but cannot undo an email, webhook, provider request, access revocation, or other external side effect already performed after the selected restore point.
 
-```text
-Outbox event = Pending
-```
+Consumers with external effects MUST use durable provider idempotency keys or an external-effect ledger where the provider permits it. Before replaying an outcome-ambiguous effect, recovery MUST:
 
-even when the event had been published before the disaster.
+- inspect the restored idempotency or effect record
+- identify the time window lost by the restore
+- query the provider or recipient system where a safe authoritative query exists
+- classify the effect as confirmed complete, confirmed absent, or unknown
+- block the consumer ordering key when the outcome is unknown
+- retry only when absence or idempotent safety is established
+- compensate only through an approved typed operation
 
-The event may publish again.
-
-This is expected under at-least-once delivery.
-
----
-
-# Restore After Aggregate Commit but Before Consequence
-
-A restore may contain:
-
-```text
-Work = Completed
-
-WorkCompleted Outbox = Pending
-```
-
-The Worker publishes after recovery and Memory generation continues.
+An absent processed-event row after restore is not proof that the external effect did not occur. Blind replay of an irreversible or outcome-ambiguous effect is prohibited.
 
 ---
 
 # Restore Integrity Checks
 
-Post-restore checks should verify:
+Before authoritative writes resume, post-restore validation MUST verify at least:
 
-- Active Organizations have active Owners
+- selected restore timestamp is inside the approved RPO
+- schema and migration versions are compatible with the deployed application
+- Active Organizations have active Human Owners
 - Work and Decision relationships match Organization
 - Memory and source Work relationships match Organization
-- active Memory uniqueness
-- revision references are valid
-- event identifiers are unique
-- event stream positions are unique
-- processed-event uniqueness
-- no unexpected schema drift
+- Approved Memory references its immutable reviewed revision and content hash
+- active Memory uniqueness and other required constraints hold
+- event identifiers and event stream positions are unique
+- required audit records are present for authoritative mutations in the restored window
+- Outbox and Aggregate commits preserve their atomic relationship
+- processed-event uniqueness and consumer ordering state are consistent
+- no cross-Organization access succeeds in controlled tests
+- no unexpected schema drift exists
+
+Validation uses bounded queries and records evidence. A failing invariant prevents normal write traffic and creates a DataIntegrity or OrganizationIsolation incident as appropriate.
 
 ---
 
 # Partial Restore Prohibition
 
-Ordinary disaster recovery must not restore only selected authoritative tables.
+Ordinary disaster recovery must restore the complete consistency boundary. Restoring selected authoritative tables is prohibited.
 
 Examples of unsafe partial restore:
 
@@ -9024,40 +9006,35 @@ Restore Memory without revisions
 Restore Organizations without authorization audit
 ```
 
-Selective data repair requires a separate controlled process.
+Selective data repair uses the typed operational repair path and is not called disaster recovery.
 
 ---
 
 # Regional Disaster Recovery
 
-Cross-region recovery is optional for the MVP.
+Cross-region production recovery is optional for the MVP. Backup storage still uses a separate failure and deletion domain within the approved residency boundary.
 
-When introduced, it must define:
-
-- encrypted backup replication
-- database promotion
-- DNS or service cutover
-- identity-provider configuration
-- secret availability
-- Worker duplication prevention
-- Recovery Point and Recovery Time objectives
+Before cross-region recovery is claimed as supported, an ADR and exercise MUST define encrypted replication, database promotion, DNS or connection cutover, Identity Provider configuration, secret availability, backup residency, Worker duplication prevention, and measured RPO/RTO.
 
 ---
 
 # Disaster Recovery Exercises
 
-Recovery procedures should be exercised regularly.
+The quarterly exercise records:
 
-A recovery exercise should record:
+- incident declaration and operation identifiers
+- backup chain and restore point selected
+- latest restorable timestamp and measured RPO
+- recovery start, validation completion, and measured RTO
+- asynchronous workflow recovery duration
+- integrity and Organization-isolation findings
+- expired claim and Worker recovery behavior
+- duplicate publication and consumer-delivery behavior
+- external side-effect reconciliation results
+- manual steps, failed automation, and ownership gaps
+- corrective actions, owner, and due date
 
-- restore duration
-- restored timestamp
-- data loss interval
-- integrity findings
-- Worker recovery behavior
-- duplicate event behavior
-- operational gaps
-- follow-up improvements
+An objective is not considered validated when the exercise excludes the slowest required provisioning, secret, cutover, integrity, or asynchronous-recovery step.
 
 ---
 
