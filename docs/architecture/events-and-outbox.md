@@ -2487,9 +2487,9 @@ Silent reordering is prohibited.
 
 ---
 
-# Skip Policy
+# Publication Stream Skip Policy
 
-Skipping a failed event is an exceptional operator action.
+Skipping a failed Outbox publication is an exceptional operator action. This policy applies to publisher stream heads; consumer dead-letter skipping follows the separate Consumer Ordering and Failure-Continuation Contract.
 
 It requires:
 
@@ -3462,6 +3462,10 @@ ConsumerRegistration
 - capability
 - retryPolicy
 - orderingRequirement
+- orderingKeyStrategy
+- failureContinuationPolicy
+- sideEffectClass
+- skipPolicy
 - enabled
 ```
 
@@ -3837,6 +3841,8 @@ RetryPending
 
 Failed
 
+Blocked
+
 Skipped
 ```
 
@@ -3889,6 +3895,16 @@ Failed
 means automatic retries have stopped.
 
 Operator or deployment intervention is required.
+
+---
+
+# Blocked Status
+
+```text
+Blocked
+```
+
+means an earlier non-terminal delivery prevents this event from being claimed under the registered ordering policy. A blocked delivery does not consume retry attempts and is not itself a poison event.
 
 ---
 
@@ -4154,7 +4170,7 @@ The chosen strategy must be explicit per projection.
 
 # Domain Consumer Ordering
 
-A domain coordination consumer must verify whether event order matters.
+A Domain Coordination Consumer uses `BlockOrderingKey` by default. Its ConsumerRegistration defines whether the ordering key is the source Aggregate stream or a versioned target business key.
 
 Example:
 
@@ -4164,9 +4180,9 @@ DecisionSubmitted version 3
 DecisionApproved version 4
 ```
 
-A consumer that only handles DecisionApproved may not need to process DecisionSubmitted.
+A consumer subscribed only to `DecisionApproved` does not need to execute a `DecisionSubmitted` effect, but it MUST NOT infer that every missing predecessor is irrelevant. It validates the source sequence, target Aggregate state, prior consumer terminal state, and business idempotency key before applying the approved outcome.
 
-However, it must still verify that the target state can safely accept the approved outcome.
+If an earlier subscribed event for the same ordering key is `Processing`, `RetryPending`, `Failed`, or `Blocked`, the later event is not claimed. A stale event may become a recorded no-op only after the handler proves the target already reflects an equal or newer valid fact.
 
 ---
 
@@ -4965,6 +4981,225 @@ Each consumer tracks independent status.
 
 ---
 
+# Consumer Ordering and Failure-Continuation Contract
+
+Publication order and consumer continuation are separate decisions. Publishing an event successfully does not authorize every consumer to process later events after an earlier delivery fails.
+
+Each ConsumerRegistration MUST declare:
+
+```text
+orderingRequirement
+orderingKeyStrategy
+failureContinuationPolicy
+sideEffectClass
+skipPolicy
+```
+
+Permitted `orderingRequirement` values are:
+
+```text
+None
+PerAggregateStream
+PerBusinessKey
+ConsumerWide
+```
+
+`ConsumerWide` ordering is prohibited for the MVP unless an ADR demonstrates why per-key ordering cannot preserve correctness. It creates global head-of-line blocking and prevents safe tenant isolation.
+
+The ordering key is derived by trusted consumer code from the validated event envelope or a versioned payload field. It includes `consumerName` and Organization scope where applicable. An external correlation identifier, unvalidated payload string, or caller-selected tenant value MUST NOT become an ordering key.
+
+---
+
+# Failure-Continuation Policies
+
+| Policy | Behavior after a permanent failure | Allowed use |
+|---|---|---|
+| `ContinueIndependent` | Quarantine the failed delivery and allow later independent deliveries | Order-independent operational effects, explicitly rebuildable projections, or idempotent notifications with no shared ordering key |
+| `BlockOrderingKey` | Block later deliveries for the same consumer and ordering key; other keys continue | Default for Domain Coordination Consumers and ordered projections |
+| `BlockConsumer` | Block every later delivery for that consumer | Exceptional configuration, contract, or global-reference failure only |
+| `RequireExternalRecovery` | Block the ordering key until the external outcome is verified, compensated, or explicitly resolved | Irreversible or outcome-ambiguous external side effects |
+
+`ContinueIndependent` is an explicit correctness claim, not a performance default. Its registration must document why later effects remain meaningful and how missing effects are detected or rebuilt.
+
+A failure in one consumer MUST NOT block another consumer that already processed or can independently process the same event. A blocked ordering key in one Organization MUST NOT block another Organization unless the consumer is an explicitly approved global consumer.
+
+---
+
+# Default Policy by Consumer Type
+
+| Consumer type | Default continuation | Required qualification |
+|---|---|---|
+| Domain Coordination Consumer | `BlockOrderingKey` | Key by the source Aggregate stream or an explicitly modeled target business key; later domain effects do not pass a failed predecessor silently |
+| Projection Consumer | `BlockOrderingKey` per projection entry | `ContinueIndependent` is allowed only when the projection is rebuildable and the affected entry or range is marked incomplete until rebuild or reconciliation succeeds |
+| Integration Consumer | `RequireExternalRecovery` for irreversible or ambiguous effects | `ContinueIndependent` is allowed only for idempotent, order-independent effects with a durable provider idempotency key |
+| Operational Consumer | `ContinueIndependent` | Security remediation, authority-sensitive cleanup, or shared state may require `BlockOrderingKey` |
+
+The registration may override a default only with a documented invariant, owner, recovery procedure, and test coverage.
+
+---
+
+# Consumer Claim Ordering
+
+For `PerAggregateStream` or `PerBusinessKey`, a Worker MUST NOT claim a later eligible delivery while an earlier delivery for the same consumer and ordering key is `Processing`, `RetryPending`, `Failed`, or `Blocked`.
+
+Conceptual eligibility condition:
+
+```text
+no earlier non-terminal delivery exists
+for the same consumerName and orderingKey
+```
+
+Sequence is determined from trusted fields such as `aggregateVersion` and `eventSequence`, or from an explicitly versioned business sequence for `PerBusinessKey`. Arrival time alone is not a correctness sequence.
+
+Different consumers and different ordering keys remain parallel. The implementation may use a durable ordering-state row, a bounded row lock, or an equivalent lease, but it MUST prevent concurrent processing that violates the registered policy.
+
+---
+
+# Durable Consumer Ordering State
+
+When ordered continuation is required, PostgreSQL maintains durable state equivalent to:
+
+```text
+consumerName
+organizationId nullable
+orderingKeyType
+orderingKey
+lastTerminalSequence
+blockedEventId nullable
+blockedSequence nullable
+blockedAt nullable
+blockReasonCode nullable
+status
+version
+updatedAt
+```
+
+Recommended statuses:
+
+```text
+Active
+Blocked
+Recovering
+```
+
+The ordering-state update, processed-event transition, dead-letter creation, and required recovery Outbox record MUST commit atomically when one failed attempt changes the key to `Blocked`.
+
+Later deliveries waiting behind the poison event are marked or projected as `BlockedByPredecessor`. They do not consume retry attempts and are not themselves dead-lettered merely because the predecessor failed.
+
+---
+
+# Poison Event Continuation Decision
+
+When a delivery becomes poison, the consumer applies its registered failure-continuation policy and durably records:
+
+```text
+orderingRequirement
+orderingKeyReference
+failureContinuationPolicy
+sideEffectClass
+continuationDecision
+blockedLaterCount
+orderingBroken
+decisionReasonCode
+```
+
+Permitted decisions are bounded:
+
+```text
+QuarantineAndContinue
+BlockOrderingKey
+BlockConsumer
+AwaitExternalRecovery
+```
+
+The Worker does not invent a continuation decision from the exception type at runtime. A missing or incompatible registration fails closed to `BlockOrderingKey` for Organization-scoped domain or projection consumers and raises an operational alert.
+
+---
+
+# Rebuildable Projection Exception
+
+A Projection Consumer may quarantine one failed event and continue the same ordering key only when all of the following are true:
+
+- the projection is explicitly declared rebuildable from authoritative PostgreSQL state or retained events
+- later events do not make an undetected partial result appear complete
+- the affected projection entry or range is marked `Incomplete` or `GapDetected`
+- customer and operator reads can distinguish incomplete data
+- a bounded rebuild or reconciliation operation is scheduled
+- tests prove that rebuild restores the same result as ordered processing
+
+Otherwise the projection uses `BlockOrderingKey`.
+
+---
+
+# Irreversible Side-Effect Rule
+
+For a consumer that may have performed an irreversible or outcome-ambiguous external effect, timeout or acknowledgement loss is not proof that the effect failed.
+
+The ordering key remains blocked until the Operations Application Service records one of:
+
+- provider-confirmed success and local idempotency reconciliation
+- provider-confirmed absence followed by safe retry
+- approved compensation followed by validation
+- explicit Human resolution under the high-risk skip policy
+
+The consumer MUST NOT continue later ordered effects or repeat the side effect merely because its local processed-event row is not `Processed`.
+
+---
+
+# Dead-Letter Skip and Ordering
+
+`SkipDeadLetter` is permitted only when the ConsumerRegistration skip policy allows it. The command defined by the Operations Application Service MUST record:
+
+- consumer and ordering key
+- skipped event and sequence
+- whether later events already executed
+- side-effect class
+- ordering impact analysis
+- `orderingBroken = true` when continuity is intentionally broken
+- Human approval and reason
+- required reconciliation or rebuild operation
+- validation result before the ordering key is unblocked
+
+Skipping one consumer result does not mutate or delete the immutable source event and does not mark another consumer as processed.
+
+For a Domain Coordination Consumer or irreversible Integration Consumer, skip is prohibited unless the owning module's recovery policy proves later effects are safe or an approved compensation establishes a new valid baseline.
+
+---
+
+# Recovery and Unblocking
+
+An ordering key is unblocked only through a typed recovery result:
+
+```text
+ReplaySucceeded
+ProjectionRebuiltAndValidated
+ExternalEffectReconciled
+SkipApprovedAndValidated
+```
+
+Unblocking uses the expected ordering-state version. It atomically records the resolution, advances or preserves the terminal sequence according to policy, emits the required Outbox evidence, and makes later deliveries eligible.
+
+A deployment, process restart, lease expiry, or manual database flag change MUST NOT silently unblock the key.
+
+---
+
+# Ordering Observability
+
+Required bounded metrics include:
+
+```text
+consumer_ordering_blocked_keys{consumer_name,policy}
+consumer_ordering_oldest_blocked_seconds{consumer_name,policy}
+consumer_delivery_blocked_total{consumer_name,reason_code}
+consumer_ordering_break_total{consumer_name,side_effect_class}
+```
+
+Organization and ordering-key values remain in PostgreSQL, authorized logs, traces, and the Organization workflow-health projection; they MUST NOT be metric labels.
+
+Alerts distinguish one blocked key from a consumer-wide block. A missing or stale ordering-state projection is `Unknown` or `Stale`, never implicitly healthy.
+
+---
+
 # Poison Event Investigation
 
 Investigation should determine:
@@ -5748,6 +5983,10 @@ The following rules are mandatory:
 16. External calls do not hold long database transactions.
 17. Consumer gaps are detected or safely rebuildable.
 18. Failed processing remains observable and recoverable.
+19. Every consumer declares an ordering key, failure-continuation policy, side-effect class, and skip policy.
+20. A permanent failure advances, blocks one ordering key, blocks the consumer, or awaits external recovery only according to that registration.
+21. Later deliveries for a blocked ordering key do not execute until typed recovery durably unblocks the key.
+22. Skip records whether ordering was intentionally broken and requires reconciliation or compensation where applicable.
 
 ---
 
@@ -7170,6 +7409,11 @@ Required tests include:
 - repaired stream resumes correctly
 - eventSequence preserves multiple-event order
 - no global ordering assumption exists
+- a poison event under BlockOrderingKey blocks only the same consumer and ordering key
+- other Organizations, consumers, and ordering keys continue
+- ContinueIndependent is accepted only for a registered and tested safe consumer
+- missing or incompatible policy fails closed for domain and ordered projection consumers
+- skip unblocks only after approved ordering-impact validation
 
 ---
 
@@ -7319,6 +7563,10 @@ Verify:
 - replay after fix succeeds
 - skip requires authorized Human action
 - multi-consumer failure remains isolated
+- blocked later deliveries do not consume retry attempts
+- rebuildable projection exception marks affected data incomplete
+- irreversible side-effect uncertainty requires external reconciliation
+- intentional ordering break is audited and followed by validation
 
 ---
 
@@ -7980,11 +8228,14 @@ Recommended actions:
 2. validate Organization and actor
 3. inspect redacted payload
 4. classify contract, security, domain, or code failure
-5. repair underlying issue
-6. run ValidateOnly replay
-7. execute controlled replay
-8. confirm processed result
-9. close dead letter record
+5. load the ConsumerRegistration ordering and failure-continuation policy
+6. identify blocked ordering keys, later deliveries, and irreversible side effects
+7. repair underlying issue
+8. run ValidateOnly replay
+9. execute controlled replay
+10. confirm processed result and ordering-state transition
+11. verify later eligible deliveries resume without cross-key blocking
+12. close the dead-letter record after reconciliation
 
 ---
 
