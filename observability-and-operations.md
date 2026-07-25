@@ -3259,135 +3259,223 @@ These belong in logs and traces.
 
 ---
 
-# Service Level Indicators
+# Service Level Management
 
-SLIs measure the observed quality of the service.
+SLIs measure observed system behavior. SLOs define the minimum acceptable result over a stated measurement window.
 
-Recommended SLIs include:
-
-```text
-Availability
-
-Request Latency
-
-Worker Success Rate
-
-Workflow Completion Latency
-
-Queue Age
-
-Memory Generation Success
-
-Decision Review Latency
-```
+An SLO is valid only when its eligibility rules, numerator, denominator, timestamps, data source, owner, and breach response are defined.
 
 ---
 
-# Availability SLI
+# SLO Measurement Policy
 
-Definition:
+The MVP MUST apply the following policy:
+
+- environment: production only
+- evaluation window: rolling 30 days, evaluated at least hourly
+- time standard: UTC
+- maintenance: included by default; an exclusion requires a recorded monitoring-data defect or an approved exceptional event
+- low traffic: a ratio SLO is reported as insufficient data when fewer than 1,000 eligible observations exist in the 30-day window
+- source of record: ingress metrics for HTTP behavior and PostgreSQL timestamps or durable operational records for asynchronous workflows
+- ownership: the Service Owner owns HTTP and platform SLOs; the Work/Memory module owner owns the Work-to-Memory SLO
+- review: targets and eligibility rules are reviewed monthly and after every qualifying incident
+
+Changing a target, formula, exclusion, or source requires an implementation ADR or an explicitly versioned operational decision. A dashboard-only change MUST NOT silently redefine an SLO.
+
+---
+
+# HTTP Availability SLI
+
+Eligible requests are production requests to supported customer-facing HTTP operations.
+
+The denominator excludes:
+
+- liveness, readiness, metrics, and administrative diagnostic endpoints
+- requests rejected before reaching AIOS by infrastructure that is outside the measured ingress boundary
+- synthetic traffic marked by an authenticated internal test identity
+
+A successful observation is an eligible request that produces:
+
+- an expected 2xx or 3xx response
+- an expected business or authorization 4xx response
+
+A failed observation is an eligible request that produces:
+
+- an unexpected 5xx response
+- an application timeout
+- a platform-overload rejection
+- a connection termination recorded by the measured ingress after AIOS accepted the request
+
+Formula:
 
 ```text
-successful requests
-
+eligible successful HTTP requests
 /
-
-total requests
+all eligible HTTP requests
 ```
 
-Infrastructure failures and unexpected internal errors reduce availability.
+Expected validation and authorization failures count as available because the platform evaluated the request correctly. A capacity-generated rejection does not.
 
-Business validation failures do not.
+Primary data source:
+
+```text
+Normalized ingress request counter by route template, operation, and outcome class
+```
 
 ---
 
-# Request Latency SLI
+# HTTP Request Latency SLI
 
-Measure:
+Latency is measured from ingress acceptance until the final response is written for successful eligible synchronous requests.
+
+The SLI reports P50, P95, and P99 by normalized operation category. Raw URL paths, streaming operations, administrative exports, and asynchronous completion time are excluded.
+
+Primary data source:
 
 ```text
-P95 latency
-
-P99 latency
+Ingress duration histogram using normalized route templates
 ```
 
-per operation category.
+External AI-provider time is not included in an HTTP latency SLI when the request only enqueues asynchronous work.
 
 ---
 
-# Workflow Completion SLI
+# Outbox Relay Timeliness SLI
 
-Example:
+An eligible Outbox record is a committed, publishable record that is not administratively paused before it becomes eligible.
 
-```text
-Completed Work
-
-↓
-
-Memory Generated
-
-↓
-
-within target duration
-```
-
-This measures end-to-end workflow health.
-
----
-
-# Worker Success SLI
-
-Definition:
+Formula:
 
 ```text
-successful Worker items
-
+Outbox records relayed within 30 seconds of committedAt
 /
-
-claimed Worker items
+all eligible Outbox records
 ```
 
-Retries should not count as success until completed.
+The terminal timestamp is the durable relay or delivery marker defined by the Outbox implementation. Repeated attempts do not create additional denominator entries.
+
+Primary data source:
+
+```text
+PostgreSQL Outbox committedAt and relayedAt timestamps
+```
+
+`oldest_pending_message_age` remains an alerting and diagnostic metric. It is not a substitute for the ratio SLI.
 
 ---
 
-# Queue Age SLI
+# Work-to-Memory System Completion SLI
 
-Definition:
+This SLI measures the AIOS system obligation after a Human completes Work. It does not include Human review time.
+
+Start:
 
 ```text
-oldest pending message age
+WorkCompleted recordedAt in the authoritative transaction
 ```
 
-A growing age often indicates a stalled system before backlog becomes obvious.
+End:
+
+```text
+A reviewable Memory draft for the same sourceWorkId is committed
+```
+
+Formula:
+
+```text
+eligible WorkCompleted records producing exactly one reviewable Memory draft within 5 minutes
+/
+all eligible WorkCompleted records old enough to have reached the 5-minute deadline
+```
+
+Retry exhaustion, manual-intervention state, AI-provider failure, Worker failure, and Outbox delay remain failures in the end-to-end SLI. They are classified separately for diagnosis but are not excluded from customer impact.
+
+Cancelled or administratively suppressed generation is excluded only when that behavior is explicitly permitted by the domain contract and durably recorded before the deadline.
+
+Primary data source:
+
+```text
+PostgreSQL WorkCompleted recordedAt
+joined to durable Memory generation state and Memory generatedAt by sourceWorkId
+```
+
+The unique-Memory invariant remains a database and domain guarantee. An SLO does not weaken it.
 
 ---
 
-# Suggested MVP SLOs
+# Worker Terminal Success SLI
 
-Illustrative objectives:
+A logical Worker item, not an individual claim attempt, is the unit of measurement.
+
+Formula:
 
 ```text
-HTTP Availability
->= 99.9%
-
-P95 Request Latency
-< 500 ms
-
-Outbox Oldest Pending
-< 30 seconds
-
-Memory Generation Success
->= 99%
-
-Decision Review Queue Availability
-100% visible
-
-Worker Claim Success
->= 99.9%
+logical items completed before retry exhaustion
+/
+logical items reaching success or terminal failure during the window
 ```
 
-Final values depend on product requirements and operational capacity.
+A retry is neither a new denominator item nor a success. Administrative cancellation is reported separately and is excluded only when authorized and durably audited.
+
+Primary data source:
+
+```text
+Durable Worker item status keyed by logical item identifier
+```
+
+---
+
+# Decision Review Workflow Indicators
+
+Human review latency is a product workflow indicator, not a platform reliability SLO.
+
+AIOS MUST report separately:
+
+- time from Decision submission to first Human review
+- time spent waiting for Human action
+- count and age of Decisions awaiting review
+- time from a Human decision command to authoritative persistence
+
+Only the final item is system-processing latency. Human waiting time MUST NOT consume the platform error budget.
+
+For the MVP, a submitted Decision MUST be query-visible from PostgreSQL after its authoritative transaction commits. Missing queue visibility is an integrity or query defect, not an objective that may consume an error budget.
+
+---
+
+# MVP SLO Catalog
+
+| SLO | Target | Window | Minimum volume | Initial alert signal | Owner |
+|---|---:|---|---:|---|---|
+| HTTP availability | >= 99.9% | Rolling 30 days | 1,000 requests | 5-minute availability < 99% with at least 20 requests | Service Owner |
+| HTTP P95 latency | < 500 ms | Rolling 30 days | 1,000 requests | P95 > 1 second for 15 minutes with at least 100 requests | Service Owner |
+| Outbox relay within 30 seconds | >= 99.9% | Rolling 30 days | 1,000 records | Oldest publishable record > 60 seconds for 5 minutes | Service Owner |
+| Work-to-Memory within 5 minutes | >= 99.0% | Rolling 30 days | 100 completed Works | Any generation older than 5 minutes without a draft; critical at 15 minutes | Work/Memory Owner |
+| Worker terminal success | >= 99.0% | Rolling 30 days | 100 logical items | Three terminal failures or < 95% success over 15 minutes | Service Owner |
+
+When volume is below the minimum, dashboards MUST show the raw counts and percentile or ratio but MUST label the formal SLO result as insufficient data.
+
+These are the initial MVP production targets. They may be revised through the versioned decision process after measured production evidence exists.
+
+---
+
+# Error-Budget and Breach Policy
+
+For ratio SLOs:
+
+```text
+error budget = 1 - SLO target
+```
+
+The owner MUST:
+
+- investigate an alert using the authoritative timestamps and operational evidence
+- open an incident when the critical threshold or customer-impact condition is met
+- record exclusions and monitoring-data defects
+- stop reliability-degrading releases when the 30-day error budget is exhausted
+- prioritize recovery and corrective work until the service returns within policy
+- review the SLO after incidents without retroactively changing the formula to hide failure
+
+Security isolation, Human authority, immutable approval, exactly-one Memory, and other domain invariants have no consumable error budget. Any violation is a correctness or security incident.
 
 ---
 
