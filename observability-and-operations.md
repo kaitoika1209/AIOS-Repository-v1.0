@@ -5280,7 +5280,7 @@ Expected response:
 ```text
 Immediate paging
 
-Incident Commander assigned
+Incident coordination responsibility assigned to a named Human
 
 Affected mutation paths contained
 
@@ -5427,27 +5427,75 @@ initialOwner
 
 ---
 
+# Incident Responsibility Model
+
+Incident roles in this document are responsibilities, not assumptions about separate full-time staff positions.
+
+One authorized Human MAY hold more than one responsibility when team size or incident conditions require it. Role combination MUST remain explicit in the incident record; absence of separate staff does not leave a responsibility unassigned.
+
+Every SEV-1 and SEV-2 incident MUST name Human owners for:
+
+- incident coordination and technical response
+- business and stakeholder communication
+- timeline and evidence capture
+- post-incident review
+
+The assignment record MUST include the Human principal, responsibility names, assumption time, and handoff or release time. Automation and the AI Secretary MAY prepare status summaries, correlate evidence, and suggest next actions, but they cannot own an incident, approve a risky operation, declare authoritative recovery, or perform the post-incident review.
+
+---
+
+# Small-Team Operating Mode
+
+The production MVP is expected to be operated by one to three people. Its minimum accountability model is:
+
+- Responder / Incident Commander
+- Business Communicator
+- Post-Incident Reviewer
+
+Technical Lead and Scribe responsibilities are folded into these assignments unless separately assigned.
+
+| Available Humans | Active-response assignment | Review assignment |
+|---|---|---|
+| One | The Primary Responder acts as Incident Commander, Technical Lead, Scribe, and Business Communicator. A designated external business contact receives concise status when reachable. | The same Human performs a time-separated structured self-review. A SEV-1 Security, OrganizationIsolation, HumanAuthority, or DataIntegrity incident receives an independent second review as soon as another qualified reviewer is available and before related corrective actions are closed. |
+| Two | One Human is Responder / Incident Commander and Technical Lead. The second is Business Communicator and Scribe, and may take over response duties through an explicit handoff. | Prefer the Human who was not the primary technical responder; record any conflict and obtain an additional reviewer for high-risk findings when practical. |
+| Three | Assign Responder / Incident Commander, Technical Responder, and Business Communicator / Scribe separately. | Select a Post-Incident Reviewer who was not the primary technical responder. |
+
+During initial containment, a sole responder MAY defer narrative detail, but MUST record at minimum:
+
+- incident identifier and severity
+- acknowledgement and current Human owner
+- containment, repair, replay, deployment, or configuration action
+- actor and UTC timestamp
+- approval or break-glass reference when required
+- observed result and recovery-validation evidence
+
+The fuller timeline and hypotheses are completed after immediate risk is controlled. Lack of staff MUST NOT waive Organization isolation, Human-only authority, authorization policy, durable audit, repair preconditions, or the break-glass controls defined later in this document.
+
+When two authorized Humans are available, dangerous repair, replay, or emergency-change approval SHOULD be separated from execution. When only one is available, the existing one-to-three-person break-glass contract applies; role combination itself never grants additional permission.
+
+---
+
 # Incident Commander
 
-SEV-1 and SEV-2 incidents should have an Incident Commander.
+The Incident Commander is the incident-coordination responsibility. SEV-1 and SEV-2 incidents MUST assign it to a Human; in small-team mode this is normally the Primary Responder.
 
 The Incident Commander coordinates:
 
 - severity
 - priorities
-- responder roles
+- responder responsibilities
 - communication
 - mitigation decisions
 - escalation
 - resolution criteria
 
-The Incident Commander does not necessarily perform technical remediation.
+The Incident Commander may also perform technical remediation when staffing requires it, but the combined assignment and any resulting approval conflict MUST be recorded.
 
 ---
 
 # Technical Lead
 
-The Technical Lead owns:
+The Technical Lead responsibility owns:
 
 - diagnosis
 - containment proposal
@@ -5455,11 +5503,13 @@ The Technical Lead owns:
 - recovery validation
 - technical risk assessment
 
+It MAY be combined with the Incident Commander responsibility in small-team mode.
+
 ---
 
 # Communications Lead
 
-For significant incidents, a Communications Lead may own:
+For significant incidents, the Communications Lead responsibility owns:
 
 - internal status updates
 - stakeholder notifications
@@ -5467,11 +5517,13 @@ For significant incidents, a Communications Lead may own:
 - timeline accuracy
 - resolution notice
 
+In small-team mode this responsibility is named Business Communicator and MAY be combined with Scribe or secondary-responder duties.
+
 ---
 
 # Scribe
 
-A Scribe records:
+The Scribe responsibility records:
 
 - timeline
 - decisions
@@ -5481,7 +5533,8 @@ A Scribe records:
 - observed results
 - unresolved questions
 
-Incident records must not depend on memory after the event.
+It MAY be combined with another response responsibility. Even when no dedicated Scribe exists, the minimum incident record remains mandatory and MUST NOT depend on memory after the event.
+
 
 ---
 
@@ -5685,9 +5738,11 @@ Before resolution, the system should remain in monitoring long enough to verify:
 
 # Incident Review
 
-SEV-1 and SEV-2 incidents require a post-incident review.
+SEV-1 and SEV-2 incidents require a post-incident review and a named Post-Incident Reviewer.
 
 A SEV-3 incident may also require review when it exposes systemic weakness.
+
+The reviewer SHOULD differ from the primary technical responder whenever another qualified Human is available. A one-person structured self-review is acceptable under the Small-Team Operating Mode, subject to its independent-review requirement for high-risk SEV-1 incidents. Review assignment is separate from incident resolution and MUST NOT delay containment or safe service recovery.
 
 ---
 
@@ -7697,6 +7752,7 @@ The operational control architecture must preserve:
 26. MVP recovery controls execute through the Operations Application Service, not ad hoc SQL, shell commands, or arbitrary scripts.
 27. Backup-job success is not proof of recoverability; the monthly restore test is required.
 28. Restored Outbox work and external side effects are reconciled before uncontrolled replay.
+29. Incident roles are explicit Human responsibilities that may be combined without weakening authorization, audit, tenant isolation, or review controls.
 
 ---
 
