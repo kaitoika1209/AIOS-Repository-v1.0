@@ -1398,21 +1398,59 @@ Do not log the full invalid payload by default.
 
 # Memory Generation Logging
 
-Recommended events:
+Required operational log names:
 
 ```text
 MemoryGenerationScheduled
 
 MemoryGenerationStarted
 
-MemoryGenerationSucceeded
+MemoryGenerationProviderCompleted
 
 MemoryGenerationValidationFailed
 
 MemoryGenerationRetryScheduled
 
+MemoryGenerationPersistenceStarted
+
+MemoryGenerationSucceeded
+
 MemoryGenerationFailed
+
+MemoryGenerationAbandoned
 ```
+
+Every Memory generation log MUST include, when available:
+
+```text
+organizationId
+
+workId
+
+generationAttemptId
+
+sourceEventId
+
+generationPolicyVersion
+
+attemptNumber
+
+status
+
+failureCategory
+
+errorCode
+
+correlationId
+
+causationId
+
+traceId
+```
+
+Provider-completion logs MUST report duration, outcome, provider, and configured model reference without prompt or response content.
+
+Success and terminal-failure logs MUST be emitted from committed durable state. A log message alone MUST NOT mark an operation as Generated, Failed, processed, or eligible for replay.
 
 ---
 
@@ -3055,17 +3093,151 @@ These metrics help identify approval bottlenecks.
 
 # Workflow Latency Metrics
 
-Recommended:
+The Work-to-Memory workflow MUST expose one end-to-end measure and stage-level diagnostic measures.
+
+Canonical timing chain:
 
 ```text
-decision_submission_to_review_seconds
-
-work_completion_to_memory_generation_seconds
-
-memory_submission_to_review_seconds
+WorkCompleted committed
+    ↓
+Outbox record relayed
+    ↓
+Memory generation consumer started
+    ↓
+AI provider call completed
+    ↓
+Generated output validated
+    ↓
+Memory persistence transaction committed
 ```
 
-Workflow latency often matters more than request latency.
+Required histograms:
+
+```text
+work_commit_to_outbox_relay_seconds
+
+outbox_relay_to_consumer_start_seconds
+
+memory_generation_provider_seconds
+
+memory_generation_validation_seconds
+
+memory_generation_persistence_seconds
+
+work_completion_to_memory_generated_seconds
+```
+
+Optional diagnostic histograms:
+
+```text
+consumer_start_to_provider_start_seconds
+
+memory_generation_attempt_seconds
+
+memory_generation_retry_delay_seconds
+```
+
+The end-to-end measure is authoritative for the Work-to-Memory SLO. Stage measures explain where time was spent; they do not replace the end-to-end result.
+
+---
+
+# Work-to-Memory Timestamp Contract
+
+The following timestamp semantics MUST be stable:
+
+| Timestamp | Meaning | Durable source |
+|---|---|---|
+| workCompletedAt | WorkCompleted recorded in the authoritative Work transaction | Domain-event or Outbox recorded timestamp |
+| outboxRelayedAt | Outbox publisher durably records successful relay | Outbox delivery state |
+| consumerStartedAt | Consumer durably creates or claims the logical generation operation | Memory generation attempt |
+| providerStartedAt | A specific external provider attempt starts | Trace or operational measurement |
+| providerCompletedAt | The provider attempt returns or times out | Trace or operational measurement |
+| validationCompletedAt | Provider output validation completes | Trace or operational measurement |
+| memoryPersistenceStartedAt | The short Memory persistence transaction begins | Trace or operational measurement |
+| memoryGeneratedAt | Memory draft, generation outcome, and MemoryGenerated Outbox record commit | PostgreSQL transaction timestamp |
+
+Cross-process durations MUST use persisted UTC timestamps from the participating boundaries. In-process durations SHOULD use a monotonic clock.
+
+Wall-clock differences, retry overlap, and queue rescheduling mean stage histograms are diagnostic and are not required to sum exactly to the end-to-end duration.
+
+---
+
+# Retry Measurement
+
+Provider, validation, and persistence durations are recorded per attempt.
+
+The end-to-end duration is recorded once per logical generation operation:
+
+```text
+memoryGeneratedAt - workCompletedAt
+```
+
+A retry MUST NOT create a second Work-to-Memory SLO observation.
+
+Metrics MAY use bounded labels such as outcome, failureCategory, workerType, and configured provider. They MUST NOT use organizationId, workId, generationAttemptId, eventId, raw model response, or error message as metric labels.
+
+---
+
+# Durable Memory Generation State
+
+Logs, metrics, and traces are not sufficient to determine whether Memory generation is pending, progressing, retrying, or terminally failed.
+
+The PostgreSQL memory generation operation defined in the persistence architecture is the durable operational record. It is keyed by Organization, source Work, and generation policy, and includes at minimum:
+
+```text
+generationAttemptId
+
+organizationId
+
+workId
+
+sourceEventId
+
+generationPolicyVersion
+
+status
+
+attemptCount
+
+startedAt
+
+completedAt
+
+lastErrorCode
+
+createdAt
+
+updatedAt
+```
+
+Permitted operational statuses remain:
+
+```text
+Pending
+
+Generating
+
+Generated
+
+Failed
+
+Abandoned
+```
+
+This operational status is not MemoryStatus and is not domain authority over Work or Memory.
+
+Required rules:
+
+- duplicate WorkCompleted delivery reuses the same logical generation identity
+- retry updates the existing logical operation or creates a policy-compliant attempt under that operation
+- Work remains Completed when generation fails
+- partial provider output is never exposed as a Memory
+- Generated is recorded only after a reviewable Memory draft exists
+- the Memory insert, Generated outcome, processed-event marker, and MemoryGenerated Outbox record MUST commit atomically
+- terminal failure remains queryable until explicitly retried, abandoned, or resolved
+- reconciliation compares this durable state with Work, Memory, Outbox, and processed-event records
+
+The durable record enables administrative queries by Organization and source Work. High-cardinality identifiers remain in PostgreSQL, logs, and traces rather than metric labels.
 
 ---
 
