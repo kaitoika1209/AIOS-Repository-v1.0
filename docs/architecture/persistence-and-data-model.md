@@ -4884,6 +4884,11 @@ reconciliation_findings
 - finding_id
 - finding_type
 - severity
+- guarantee_reference
+- owning_module
+- primary_prevention_layer
+- recovery_mode
+- catalog_version
 - organization_id
 - source_event_id
 - aggregate_type
@@ -4939,6 +4944,52 @@ WHERE status IN (
 ```
 
 The exact key may vary by finding type.
+
+---
+
+# Reconciliation Finding Classification
+
+`reconciliation_findings` records evidence that an independently owned guarantee may have failed. It does not become the source of truth for the guarantee and does not authorize repair.
+
+Each implemented finding type MUST be registered in the version-controlled reconciliation catalog defined by `observability-and-operations.md`.
+
+Recommended classification fields:
+
+```text
+guarantee_reference
+owning_module
+primary_prevention_layer
+recovery_mode
+catalog_version
+```
+
+Recommended `primary_prevention_layer` values:
+
+```text
+Aggregate
+DomainPolicy
+ApplicationService
+AuthorizationPolicy
+DatabaseConstraint
+EventDeliveryPolicy
+WorkerRuntime
+Projection
+```
+
+Recommended `recovery_mode` values:
+
+```text
+AutomaticReplay
+AutomaticRebuild
+HumanDomainCommand
+HumanOperationalCommand
+HumanSecurityResponse
+ObservationOnly
+```
+
+These values classify responsibility; they do not permit a generic repair engine. Recovery MUST call the typed command owned by the affected module or the restricted Operations Application Service. Reconciliation Workers MUST NOT mutate Aggregate tables, Membership or authorization state, or immutable revision content directly.
+
+The stored `guarantee_reference` and `catalog_version` preserve which invariant and recovery policy were evaluated when the finding was created. Unknown or removed catalog entries fail closed for automatic recovery and require Human triage.
 
 ---
 
