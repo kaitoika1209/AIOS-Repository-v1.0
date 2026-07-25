@@ -51,6 +51,63 @@ Examples include:
 
 ---
 
+# Guarantee Ownership and Reconciliation Boundary
+
+Observability detects evidence that an architectural guarantee failed. It does not own, define, or replace that guarantee.
+
+The enforcement order is:
+
+```text
+Aggregate invariant or Domain Policy
+    -> Application Service and authorization boundary
+        -> PostgreSQL constraint or transaction rule where structurally enforceable
+            -> reconciliation as independent detection
+                -> recovery through the owning Application Service
+```
+
+A scheduled scan, alert, dashboard, or reconciliation Worker MUST NOT be the primary protection for a state that can be rejected synchronously by the owning Aggregate, Application Service, authorization policy, or database constraint.
+
+Every reconciliation check MUST have a version-controlled catalog entry containing:
+
+```text
+findingType
+guaranteeReference
+owningModule
+primaryPreventionLayer
+databaseDefense
+detectionSource
+automaticRecoveryPolicy
+humanInterventionPolicy
+severityRule
+validationQueryOrCommand
+```
+
+If `guaranteeReference`, `owningModule`, or `primaryPreventionLayer` is unknown, the check is not implementation-ready. A reconciliation finding is evidence of a failed or missing safeguard; it is not permission to accept invalid state as normal.
+
+## MVP Integrity-Finding Classification
+
+| Finding | Authoritative guarantee and prevention owner | Database defense | Reconciliation role | Recovery authority |
+|---|---|---|---|---|
+| `WorkGateOutcomeMissing` | Work owns its Completion Gate; the owning event handler applies a final Decision outcome through the Work Application Service. | Completion-gate state check and Organization-scoped Decision reference. | Detect a final Decision whose outcome is absent from the related Work after the delivery objective. | Replay the idempotent handler; otherwise a Human-approved Work repair command. |
+| `MemoryGenerationMissing` | The Work-to-Memory use case starts only from committed `WorkCompleted`; the consumer and Memory module own idempotent generation. | Atomic processed-event, Memory, generation-outcome, and Outbox transaction; one active Memory per Work. | Detect a completed Work with no pending, generated, terminal-failure, or resolved generation record. | Automatic retry within policy; Human retry or abandonment after exhaustion. Work remains Completed. |
+| `ActiveOrganizationWithoutOwner` | Organization/Membership Application Services preserve at least one active Human Owner under the Organization-scoped lock. | Locked owner-count transaction; optional database trigger as defense in depth. | Independently detect violation of the already-required invariant. | Human-only administrative recovery; never automatic assignment and never Secretary or System assignment. |
+| `DecisionRevisionMutatedAfterSubmission` | Decision owns revision lifecycle; submitted and decided revisions are immutable. | Repository update prohibition, revision ownership constraints, and optional immutability trigger. | Compare immutable revision identity or content hash only to detect safeguard failure. | Contain writes and require Human-led integrity repair; do not overwrite audit evidence. |
+| `ApprovedMemoryRevisionMismatch` | Memory owns review state; approval binds to the exact immutable reviewed revision. | Review-field checks, Organization-scoped revision ownership, and immutable submitted/approved revisions. | Detect mismatch or post-review mutation as corruption, not as an eventually consistent condition. | Contain Memory mutations and require Human-led repair through the Memory Application Service. |
+| `HumanAuthorityBoundaryViolated` | Authorization and the command Application Service reject Secretary or System execution of Human-only commands. | Human actor columns reference Human Identity and Membership; non-Human principals use separate columns or tables. | Verify that no authoritative transition committed after a prohibited attempt. | Security incident handling and Human-approved repair if state changed. |
+| `CrossOrganizationReferenceDetected` | Authorization, Organization-scoped repositories, and owning modules reject cross-Organization access and relationships. | Composite Organization keys and foreign keys where applicable. | Detect structural or access evidence missed by preventive controls. | Immediate containment; scoped Human-led security and integrity recovery. |
+
+## MVP Operational-Finding Classification
+
+| Finding | Primary prevention owner | Reconciliation role | Recovery authority |
+|---|---|---|---|
+| `PoisonEventOrderingBlocked` | The consumer ordering and poison-event policy in `events-and-outbox.md`. | Confirm the blocked ordering key, later-message policy, and dead-letter evidence. | Typed retry, skip, compensation, or rebuild through the Operations Application Service under the owning consumer policy. |
+| `WorkerRetryWithoutProgress` | Worker Runtime retry, lease, and terminal-failure policy. | Detect repeated attempts without checkpoint or outcome progress. | Automatic bounded retry until exhaustion; then Human operational action. |
+| `WorkflowHealthProjectionInconsistent` | The projection Worker owns correct derivation from durable sources. | Detect missing source rows, false `Healthy`, duplicate or cross-Organization projection rows, stale high-water marks, and refresh expiry. | Rebuild the projection automatically when sources are intact; Human intervention when authoritative source state is inconsistent. |
+
+Operational projections and reconciliation findings remain non-authoritative metadata. They MUST NOT directly update Work, Decision, Memory, Organization, Membership, authorization, or immutable revision tables.
+
+---
+
 # Scope
 
 This document covers operational concerns for the MVP Modular Monolith.
@@ -3279,6 +3336,7 @@ The observability foundation must preserve:
 18. Replay and repair operations are fully attributable.
 19. Timestamps use UTC.
 20. Telemetry schema changes are versioned.
+21. Reconciliation detects failure of an independently owned guarantee; it never replaces preventive enforcement or directly mutates authoritative Domain state.
 
 ---
 
