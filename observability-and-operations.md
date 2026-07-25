@@ -461,7 +461,7 @@ Operators must not silently rewrite authoritative tables as the ordinary respons
 
 AIOS must make authority boundaries visible.
 
-Examples of security-relevant events:
+Examples of security-relevant signals:
 
 ```text
 Secretary attempted Decision approval
@@ -1087,109 +1087,108 @@ Plain unstructured text should be limited to local development.
 
 ---
 
-# Log Event Model
+# Operational Log Record Model
 
-Each log record should contain:
+Each structured log record uses an operational-log identity that is separate from any Domain Event, Integration Message, durable Operational Event, or Audit Record referenced by the log.
+
+The base envelope should contain:
 
 ```text
 timestamp
-
 severity
-
-eventName
-
+operationalLogName
+operationalLogCategory
 message
-
 serviceName
-
 serviceVersion
-
 environment
-
 requestId
-
 commandId
-
 correlationId
-
 causationId
-
 traceId
-
 spanId
-
 organizationId
-
 principalType
-
 principalId
-
 aggregateType
-
 aggregateId
-
-eventId
-
+domainEventId
+domainEventType
+integrationMessageId
+integrationMessageType
+operationalEventId
+operationalEventType
+auditRecordId
+auditAction
 consumerName
-
 workerId
-
 attempt
-
 outcome
-
 errorCategory
-
 errorCode
-
 durationMs
 ```
 
-Only applicable fields should be populated.
+Only applicable fields are populated.
 
 ---
 
 # Required Log Fields
 
-Every production log should include:
+Every production log MUST include:
 
 ```text
 timestamp
-
 severity
-
-eventName
-
+operationalLogName
+operationalLogCategory
 serviceName
-
 serviceVersion
-
 environment
+logSchemaVersion
 ```
 
-Every request or Worker operation should additionally include a correlation identifier.
+Every request or Worker operation additionally includes a server-owned correlation identifier.
 
 ---
 
-# Log Event Name
+# Telemetry Identity Namespace
 
-`eventName` should be stable and machine-queryable.
+The following names are not interchangeable:
+
+```text
+domainEventType            # committed domain fact
+integrationMessageType     # stable consumer-facing message contract
+operationalEventType       # explicitly persisted operational fact
+operationalLogName         # telemetry record identity
+auditAction                # accountability action in durable audit
+```
+
+The corresponding identifiers use the same namespace-specific prefixes shown in the base envelope. A log MUST NOT use generic `eventName` or `eventType` fields because their meaning changes between producers and queries.
+
+When a Domain Event is mapped to an Integration Message, the log may carry both identity pairs. They identify different artifacts even when the MVP temporarily uses the same payload or identifier value.
+
+An ordinary structured log record is not an Operational Event and MUST NOT be placed in the Outbox, processed-event store, or audit table merely because it has a stable name. Conversely, emitting a log does not prove that an event was committed, a message was relayed, consumer effects were committed, or an audit record was stored.
+
+---
+
+# Operational Log Name
+
+`operationalLogName` is stable and machine-queryable. It names the observed processing stage, not the underlying business fact.
 
 Preferred:
 
 ```text
 WorkCommandCompleted
-
 DecisionApprovalDenied
-
-OutboxMessageClaimed
-
-DomainEventPublished
-
+OutboxRecordClaimed
+OutboxRecordRelayed
+ConsumerEffectsCommitted
 MemoryGenerationFailed
 ```
 
-Avoid using the free-text message as the primary event identity.
+Avoid free-text messages as the primary identity. Avoid names such as `DomainEventPublished` or `DomainEventProcessed`, because they do not state whether the Outbox relay, transport acknowledgement, handler execution, or consumer transaction completed.
 
 ---
 
@@ -1520,7 +1519,7 @@ Example:
 
 ```json
 {
-  "eventName": "WorkCommandCompleted",
+  "operationalLogName": "WorkCommandCompleted",
   "commandType": "CompleteWork",
   "organizationId": "org-...",
   "aggregateType": "Work",
@@ -1737,75 +1736,67 @@ Abandoned
 
 ---
 
-# Event Publication Logging
+# Outbox Relay Logging
 
-Recommended Outbox publication events:
+Required operational log names:
 
 ```text
-OutboxMessageClaimed
-
-DomainEventPublicationStarted
-
-DomainEventPublished
-
-DomainEventPublicationRetryScheduled
-
-DomainEventPublicationFailed
-
-OutboxStreamBlocked
+OutboxRecordClaimed
+OutboxRelayStarted
+OutboxRecordRelayed
+OutboxRelayRetryScheduled
+OutboxRelayFailed
+OutboxOrderingKeyBlocked
 ```
+
+`OutboxRecordRelayed` means that the configured transport or in-process delivery boundary acknowledged the message. It does not mean that any consumer committed its effects.
+
+Relay logs populate `integrationMessageId` and `integrationMessageType` when an Integration Message exists. They may also populate `domainEventId` and `domainEventType` when the Outbox record carries an internal Domain Event directly.
 
 ---
 
-# Event Consumer Logging
+# Consumer Delivery Logging
 
-Recommended consumer events:
+Required operational log names:
 
 ```text
-DomainEventReceived
-
-DomainEventDuplicateDetected
-
-DomainEventProcessingStarted
-
-DomainEventProcessed
-
-DomainEventRetryScheduled
-
-DomainEventDeadLettered
-
-DomainEventSkipped
+ConsumerDeliveryReceived
+ConsumerDuplicateDeliveryDetected
+ConsumerDeliveryStarted
+ConsumerEffectsCommitted
+ConsumerDeliveryRetryScheduled
+ConsumerDeliveryDeadLettered
+ConsumerDeliverySkipped
 ```
+
+`ConsumerEffectsCommitted` is emitted only after the consumer effect and processed-event marker commit atomically. Handler return, transport acknowledgement, or log emission alone MUST NOT use this name.
+
+`ConsumerDeliverySkipped` records the approved ordering-impact classification and recovery reference. It does not imply successful business processing.
 
 ---
 
-# Event Contract Logging
+# Message Contract Logging
 
-Invalid event contracts should emit:
+An invalid Domain Event envelope or Integration Message contract emits:
 
 ```text
-EventContractRejected
+MessageContractRejected
 ```
 
-Recommended fields:
+Required fields include:
 
 ```text
-eventId
-
-eventType
-
+eventCategory
+domainEventId and domainEventType when category = Domain
+integrationMessageId and integrationMessageType when category = Integration
 schemaVersion
-
 consumerName
-
 validationErrorCode
-
-payloadHash
-
+payloadFingerprint when permitted
 organizationId when safely available
 ```
 
-Do not log the full invalid payload by default.
+Exactly one primary message identity pair is required. Both pairs may be present only for an explicitly recorded Domain-to-Integration mapping. Do not log the full invalid payload by default.
 
 ---
 
@@ -1925,7 +1916,7 @@ A fingerprint detects equality for an approved operational purpose. It is not an
 
 # Projection Logging
 
-Recommended projection events:
+Recommended projection operational log names:
 
 ```text
 ProjectionUpdateStarted
@@ -1947,7 +1938,7 @@ ProjectionRebuildFailed
 
 # Reconciliation Logging
 
-Recommended events:
+Recommended operational log names:
 
 ```text
 ReconciliationScanStarted
@@ -2031,13 +2022,13 @@ DeploymentCompleted
 DeploymentRolledBack
 ```
 
-These events should be available independently from the newly deployed application process.
+These operational logs should be available independently from the newly deployed application process.
 
 ---
 
 # Backup and Restore Logging
 
-Recommended events:
+Recommended operational log names:
 
 ```text
 BackupStarted
@@ -2065,7 +2056,7 @@ Backup logs must not expose:
 
 # Operational Action Logging
 
-Privileged operator actions require structured events.
+Privileged operator actions require structured operational logs in addition to durable audit.
 
 Examples:
 
@@ -3038,39 +3029,26 @@ Audit export is optional for the MVP.
 
 ---
 
-# Operational Event Taxonomy
+# Operational Log Taxonomy
 
-Stable operational events improve search, alerting, and dashboards.
+Stable operational log names improve search, alerting, and dashboards. They remain telemetry and are not Event contracts.
 
-Recommended top-level categories:
+Recommended `operationalLogCategory` values:
 
 ```text
 Application
-
 Authorization
-
-Domain
-
+DomainWorkflow
 Database
-
 Outbox
-
 Consumer
-
 Worker
-
 Projection
-
 Reconciliation
-
 Deployment
-
 Migration
-
 Backup
-
 Security
-
 Configuration
 ```
 
@@ -3081,20 +3059,20 @@ Configuration
 Recommended pattern:
 
 ```text
-<Subject><Action><Outcome>
+<ObservedSubject><StageOrAction><Outcome>
 ```
 
 Examples:
 
 ```text
 DecisionCommandCompleted
-
-OutboxMessagePublicationFailed
-
+OutboxRelayFailed
+ConsumerEffectsCommitted
 MemoryGenerationRetryScheduled
-
 OrganizationIsolationViolationDetected
 ```
+
+Names must identify the stage whose result is known. `OutboxRecordRelayed` and `ConsumerEffectsCommitted` are intentionally different log names.
 
 ---
 
@@ -3104,21 +3082,13 @@ Recommended stable values:
 
 ```text
 Started
-
 Succeeded
-
 Failed
-
 Denied
-
 Skipped
-
 Retried
-
 Expired
-
 Cancelled
-
 Degraded
 ```
 
@@ -3126,13 +3096,13 @@ Degraded
 
 # Log Schema Version
 
-Structured log records should include:
+Structured log records MUST include:
 
 ```text
 logSchemaVersion
 ```
 
-This supports changes to field names and semantics.
+Changing a field name, identity namespace, required-field rule, or operational-log meaning requires a compatible schema evolution or a new version. Renaming an operational log does not rename a Domain Event or Integration Message contract.
 
 ---
 
@@ -3140,18 +3110,19 @@ This supports changes to field names and semantics.
 
 ```json
 {
-  "logSchemaVersion": 1,
+  "logSchemaVersion": 2,
   "timestamp": "2026-07-24T12:00:00Z",
   "severity": "Info",
-  "eventName": "DomainEventProcessed",
-  "message": "The domain event was processed successfully.",
+  "operationalLogName": "ConsumerEffectsCommitted",
+  "operationalLogCategory": "Consumer",
+  "message": "The consumer effects and processed-event marker committed.",
   "serviceName": "aios-memory-worker",
   "serviceVersion": "1.0.0",
   "environment": "production",
   "requestId": null,
   "commandId": null,
   "correlationId": "corr-...",
-  "causationId": "event-...",
+  "causationId": "domain-event-...",
   "traceId": "trace-...",
   "spanId": "span-...",
   "organizationId": "org-...",
@@ -3159,7 +3130,14 @@ This supports changes to field names and semantics.
   "principalId": "system-memory-worker",
   "aggregateType": "Memory",
   "aggregateId": "memory-...",
-  "eventId": "event-...",
+  "domainEventId": "domain-event-...",
+  "domainEventType": "WorkCompleted",
+  "integrationMessageId": null,
+  "integrationMessageType": null,
+  "operationalEventId": null,
+  "operationalEventType": null,
+  "auditRecordId": null,
+  "auditAction": null,
   "consumerName": "memory-generation",
   "workerId": "worker-03",
   "attempt": 1,
@@ -3183,7 +3161,7 @@ serviceName
 
 environment
 
-eventName
+operationalLogName
 
 outcome
 
@@ -3203,7 +3181,13 @@ aggregateId
 
 commandId
 
-eventId
+domainEventId
+
+integrationMessageId
+
+operationalEventId
+
+auditRecordId
 
 traceId
 
@@ -3284,7 +3268,7 @@ Local development may use:
 - developer-only SQL detail
 - local trace viewer
 
-Production field names and event names should remain consistent.
+Production field names and operational log names should remain consistent.
 
 ---
 
@@ -3319,7 +3303,7 @@ The observability foundation must preserve:
 1. Every command and Worker operation has a correlation identifier.
 2. Command retries reuse commandId only when intent is unchanged.
 3. Domain Events preserve correlationId and immediate causationId.
-4. Logs use stable structured event names.
+4. Logs use stable structured operational log names.
 5. Error categories and error codes are machine-queryable.
 6. High-cardinality identifiers are not ordinary metric labels.
 7. Sensitive domain content is excluded from telemetry by default.
