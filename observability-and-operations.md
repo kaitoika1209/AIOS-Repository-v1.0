@@ -100,9 +100,9 @@ Before the MVP is operated in production, AIOS MUST provide:
 - durable audit for successful Human-authoritative transitions and privileged operational actions
 - separate HTTP liveness/readiness, Worker liveness/readiness, asynchronous workflow health, and restricted administrative diagnostics
 - bounded retry, idempotency, retry-exhaustion visibility, dead-letter handling, and typed Operations Application Service commands for Worker pause/resume, replay, and dead-letter retry/skip
-- database backup, point-in-time recovery capability, and a verified restore procedure
+- continuous WAL archiving, a physical base backup at least every 24 hours, a 14-day PITR window, a monthly verified restore test, and the approved RPO and RTO
 - actionable alerts for database unavailability, authoritative-write failure, Outbox or Worker stoppage, Memory-generation failure, and Organization-isolation violation
-- the five MVP runbooks identified in the Operational Runbooks section
+- the six MVP runbooks identified in the Operational Runbooks section
 
 An MVP release is not accepted for production when any item in this baseline is absent unless the architecture owner records a time-bounded risk acceptance.
 
@@ -3908,6 +3908,58 @@ restore_test_duration_seconds
 
 ---
 
+# Backup and Recovery Operational Contract
+
+`docs/architecture/persistence-and-data-model.md` is the canonical source for recovery semantics, protected data, and restore correctness. This document defines how Operations measures and enforces that contract.
+
+The production MVP objectives are:
+
+```text
+Recovery Point Objective (RPO) <= 15 minutes
+
+Authoritative Service Recovery Time Objective (RTO) <= 4 hours
+
+Asynchronous Workflow Recovery Target <= 8 hours
+```
+
+The minimum production controls are:
+
+```text
+continuous WAL archiving
+physical base backup at least every 24 hours
+PITR restore window >= 14 days
+deletion-resistant backup copy or tier >= 30 days
+documented isolated restore test at least monthly
+full disaster-recovery exercise at least quarterly
+```
+
+Backup-job success is not proof of recoverability. The latest confirmed restorable point, backup integrity result, restore-test result, achieved RPO, achieved RTO, and age of the latest exercise MUST be observable independently.
+
+The following metrics are required in addition to the basic backup counters:
+
+```text
+wal_archive_lag_seconds
+latest_restorable_point_age_seconds
+pitr_window_days
+backup_integrity_failure_total
+restore_test_failure_total
+restore_test_rpo_seconds
+restore_test_rto_seconds
+restore_test_age_seconds
+disaster_recovery_exercise_age_seconds
+recovery_external_effect_unknown_total
+```
+
+Labels MUST follow the bounded-cardinality and Organization-isolation rules in this document. Recovery-point timestamps, provider request identifiers, backup object names, database names, and raw error text belong in restricted operational records, not metric labels.
+
+Operations MUST alert before the 15-minute RPO is consumed. An unconfirmed latest restorable point older than 15 minutes is a Critical recovery-capability incident even when the most recent base-backup job reports success. A restore test older than 31 days or a disaster-recovery exercise older than 92 days is a control failure and MUST enter the owned operations queue.
+
+During production restoration, publishers, consumers, schedulers, and mutation traffic remain paused until the restored consistency boundary passes the validation contract. Before resuming asynchronous processing, Operations MUST inspect Outbox rows, processed-event records, ordering checkpoints, dead letters, replay state, and expired claims together.
+
+Restored Outbox rows retain at-least-once delivery semantics. For an external side effect whose pre-restore outcome is unknown, the consumer MUST use the effect ledger, stable idempotency key, and provider status query defined by the owning integration. The affected ordering key remains blocked when the outcome cannot be proven. Blind replay of a non-idempotent external effect is prohibited.
+
+---
+
 # Metric Labels
 
 Labels MUST remain bounded.
@@ -5560,7 +5612,7 @@ severity
 
 # Required MVP Runbooks
 
-The MVP MUST include five executable runbooks:
+The MVP MUST include six executable runbooks:
 
 ```text
 Application or database unavailable
@@ -5571,7 +5623,9 @@ Memory generation failure or retry exhaustion
 
 Organization isolation or Human authority violation
 
-Deployment rollback and PostgreSQL point-in-time recovery
+Deployment rollback
+
+PostgreSQL backup or WAL failure and point-in-time recovery
 ```
 
 Each MVP runbook MUST identify detection signals, safe containment, prohibited actions, recovery steps, validation, required authorization, and audit evidence.
@@ -5589,7 +5643,6 @@ Last Owner invariant finding
 
 Migration failure
 
-Backup failure
 
 Secret rotation
 
@@ -5826,18 +5879,36 @@ Steps:
 
 ---
 
-# Runbook: Backup Failure
+# Runbook: Backup or WAL Archive Failure
 
-Steps:
+1. Confirm the latest independently verified restorable UTC point.
+2. Calculate `now - latest_restorable_point` and compare it with the 15-minute RPO.
+3. Determine whether the failure affects WAL archiving, the base-backup chain, integrity verification, encryption, retention, credentials, or provider access.
+4. Open a High-severity incident before the RPO is exhausted; raise Critical when no point within the 15-minute RPO is confirmed.
+5. Preserve provider and database evidence in the restricted operational audit record.
+6. Restore WAL continuity or the backup chain without deleting the last known-good recovery artifacts.
+7. Verify the new recovery point and run backup-integrity checks.
+8. Perform an isolated restore when recoverability is uncertain or the chain changed materially.
+9. Record achieved recovery-point age, owner, corrective action, and whether the monthly or quarterly exercise must be repeated.
+10. Close only after independent recovery-point and integrity signals are healthy.
 
-1. identify last successful backup
-2. verify WAL continuity
-3. calculate RPO exposure
-4. restore backup job
-5. verify encryption and storage access
-6. perform validation backup
-7. escalate before RPO breach
-8. schedule restore test if confidence is reduced
+---
+
+# Runbook: Production PostgreSQL Restore
+
+1. The Incident Commander declares restoration and records the approved target time and reason.
+2. Enter maintenance mode; stop mutation traffic, Outbox publication, consumers, schedulers, and background workers.
+3. Preserve the failed environment and all recovery evidence when doing so does not increase customer harm.
+4. Restore the complete PostgreSQL consistency boundary to the approved point in an isolated environment.
+5. Execute schema, migration, Aggregate, authorization, audit, Organization-isolation, Outbox, idempotency, ordering, and invariant validation from the persistence recovery contract.
+6. Measure the achieved RPO before cutover. Do not cut over when the selected point violates the approved objective without explicit incident authority.
+7. Cut over application connectivity while workers and publishers remain paused.
+8. Execute controlled read and write smoke tests, including mandatory audit persistence.
+9. Release only expired claims; preserve valid leases and retry history.
+10. Reconcile external-effect ledger entries and provider outcomes. Block any ordering key with an unknown non-idempotent effect.
+11. Resume the Outbox publisher and consumers in dependency order, initially with bounded concurrency.
+12. Confirm that authoritative service is safe within four hours and asynchronous workflows are progressing within eight hours.
+13. Record the achieved RPO/RTO, validation evidence, external-effect decisions, backlog state, and approver in the incident record.
 
 ---
 
@@ -7361,6 +7432,8 @@ The operational control architecture must preserve:
 24. Every temporary release flag has a removal plan.
 25. Incident resolution includes recovery validation, not only alert clearance.
 26. MVP recovery controls execute through the Operations Application Service, not ad hoc SQL, shell commands, or arbitrary scripts.
+27. Backup-job success is not proof of recoverability; the monthly restore test is required.
+28. Restored Outbox work and external side effects are reconciled before uncontrolled replay.
 
 ---
 
