@@ -1,7 +1,7 @@
 # Observability and Operations Architecture
 
 **Status:** Draft  
-**Phase:** MVP  
+**Phase:** MVP Baseline with Production-Hardening and Future Guidance  
 **Architecture:** Modular Monolith  
 **Primary Database:** PostgreSQL  
 **Event Delivery:** Transactional Outbox  
@@ -72,6 +72,69 @@ It applies to:
 - database migration
 - backup and restoration
 - deployment infrastructure
+
+---
+
+# Requirement Levels and Delivery Tiers
+
+This document defines both the minimum production baseline and later operational capabilities. The tiers below determine implementation timing.
+
+Normative terms are used as follows:
+
+- **MUST**: required before the MVP is operated in production
+- **SHOULD**: required for production hardening, but may be deferred through an explicit, owned risk decision
+- **MAY**: optional or future capability that is not an MVP acceptance condition
+
+Only uppercase **MUST**, **SHOULD**, and **MAY** are normative. Lowercase wording elsewhere is explanatory unless a requirement is assigned to a tier below. Security boundaries, Human-authority rules, Organization isolation, PostgreSQL authority, and transactional consistency remain mandatory regardless of tier.
+
+## MVP Production Baseline — MUST
+
+Before the MVP is operated in production, AIOS MUST provide:
+
+- structured JSON logs with a stable base envelope and redaction
+- server-owned request and workflow correlation
+- error capture for unhandled application and Worker failures
+- RED metrics for HTTP traffic
+- PostgreSQL, Outbox, Worker, queue-age, and Work-to-Memory workflow metrics
+- durable audit for successful Human-authoritative transitions and privileged operational actions
+- HTTP and Worker health surfaces sufficient to distinguish synchronous and asynchronous failure
+- bounded retry, idempotency, retry-exhaustion visibility, and dead-letter handling
+- database backup, point-in-time recovery capability, and a verified restore procedure
+- actionable alerts for database unavailability, authoritative-write failure, Outbox or Worker stoppage, Memory-generation failure, and Organization-isolation violation
+- the five MVP runbooks identified in the Operational Runbooks section
+
+An MVP release is not accepted for production when any item in this baseline is absent unless the architecture owner records a time-bounded risk acceptance.
+
+## Production Hardening — SHOULD
+
+After the baseline is working, AIOS SHOULD add:
+
+- distributed traces with controlled sampling
+- reconciliation dashboards and scheduled integrity reporting
+- automated restore validation
+- security-focused alert routing
+- Organization-scoped containment
+- deployment automation beyond the minimum rollback procedure
+- expanded runbooks for component-specific and administrative failures
+- operational-health projections for tenant-specific workflow failures
+- tested replay, repair, and projection-rebuild commands
+
+Deferral requires a named owner and an explicit trigger for implementation, such as traffic volume, incident history, or customer requirement.
+
+## Future Enterprise Capabilities — MAY
+
+AIOS MAY introduce when scale and organizational maturity justify them:
+
+- tail-based trace sampling
+- customer-facing observability
+- advanced incident automation
+- generalized automatic repair
+- specialized incident-management staffing
+- multi-region operational coordination
+- Security Operations Center and SIEM integration
+- customer-defined alerts and integrations
+
+Future capabilities MUST NOT be prerequisites for the MVP domain workflow and MUST NOT introduce a second source of business authority.
 
 ---
 
@@ -4406,40 +4469,36 @@ severity
 
 # Required MVP Runbooks
 
-The MVP should include runbooks for:
+The MVP MUST include five executable runbooks:
 
 ```text
-Application unavailable
+Application or database unavailable
 
-Database unavailable
+Outbox or Worker processing stalled
 
-Database connection pool exhausted
+Memory generation failure or retry exhaustion
 
-Outbox backlog
+Organization isolation or Human authority violation
 
-Outbox publisher stalled
+Deployment rollback and PostgreSQL point-in-time recovery
+```
 
-Worker retry exhaustion
+Each MVP runbook MUST identify detection signals, safe containment, prohibited actions, recovery steps, validation, required authorization, and audit evidence.
 
-Dead-letter event
+The following runbooks SHOULD be added during production hardening:
 
-Memory generation failure
+```text
+Database connection pool exhaustion
 
-Projection lag
+Dead-letter event replay
 
-Organization isolation alert
-
-Human authority violation
+Projection lag and rebuild
 
 Last Owner invariant finding
 
 Migration failure
 
-Deployment rollback
-
 Backup failure
-
-Point-in-time recovery
 
 Secret rotation
 
@@ -4447,6 +4506,8 @@ Configuration rollback
 
 Feature-flag emergency disable
 ```
+
+The detailed runbook sections below are retained as target guidance. Their presence in this architecture document does not make every production-hardening runbook an MVP release condition.
 
 ---
 
