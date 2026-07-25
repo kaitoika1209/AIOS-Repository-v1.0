@@ -3391,9 +3391,9 @@ restore_test_duration_seconds
 
 # Metric Labels
 
-Labels should remain bounded.
+Labels MUST remain bounded.
 
-Recommended labels:
+Permitted label categories include:
 
 ```text
 service
@@ -3406,6 +3406,8 @@ worker
 
 consumer
 
+workflow_type
+
 status
 
 outcome
@@ -3413,21 +3415,194 @@ outcome
 error_category
 ```
 
-Avoid:
+Prohibited high-cardinality labels include:
 
 ```text
 organizationId
 
 aggregateId
 
+workId
+
+generationAttemptId
+
 eventId
 
 commandId
 
 traceId
+
+raw URL path
+
+exception message
 ```
 
-These belong in logs and traces.
+These identifiers belong in protected PostgreSQL operational records, logs, and traces.
+
+The absence of organizationId from metrics MUST NOT make Organization-specific failures invisible. AIOS uses the operational-health projection below for bounded administrative detection.
+
+---
+
+# Organization Workflow Health Projection
+
+Global metrics can remain healthy while one Organization is permanently blocked. The MVP MUST maintain a rebuildable PostgreSQL projection for Organization-specific asynchronous workflow health.
+
+Recommended relation:
+
+```text
+organization_workflow_health
+```
+
+Conceptual structure:
+
+```text
+organization_id
+
+workflow_type
+
+status
+
+pending_count
+
+oldest_pending_at
+
+last_attempt_at
+
+last_success_at
+
+consecutive_failures
+
+terminal_failure_count
+
+last_error_code
+
+source_high_water_mark
+
+projection_version
+
+updated_at
+```
+
+Recommended key:
+
+```text
+PRIMARY KEY (organization_id, workflow_type)
+```
+
+MVP workflow types include:
+
+```text
+OutboxRelay
+
+MemoryGeneration
+
+Projection
+
+Reconciliation
+```
+
+This relation is operational metadata. It is not a Domain Aggregate, does not authorize a command, and is not authoritative for Work, Decision, Memory, Membership, or event-processing completion.
+
+---
+
+# Workflow Health Status
+
+Permitted status values:
+
+```text
+Healthy
+
+Degraded
+
+Blocked
+
+Stale
+
+NoData
+```
+
+Status meaning:
+
+- Healthy: no overdue pending item and no unresolved terminal failure
+- Degraded: warning-age pending work or repeated recoverable failure exists
+- Blocked: terminal failure, ordering block, or hard-age threshold prevents progress
+- Stale: the projection has not refreshed within its required interval
+- NoData: the Organization has no observation for that workflow
+
+A quiet Organization MUST NOT become Degraded only because it has no recent success. Pending age, unresolved failure, ordering state, and projection freshness determine health.
+
+Thresholds are versioned configuration by workflow type. A threshold change MUST NOT alter historical source records.
+
+---
+
+# Projection Update and Reconciliation
+
+Workers and Outbox consumers write durable operational state before emitting diagnostic telemetry.
+
+The health projection SHOULD update after each committed workflow transition and MUST be reconciled on a schedule from:
+
+- Outbox delivery state
+- processed-event records
+- Memory generation attempts
+- projection checkpoints
+- reconciliation findings
+
+Each refresh records a source high-water mark and projection version.
+
+The projection MUST be rebuildable. Rebuilding or deleting it does not change the underlying business or delivery truth.
+
+Reconciliation MUST detect:
+
+- pending source records absent from the health projection
+- terminal failures reported as Healthy
+- a source high-water mark that stops advancing
+- duplicate rows or cross-Organization references
+- projection freshness beyond the Stale threshold
+
+Projection failure is itself operationally visible. When the projection becomes Stale, operators must not infer that Organizations are Healthy.
+
+---
+
+# Organization Health Query Authorization
+
+Organization-specific health data is protected operational information.
+
+Access rules:
+
+- an Organization administrator may query only that Organization when the product exposes the capability
+- a Platform Operator may query across Organizations only through a restricted Operations Application Service
+- cross-Organization queries require a typed capability, operator identity, reason, and durable audit
+- Secretary principals cannot enumerate Organization health
+- raw error messages, prompts, generated content, and foreign Organization data are excluded
+- repository methods require explicit organization scope unless the caller has an audited platform-wide capability
+
+The projection MUST NOT be exposed through an unrestricted metrics endpoint.
+
+---
+
+# Organization Health Metrics and Alerts
+
+The metric backend receives only aggregated counts:
+
+```text
+organization_workflow_health_organizations{workflow_type,status}
+
+organization_workflow_health_projection_age_seconds
+
+organization_workflow_health_transition_total{workflow_type,from_status,to_status}
+```
+
+These metrics MUST NOT contain organizationId.
+
+Initial alert behavior:
+
+- a new Blocked transition creates a High alert
+- Blocked MemoryGeneration older than the Work-to-Memory critical threshold creates a Critical alert
+- sustained Degraded status creates a Warning alert
+- any Stale projection beyond two refresh intervals creates a High alert
+- a material drop in Organizations represented by the projection creates a High coverage alert
+
+An alert may contain a protected internal reference that an authorized operator resolves through the Operations Application Service. The metric series and ordinary notification title must remain tenant-neutral.
 
 ---
 
@@ -3769,7 +3944,7 @@ Recommended indicators:
 
 # Operations Dashboard
 
-Recommended indicators:
+Required MVP indicators:
 
 - request rate
 - error rate
@@ -3780,6 +3955,11 @@ Recommended indicators:
 - dead letters
 - reconciliation findings
 - database health
+- Organization workflow-health counts by workflow type and status
+- Blocked, Degraded, and Stale Organization counts
+- age of the Organization workflow-health projection
+
+The dashboard links to the restricted Operations Application Service for Organization-specific diagnosis. It does not place Organization identifiers in metric labels.
 
 ---
 
