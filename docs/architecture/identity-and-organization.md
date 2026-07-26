@@ -936,11 +936,13 @@ SecretaryPrincipal
 - principalId
 - principalType = Secretary
 - organizationId
-- capabilitySet
+- assistancePermissionSetVersion
 - generationContext
 ```
 
-The Secretary may serve multiple Organizations operationally, but each execution belongs to exactly one Organization.
+The Secretary may serve multiple Organizations operationally, but each resolved Principal and execution belongs to exactly one Organization. Persisted Secretary identities and assistance grants include immutable `organization_id` and Organization-consistent composite references.
+
+The Secretary Runtime is not a domain owner. It may invoke only typed, context-owned AI Assistance Application Ports and must not receive Repository, Aggregate, database, unrestricted query, generic command-dispatch, or Human-only command access. The permission term `assistanceOperation` is distinct from the future Capability domain concept. See [ADR-0011](../adr/0011-bound-secretary-to-context-owned-assistance-ports.md).
 
 ---
 
@@ -3832,7 +3834,7 @@ Create Generation Context
 Resolve Secretary Principal
       │
       ▼
-Execute Advisory Capability
+Invoke Context-Owned AI Assistance Port
 ```
 
 ---
@@ -3844,7 +3846,10 @@ SecretaryPrincipal
 - principalId
 - principalType = Secretary
 - organizationId
-- capabilitySet
+- assistancePermissionSetVersion
+- contextKey
+- assistanceOperation
+- portContractVersion
 - generationId
 - requestedByIdentityId
 - requestedByMembershipId
@@ -3861,7 +3866,7 @@ Secretary resolution requires:
 
 - trusted internal invocation
 - valid Organization context
-- supported advisory capability
+- active Organization-, context-, assistance-operation-, and port-version-specific grant
 - valid generation request
 - traceable requesting Human or System workflow
 - bounded execution scope
