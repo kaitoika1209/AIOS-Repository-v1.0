@@ -116,7 +116,7 @@ Decision
 
 For the MVP, every Decision is created for exactly one related Work.
 
-The coordinated `RequestBlockingDecision` use case establishes both identifiers in one transaction and verifies that Work and Decision belong to the same Organization.
+The coordinated `RequestBlockingDecision` use case creates or loads the Decision, submits its blocking Draft revision for review, and establishes Work's matching `decisionId`, `revisionNumber`, and `submittedSnapshotId` reference in one transaction. It verifies that Work and Decision belong to the same Organization. A Draft Decision never places Work in `WaitingForDecision`.
 
 Work remains authoritative for the Completion Gate and blocking relationship. Decision never loads, caches, or evaluates Work status.
 
@@ -1302,7 +1302,7 @@ The aggregate must never be persisted in an invalid state.
 
 ## Cross-Aggregate Consistency
 
-Consistency between Decision and Work is eventual.
+Initial activation of a submitted blocking Decision is strongly consistent through the exceptional `RequestBlockingDecision` Application transaction. After that activation, consistency between Decision outcomes and Work is eventual.
 
 Example:
 
@@ -1328,6 +1328,8 @@ Work records Decision outcome
 A short delay may exist between Decision approval and the corresponding Work update.
 
 This delay is expected behavior.
+
+The Work handler matches the outcome's `decisionId`, `revisionNumber`, and `submittedSnapshotId` against its active Pending reference. It does not apply an earlier revision's outcome to a newer blocking gate.
 
 ---
 
