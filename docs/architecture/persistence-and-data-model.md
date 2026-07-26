@@ -5567,8 +5567,10 @@ memory_generation_sources
 - work_content_revision_id
 - work_completed_event_id
 - source_schema_version
+- canonicalization_version
 - canonical_source_json
 - source_snapshot_hash
+- data_classification
 - captured_at
 - created_at
 ```
@@ -5593,7 +5595,9 @@ UNIQUE (organization_id, source_snapshot_id)
 UNIQUE (organization_id, work_id, work_completed_event_id, source_schema_version)
 ```
 
-The source snapshot is append-only and contains only bounded Work completion facts and immutable Decision revision content required by the generation policy.
+The source snapshot is append-only and contains only bounded Work completion facts and immutable Decision revision content required by the generation policy. The canonical content, not the hash alone, is retained because a hash verifies integrity but cannot reproduce Human review context.
+
+Ordinary Work or Decision archival must not cascade-delete these rows while a related Memory is retained. The source and child rows use composite Organization-scoped references and `RESTRICT` against ordinary Aggregate deletion. Data-governance erasure is a separate privileged process governed by ADR-0012; it may irreversibly redact or delete content and identifying hashes when legally required and records a non-content tombstone and audit evidence when lawful.
 
 ---
 
@@ -7716,6 +7720,14 @@ Final legal retention duration is product and compliance policy.
 Decision and Memory revisions should be retained while their Aggregate is retained.
 
 Submitted, reviewed, rejected, and approved revisions provide essential business history.
+
+Memory source snapshots and their immutable Decision input rows are retained for at least the lifetime of the related Memory. A failed or abandoned generation source may be removed only after retry, replay, incident, audit, and dispute windows have closed.
+
+Approved Memory immutability blocks ordinary business mutation; it does not override a legally authorized data-governance action. Organization deletion, personal-data correction or erasure, and legal hold follow ADR-0012. Exact time periods remain product and compliance policy, but destructive deletion must not ship before those periods, legal bases, authorization, backup behavior, and runbook are approved.
+
+Deletion and redaction must cover authoritative rows, revisions, source snapshots, hashes, read models, semantic or text indexes, caches, pending generation data, exports under platform control, and provider-retained inputs where the provider contract permits deletion. Each registered store reports durable progress, and partial completion remains a reconciliation finding.
+
+Backup copies expire through the approved backup lifecycle. After restore, completed deletion and redaction actions are replayed before restored data is exposed.
 
 ---
 
