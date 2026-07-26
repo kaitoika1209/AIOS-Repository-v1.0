@@ -815,12 +815,40 @@ Example:
 ```text
 WorkCompleted payload
 - workId
+- workAggregateVersion
+- workContentRevisionId
+- completionRecordId
 - completionSummary
 - completedAt
+- completedByActorReference
 - completionGate
+- relatedDecisionSnapshotReferences[]
 ```
 
 The payload must contain enough immutable information for intended consumers.
+
+For Memory generation, every Decision reference identifies an immutable submitted or resolved snapshot by Decision identity, revision or submitted-snapshot identity, and content hash. Mutable Decision drafts are prohibited as generation sources.
+
+## Work-to-Memory Source Snapshot
+
+`WorkCompleted` is the durable trigger and version locator; it is not the complete AI prompt.
+
+Before calling an external AI provider, the Memory-generation consumer must:
+
+1. validate the event Organization, source Work identity, and terminal Aggregate version;
+2. load only the exact terminal Work revision and immutable Decision snapshots identified by the event;
+3. build a bounded canonical source document;
+4. persist that source document, schema version, source version references, and canonical hash in PostgreSQL;
+5. commit the source snapshot and stable generation-operation identity; and
+6. derive provider input only from the committed source snapshot.
+
+The external provider call occurs after that commit and outside the database transaction.
+
+Retries for one generation operation reuse the same source snapshot. If an exact source revision is missing, has a different hash, or belongs to another Organization, processing fails visibly and no Memory is created.
+
+The generated Memory records the source snapshot identifier and hash, provider-input hash, model version, prompt version, and generation-policy version. Human review uses the same source snapshot binding.
+
+This contract preserves reproducibility without Event Sourcing and without embedding large or sensitive domain content in the Outbox event.
 
 ---
 
