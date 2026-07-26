@@ -1513,20 +1513,26 @@ This creates a false business fact.
 
 # Outbox Solution
 
-The correct pattern is:
+The correct command pattern is:
 
 ```text
 BEGIN
 
-Load Aggregate
+Check command idempotency and authorization
+
+Construct Aggregate for creation
+or
+Load Aggregate for mutation
 
 Execute Command
 
-Save Aggregate
+Add Aggregate for creation
+or
+Save Aggregate with expectedVersion for mutation
 
-Persist Events to Outbox
+Persist required Domain Events and mapped Integration Events to Outbox
 
-Persist Command Idempotency Record
+Persist Command Idempotency Record and required transactional audit
 
 COMMIT
 ```
@@ -1538,16 +1544,18 @@ Background Worker
 
 ↓
 
-Reads Outbox
+Reads eligible Outbox record
 
 ↓
 
-Publishes Event
+Publishes event or Integration Event
 
 ↓
 
-Records Publication Result
+Records publication result
 ```
+
+No Outbox record is visible to the publisher before commit.
 
 ---
 
@@ -1992,7 +2000,7 @@ ON outbox_messages (
 
 # Outbox Insert Flow
 
-For each Domain Event:
+For each Domain Event selected for durable handling and each mapped Integration Event:
 
 ```text
 Generate eventId
