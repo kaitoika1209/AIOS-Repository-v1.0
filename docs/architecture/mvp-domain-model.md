@@ -2,6 +2,7 @@
 
 > **Document status:** Proposed  
 > **Phase:** MVP  
+> **Scope classification:** MVP Normative  
 > **Blueprint version:** 0.2.1  
 > **Architecture:** Modular Monolith
 
@@ -248,26 +249,26 @@ Required guarantees:
 
 ## MVP Scope Summary
 
-| Concept | MVP status |
+| Concept | Scope classification |
 |---|---|
-| Human Identity, Organization, Membership | Included |
-| Human Member | Included |
-| Secretary AI Principal | Included |
-| System Principal | Included for technical processing |
-| Work | Included |
-| Decision | Included |
-| Generated and Human-reviewed Memory | Included |
-| Knowledge and Evidence | Deferred |
-| Capability | Deferred |
-| AI Employees | Deferred |
-| External Knowledge Sources | Deferred |
-| Semantic or vector search | Deferred |
-| Independent microservices | Deferred |
+| Human Identity, Organization, Membership | MVP Normative |
+| Human Member | MVP Normative |
+| Secretary AI Principal | MVP Normative |
+| System Principal | MVP Normative for technical processing |
+| Work | MVP Normative |
+| Decision | MVP Normative |
+| Generated and Human-reviewed Memory | MVP Normative |
+| Knowledge and Evidence | Future Hypothesis; Explicitly Out of Scope |
+| Capability | Future Hypothesis; Explicitly Out of Scope |
+| AI Employees | Future Hypothesis; Explicitly Out of Scope |
+| External Knowledge Sources | Future Hypothesis; Explicitly Out of Scope |
+| Semantic or vector search | Future Hypothesis; Explicitly Out of Scope |
+| Independent microservices | Explicitly Out of Scope |
 
 ---
 
 ## Implementation Rule
 
-Implementation must follow the detailed documents referenced above.
+Implementation must follow the MVP Normative documents referenced above. Future Hypothesis documents have no MVP implementation authority under [ADR-0010](../adr/0010-classify-blueprint-scope-and-implementation-authority.md).
 
 If implementation requires behavior not defined by an existing Aggregate, State Machine, authorization policy, or Application Service workflow, update the relevant authoritative architecture document before adding the behavior to code.
