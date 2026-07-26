@@ -1215,6 +1215,8 @@ Human later invokes CompleteWork
 
 Memory generation begins asynchronously after Work completion and is classified as `ExternalComputation`, not `ExternalBusinessEffect`.
 
+`Integration / WorkCompleted / 1` is the only registered MVP trigger. The handler does not emit or wait for a separate `MemoryGenerationRequested` event; the committed source snapshot and `memory_generation_operation` are the durable process checkpoint.
+
 ```text
 WorkCompleted
       │
@@ -1354,6 +1356,8 @@ Recovery itself is not a provider attempt and cannot mark the processed event su
 ## Generation Failure
 
 Generation failure creates no partial Memory Aggregate and does not reopen Work. The committed source snapshot and generation operation remain as durable recovery evidence.
+
+Failure is represented by the same operation becoming `RetryPending`, `Failed`, or explicitly `Abandoned`. `MemoryGenerationFailed` is not an MVP Domain or Integration Event. Operational logs, metrics, alerts, and typed administrative queries expose the failure.
 
 ---
 
