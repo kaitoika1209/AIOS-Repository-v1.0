@@ -9703,19 +9703,46 @@ Avoid one global persistence package containing unrestricted access to all table
 
 # Repository Interface Design
 
-Repository interfaces should express domain intent.
+Repository interfaces express Aggregate-specific domain intent.
 
-Preferred:
+Preferred command-side contract:
 
 ```text
+Add(
+    organizationId,
+    aggregate
+)
+
 Get(
     organizationId,
     aggregateId
 )
 
 Save(
+    organizationId,
     aggregate,
     expectedVersion
+)
+```
+
+`Add` performs insert-only creation. It must fail on duplicate identity and must not silently switch to update behavior.
+
+`Save` performs update-only persistence using:
+
+```text
+organizationId + aggregateId + expectedVersion
+```
+
+in the update predicate. Zero affected rows produce a scoped `NotFound` or `ConcurrencyConflict` outcome without revealing another Organization's resource.
+
+The explicit `organizationId` argument must equal the Aggregate's immutable Organization. Repository adapters reject a mismatch before executing persistence.
+
+Aggregate-specific lookups are allowed only when they preserve ownership and serve a documented use case. Example:
+
+```text
+MemoryRepository.FindBySourceWorkId(
+    organizationId,
+    workId
 )
 ```
 
@@ -9723,9 +9750,15 @@ Avoid generic interfaces such as:
 
 ```text
 Repository<T>.UpdateAny(...)
+
+Repository<T>.Upsert(...)
+
+Repository<T>.Exists(id)
 ```
 
-that hide Aggregate-specific persistence needs.
+These interfaces hide Aggregate-specific persistence needs, weaken optimistic concurrency, or risk tenant-existence disclosure.
+
+Repository adapters do not own transaction commit, Outbox publication, retries, or cross-module orchestration.
 
 ---
 
