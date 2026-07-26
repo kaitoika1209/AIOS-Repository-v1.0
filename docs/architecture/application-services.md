@@ -763,7 +763,7 @@ Human Member
       ▼
 Secretary Application Service
       │
-      │ Invoke Secretary capability
+      │ Invoke context-owned DecisionAiAssistancePort
       ▼
 Generated Suggestion
       │
@@ -792,6 +792,12 @@ The Application Service must never translate Secretary output directly into:
 - Knowledge promotion
 
 Secretary output is advisory input only.
+
+The `Secretary Application Service` label represents a non-owning Runtime adapter. It does not contain Decision rules and receives no Decision Repository, Aggregate, database, generic command bus, or unrestricted query access.
+
+Each context owns a narrow AI Assistance Application Port. The port exposes only typed advisory operations; Human-only and System-only commands are absent from the interface. Invocation requires an Organization-scoped, versioned assistance grant and an initiating Human command or separately permitted System workflow.
+
+Provider output is untrusted candidate data. The owning context validates and optionally records it through a normal Aggregate command. Human adoption is a later command that reloads current state and re-evaluates authorization and invariants. See [ADR-0011](../adr/0011-bound-secretary-to-context-owned-assistance-ports.md).
 
 ---
 
@@ -3437,6 +3443,10 @@ The Secretary may never:
 - promote Knowledge
 
 Secretary output is advisory.
+
+Architecturally, the Secretary Runtime is an adapter over context-owned AI Assistance Application Ports. It may not receive a Repository, Aggregate, database connection, generic command dispatcher, unrestricted search interface, or another module's internal service.
+
+The Secretary-facing interface contains only allowlisted advisory operations. Human-only commands are structurally absent, not merely expected to be denied at runtime. Every invocation is scoped by Organization, Secretary Principal, context, assistance operation, contract version, initiating Principal, bounded source snapshot, and provenance under ADR-0011.
 
 ---
 
