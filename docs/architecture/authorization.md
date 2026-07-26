@@ -315,6 +315,23 @@ The Secretary may:
 
 The Secretary has no business authority.
 
+The Secretary Runtime is not granted ordinary module command access. It invokes only context-owned AI Assistance Application Ports whose interfaces exclude Human-only and System-only commands.
+
+Every assistance operation is deny-by-default and evaluated using:
+
+```text
+organizationId
+secretaryPrincipalId
+contextKey
+assistanceOperation
+portContractVersion
+initiatingPrincipal
+targetResource
+sourceScope
+```
+
+The authorization term `assistanceOperation` is not the future Capability domain concept.
+
 ---
 
 # Secretary Prohibitions
@@ -2350,8 +2367,12 @@ A Secretary contribution may be accepted only when:
 - the resource permits advisory contributions
 - a valid Human or System request caused the generation
 - the content passes validation
+- an active Organization-, context-, operation-, and port-version-specific assistance grant exists
+- the requested source scope is bounded by the owning context before provider invocation
 
 The contribution remains non-authoritative.
+
+Unknown, disabled, revoked, or version-mismatched assistance operations fail closed. Provider output cannot choose another command, Organization, resource, source query, or permission.
 
 ---
 
