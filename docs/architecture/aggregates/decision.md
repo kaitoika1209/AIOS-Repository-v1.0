@@ -1156,23 +1156,31 @@ The System never performs business decisions.
 
 # Repository Interface
 
-The repository persists the entire Decision Aggregate.
-
-Example
+`DecisionRepository` is an internal persistence port of Decision Management.
 
 ```text
 DecisionRepository
-
-save(decision)
-
-findById(id)
-
-exists(id)
+- Add(organizationId, decision)
+- Get(organizationId, decisionId): Decision | NotFound
+- Save(organizationId, decision, expectedVersion)
 ```
 
-Repositories never expose child entities independently.
+Repository rules:
 
-Only Aggregate Roots are persisted.
+- `organizationId` is mandatory and must equal the Aggregate's immutable Organization;
+- `Add` inserts only and must never become an upsert;
+- `Save` updates only when the stored version equals `expectedVersion`;
+- `Get` returns one Aggregate Root or a scoped not-found result;
+- a missing Aggregate and an Aggregate owned by another Organization are indistinguishable to an unauthorized caller;
+- child entities, ORM rows, query builders, and database connections are never exposed;
+- the Repository does not begin, commit, publish events, or retry the Application transaction; and
+- database errors are translated to stable outcomes such as `DuplicateAggregateId`, `NotFound`, `ConcurrencyConflict`, or `PersistenceFailure`.
+
+The domain model does not depend on database, ORM, transport, or framework-specific types.
+
+The immutable `relatedWorkId` is persisted as part of the Decision Root. A generic lookup of Work through `DecisionRepository` is prohibited.
+
+The documented `RequestBlockingDecision` coordinator may use both Work and Decision Repository ports in one explicit transaction. No other caller receives both ports by default.
 
 ---
 
