@@ -23,7 +23,10 @@ Its purpose is not simply to complete tasks, but to transform every meaningful d
 | Concept | Description |
 |----------|-------------|
 | **Organization** | The company operating inside AIOS |
-| **Member** | A human or AI employee participating in work |
+| **Member** | A human participant who belongs to an Organization and may receive business authority |
+| **AI Principal** | A non-human execution identity with governed, non-human authority |
+| **Secretary** | The advisory AI Principal assigned to assist an Organization |
+| **System Principal** | Trusted internal automation for technical processing |
 | **Work** | The central business object of AIOS |
 | **Decision** | A formal decision made by a human |
 | **Memory** | Organizational experience generated from completed work |
