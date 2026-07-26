@@ -1,5 +1,10 @@
 # Knowledge Aggregate
 
+> **Scope classification:** Future Hypothesis  
+> **MVP implementation authority:** None  
+> **Promotion requirement:** Accepted implementation ADR and release-scope update  
+> **Normative interpretation:** Requirements in this document apply only if the hypothesis is promoted under ADR-0010
+
 ## Purpose
 
 The Knowledge Aggregate represents reusable organizational knowledge within AIOS.
@@ -33,9 +38,9 @@ Knowledge management is outside the MVP defined in:
 docs/product/mvp.md
 ```
 
-The Knowledge Aggregate is specified in Blueprint v0.2.0 to establish the future domain boundary and prevent Memory from assuming Knowledge responsibilities.
+This document preserves a candidate future domain boundary so that Memory does not absorb Knowledge responsibilities. It is not an implementation-ready contract for the MVP.
 
-Knowledge creation, review, publication, and AI retrieval are introduced in a later roadmap phase.
+Knowledge creation, review, publication, and AI retrieval may be introduced only by a later accepted implementation ADR and release-scope update. The MVP creates no Knowledge module, port, repository, table, command, event, handler, route, user interface, migration, or deployment dependency.
 
 The MVP may generate and approve Memory without creating Knowledge.
 
