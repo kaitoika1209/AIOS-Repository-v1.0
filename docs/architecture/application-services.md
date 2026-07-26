@@ -393,81 +393,70 @@ The Work update occurs later through event processing.
 
 # Repository Usage
 
-Repositories exist only to persist Aggregate Roots.
+Repositories persist Aggregate Roots through Aggregate-specific ports.
 
-Application Services interact with repositories as follows:
+Creation uses:
 
-```
-Load Aggregate
-
+```text
+Construct Aggregate
 ↓
-
-Execute Command
-
-↓
-
-Save Aggregate
+Repository.Add(organizationId, aggregate)
 ```
 
-Repositories never contain business rules.
+Mutation uses:
+
+```text
+Repository.Get(organizationId, aggregateId)
+↓
+Execute Aggregate Command
+↓
+Repository.Save(organizationId, aggregate, expectedVersion)
+```
+
+`Add` is insert-only and `Save` is update-only. Repositories contain no business rules and do not begin, commit, append Outbox records, publish messages, or retry the Application transaction.
 
 ---
 
 # Transaction Ownership
 
-Application Services own transaction boundaries.
+Application Services own database transaction boundaries. Aggregates and Repositories never begin or commit transactions.
 
-Aggregates never begin or commit transactions.
+A standard mutation transaction is:
 
-Example
-
-```
+```text
 BEGIN
 
-Load Aggregate
-
-↓
-
-Execute Command
-
-↓
-
-Save Aggregate
-
-↓
-
-Write Outbox
-
+Check command idempotency
+Resolve authorization
+Get Aggregate
+Execute Aggregate command
+Save Aggregate with expectedVersion
+Append required Domain and Integration Event records to Outbox
+Persist processed-command result and required transactional audit
 COMMIT
 ```
 
-Every successful use case completes exactly one transaction.
+Every state-changing transaction has exactly one explicit Application Service owner and one commit or rollback. A larger use case may require multiple short transactions separated by durable operation state, asynchronous processing, or an external call. Such a use case must not hold a database transaction open across the separation and must define retry, idempotency, and recovery semantics.
 
 ---
 
 # Domain Event Collection
 
-Aggregates publish Domain Events during command execution.
+Aggregates emit and retain immutable Domain Events during command execution; they do not publish them.
 
-Application Services collect those events before commit.
+Before commit, the Application Service collects the events, maps any required cross-context Integration Events, and appends the durable records through an Outbox Writer participating in the current transaction.
 
-Example
-
-```
+```text
 Work Aggregate
-
 ↓
-
 CompleteWork()
-
 ↓
-
-WorkCompleted
+WorkCompleted Domain Event
+↓
+Application Service collects and appends Outbox record
 ```
 
-The event is persisted into the Transactional Outbox as part of the same transaction.
-
-The aggregate does not publish events directly.
+Aggregate state, required Outbox records, idempotency records, and transactional audit evidence commit or roll back together. Publication begins only after commit.
 
 ---
 
@@ -548,7 +537,7 @@ Create Work Aggregate
 
 Collect WorkCreated
 
-Save Work Aggregate
+Add Work Aggregate
 
 Write WorkCreated to Outbox
 
@@ -624,7 +613,7 @@ Decision Coordination Service
       │
       ├── Save Work
       │
-      ├── Save Decision
+      ├── Add Decision
       │
       └── Write Outbox events
       ▼
@@ -648,9 +637,9 @@ Work.RequestBlockingDecision(decisionId)
 
 Decision.Create(...)
 
-Save Work
+Save Work with expected version
 
-Save Decision
+Add Decision
 
 Write WorkDecisionRequested to Outbox
 
@@ -867,18 +856,22 @@ Verify Human reviewer authority
 
 Decision.ApproveDecision(actor, rationale)
 
-Save Decision
+Save Decision with expected version
 
-Write DecisionApproved to Outbox
+Collect DecisionApproved
 
-Record processed command
+Map DecisionApproved to Integration / DecisionOutcomeOccurred / 1
+
+Append both required records to Outbox
+
+Record processed command and required transactional audit
 
 COMMIT
 ```
 
-This transaction ends after the Decision is committed.
+This transaction ends after Decision persistence, event mapping, Outbox persistence, idempotency, and required audit evidence commit atomically. It does not load or modify Work.
 
-It does not load or modify Work.
+Rejection and withdrawal use the same transaction shape and map their internal outcome Domain Event to `Integration / DecisionOutcomeOccurred / 1`.
 
 ---
 
@@ -1010,11 +1003,11 @@ Save Work + Outbox + Commit
 ```text
 BEGIN
 
-Verify event has not been processed
+Check processed event by consumerName + eventId
 
-Resolve related Work identifier
+Validate organizationId, workId, and decisionId from Integration / DecisionOutcomeOccurred / 1
 
-Load Work with expected version
+Load Work and retain its expected version
 
 Work.RecordDecisionOutcome(
     decisionId,
@@ -1022,11 +1015,11 @@ Work.RecordDecisionOutcome(
     decidedAt
 )
 
-Save Work
+Save Work with expected version
 
 Write WorkDecisionOutcomeRecorded to Outbox
 
-Record processed event
+Record processed event and required transactional audit
 
 COMMIT
 ```
@@ -1042,11 +1035,11 @@ The handler does not set Work fields directly.
 ```text
 BEGIN
 
-Verify event has not been processed
+Check processed event by consumerName + eventId
 
-Resolve related Work identifier
+Validate organizationId, workId, and decisionId from Integration / DecisionOutcomeOccurred / 1
 
-Load Work
+Load Work and retain its expected version
 
 Work.RecordDecisionOutcome(
     decisionId,
@@ -1054,11 +1047,11 @@ Work.RecordDecisionOutcome(
     decidedAt
 )
 
-Save Work
+Save Work with expected version
 
 Write WorkDecisionOutcomeRecorded to Outbox
 
-Record processed event
+Record processed event and required transactional audit
 
 COMMIT
 ```
@@ -1078,11 +1071,11 @@ The exact transition remains owned by the Work Aggregate.
 ```text
 BEGIN
 
-Verify event has not been processed
+Check processed event by consumerName + eventId
 
-Resolve related Work identifier
+Validate organizationId, workId, and decisionId from Integration / DecisionOutcomeOccurred / 1
 
-Load Work
+Load Work and retain its expected version
 
 Work.RecordDecisionOutcome(
     decisionId,
@@ -1090,11 +1083,11 @@ Work.RecordDecisionOutcome(
     decidedAt
 )
 
-Save Work
+Save Work with expected version
 
 Write WorkDecisionOutcomeRecorded to Outbox
 
-Record processed event
+Record processed event and required transactional audit
 
 COMMIT
 ```
@@ -1252,31 +1245,35 @@ The handler verifies:
 
 ## Memory Creation Transaction
 
-Generation may occur outside the database transaction.
-
-The final persistence step remains transactional.
+Memory generation is one durable use case implemented as two short transactions separated by the external AI call.
 
 ```text
-Generate candidate content outside transaction
+BEGIN
+
+Validate WorkCompleted envelope, Organization scope, and generation identity
+Create or reuse the immutable source snapshot
+Create or reuse the stable generation operation
+Persist source hash, policy version, and attempt state
+
+COMMIT
+
+Call the AI provider using only the committed source snapshot
 
 BEGIN
 
-Verify event idempotency
-
-Verify no Memory exists for workId
-
+Recheck generation operation and source-snapshot identity
+Check processed-event state
+Confirm no Memory exists for organizationId + sourceWorkId
+Validate generated candidate
 Create Memory Aggregate
-
-Save Memory
-
+Add Memory
 Write MemoryGenerated to Outbox
-
-Record processed event
+Record processed event, generation result, and required audit evidence
 
 COMMIT
 ```
 
-This avoids holding a database transaction open during AI processing.
+No database transaction remains open during the provider call. A retry reuses the committed snapshot and generation operation. The database uniqueness constraint is the final race guard; a duplicate conflict resolves to the existing Memory and never becomes an overwrite.
 
 ---
 
@@ -1849,16 +1846,16 @@ lastError
 
 # Outbox Status
 
-Recommended statuses:
+Canonical statuses:
 
 ```text
 Pending
-Publishing
+Claimed
 Published
 Failed
 ```
 
-The implementation may use a simpler model if equivalent behavior is preserved.
+A claim may instead be represented by lease fields while the durable status remains `Pending`. Status meaning and claim ownership must remain consistent with `docs/architecture/events-and-outbox.md`; `Publishing` is not a separate canonical business state.
 
 ---
 
