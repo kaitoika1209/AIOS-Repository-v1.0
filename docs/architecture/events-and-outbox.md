@@ -5194,21 +5194,39 @@ The consumer MUST NOT continue later ordered effects or repeat the side effect m
 
 # Dead-Letter Skip and Ordering
 
-`SkipDeadLetter` is permitted only when the ConsumerRegistration skip policy allows it. The command defined by the Operations Application Service MUST record:
+`SkipDeadLetter` is a typed Operations Application Service command, not a repository update. The authenticated actor is derived from trusted `HumanMemberPrincipal` context; the command payload MUST NOT contain `requestedBy`, `approvedBy`, or an actor override.
+
+The command is permitted only when the ConsumerRegistration skip policy allows it and current authorization succeeds. It MUST record:
 
 - consumer and ordering key
 - skipped event and sequence
+- expected dead-letter and ordering-state versions
 - whether later events already executed
 - side-effect class
 - ordering impact analysis
 - `orderingBroken = true` when continuity is intentionally broken
-- Human approval and reason
-- required reconciliation or rebuild operation
+- Human identity, Membership, policy version, reason code, and reason
+- required reconciliation, compensation, or rebuild reference
 - validation result before the ordering key is unblocked
 
 Skipping one consumer result does not mutate or delete the immutable source event and does not mark another consumer as processed.
 
-For a Domain Coordination Consumer or irreversible Integration Consumer, skip is prohibited unless the owning module's recovery policy proves later effects are safe or an approved compensation establishes a new valid baseline.
+For a Domain Coordination Consumer or irreversible Integration Consumer, skip is prohibited unless the owning module's registered recovery policy proves later effects are safe or an approved compensation establishes a new valid baseline. A Platform or System operator cannot invent Organization business authority.
+
+The successful skip transaction MUST atomically:
+
+```text
+Verify processed event = Failed
+Verify dead letter and ordering-state expected versions
+Verify current Human authorization and registered skip policy
+Change processed event Failed -> Skipped
+Change linked dead letter -> Skipped
+Advance or intentionally break ordering state according to the approved policy
+Append required audit and recovery Outbox evidence
+COMMIT
+```
+
+A partial skip is prohibited. `Skipped` is terminal and cannot later be converted to `Processed` by generic replay.
 
 ---
 
@@ -5223,9 +5241,13 @@ ExternalEffectReconciled
 SkipApprovedAndValidated
 ```
 
-Unblocking uses the expected ordering-state version. It atomically records the resolution, advances or preserves the terminal sequence according to policy, emits the required Outbox evidence, and makes later deliveries eligible.
+There is no independent “mark dead letter resolved” command. The dead-letter resolution is derived from the committed typed recovery result.
 
-A deployment, process restart, lease expiry, or manual database flag change MUST NOT silently unblock the key.
+For PostgreSQL-local effects, unblocking uses the expected ordering-state version and atomically records the processed-event result, dead-letter result, replay or skip result, required audit, required Outbox evidence, and terminal-sequence decision.
+
+For an external side effect, the key remains blocked until the effect ledger and provider reconciliation prove the outcome or an approved compensation establishes a valid baseline. A local replay status alone is insufficient evidence.
+
+A deployment, process restart, lease expiry, successful `ValidateOnly`, or manual database flag change MUST NOT unblock the key or resolve the dead letter.
 
 ---
 
@@ -5296,183 +5318,194 @@ Memory generation backlog beyond threshold
 
 # Event Replay
 
-Replay re-executes event processing for a selected consumer.
-
-Replay does not alter the original event.
+Replay is a controlled consumer-recovery operation. It does not alter the immutable source event, fabricate new Human authority, or provide a generic way to rerun successful business effects.
 
 ---
 
-# Replay Use Cases
+# MVP Replay Scope
 
-Examples:
-
-```text
-Handler defect fixed
-
-Projection rebuilt
-
-External dependency restored
-
-Association repaired
-
-Consumer introduced for historical events
-
-Operational processing missed
-```
-
----
-
-# Replay Scope
-
-Replay may target:
+The production MVP supports only:
 
 ```text
-One event and one consumer
-
-One correlation flow
-
-One Aggregate stream
-
-One event type and time range
-
-One Organization
-
-One projection
+One Failed event + one registered consumer
+ValidateOnly for that delivery
+One explicitly registered projection rebuild session
 ```
 
-Broad replay requires stronger operational controls.
+Generic replay by correlation flow, Aggregate stream, event type, time range, whole Organization, or arbitrary consumer range is deferred. Those scopes require separate batching, rate limiting, cancellation, checkpointing, blast-radius approval, and partial-failure design.
 
 ---
 
 # Replay Command
 
-Conceptual administrative command:
+The Operations Application Service owns the typed command:
 
 ```text
-ReplayEvent
+RequestConsumerReplay
 - eventId
 - consumerName
-- reason
-- requestedBy
 - replayMode
+- expectedDeadLetterVersion
+- expectedOrderingStateVersion
+- reasonCode
+- reason
 ```
+
+`organizationId`, requester identity, requester Membership, and authorization policy version come from trusted execution context. The service creates the server-owned `replayId`; clients cannot choose replay identity or actor attribution.
 
 ---
 
-# Replay Modes
-
-Recommended modes:
+# Canonical Replay Modes
 
 ```text
 RetryOriginal
-
 ReprocessWithCurrentHandler
-
 RebuildProjection
-
 ValidateOnly
 ```
 
----
-
-# Retry Original
-
-```text
-RetryOriginal
-```
-
-retries the same consumer effect using the original event contract and supported handler path.
+These names are canonical across Events, Persistence, Application Services, Authorization, and Operations.
 
 ---
 
-# Reprocess With Current Handler
+# RetryOriginal
 
-```text
-ReprocessWithCurrentHandler
-```
-
-uses the current handler implementation and any registered upcaster.
-
-The original event remains immutable.
+`RetryOriginal` is permitted only for a canonical processed-event status of `Failed`. It uses the registered compatible event contract and supported handler path. It does not apply to `Processed` or `Skipped`.
 
 ---
 
-# Rebuild Projection
+# ReprocessWithCurrentHandler
 
-```text
-RebuildProjection
-```
+`ReprocessWithCurrentHandler` is permitted only for a `Failed` delivery after current contract, handler, authorization, ordering, and idempotency validation.
 
-applies events to a disposable or resettable read model.
-
-It must not mutate authoritative Aggregates unless explicitly designed as a domain replay.
+If it can mutate an authoritative Aggregate or produce an irreversible external effect, the owning module MUST register the permitted recovery policy. Absence of that policy fails closed.
 
 ---
 
-# Validate Only
+# RebuildProjection
 
-```text
-ValidateOnly
-```
-
-runs:
-
-- envelope validation
-- contract validation
-- upcasting
-- handler precondition checks
-
-without committing consumer effects.
+`RebuildProjection` runs through a dedicated rebuild session and writes only to a disposable, versioned, or atomically swappable projection target. It MUST NOT mutate authoritative Aggregates, execute integration side effects, or change the live processed-event result for the source consumer.
 
 ---
 
-# Replay Identifier
+# ValidateOnly
 
-A replay attempt should have its own:
+`ValidateOnly` performs envelope, Organization, contract, upcaster, handler-registration, authorization-precondition, ordering-impact, and idempotency checks without acquiring a business-effect claim.
+
+It MUST NOT mutate an Aggregate, processed-event result, dead-letter status, ordering state, Outbox, effect ledger, or projection. It records only its replay validation result and required operational audit.
+
+---
+
+# Replay State Machine
+
+Canonical replay statuses are:
 
 ```text
-replayId
+Requested
+Validating
+Running
+Completed
+Failed
+Denied
+Cancelled
 ```
 
-while preserving:
+Permitted transitions are:
 
 ```text
-originalEventId
-correlationId
-organizationId
+Requested -> Validating
+Validating -> Running
+Validating -> Completed     for successful ValidateOnly
+Validating -> Failed        for validation failure
+Validating -> Denied
+Validating -> Cancelled
+Running -> Completed
+Running -> Failed
+Running -> Cancelled only before an authoritative effect begins
 ```
+
+A terminal replay record is immutable except for append-only audit or separately modeled investigation annotations. Cancellation never implies that an already-started external effect was reversed.
 
 ---
 
 # Replay and Processed Events
 
-The default behavior is:
+`Processed` and `Skipped` processed-event records are terminal and MUST NOT be reset, deleted, or superseded by generic replay.
+
+For `RetryOriginal` or `ReprocessWithCurrentHandler`, validation must observe `Failed`. When execution begins, a short transaction creates a fenced claim and transitions the same processed-event row:
 
 ```text
-Processed event exists
-
-↓
-
-Replay denied or returns no-op
+Failed -> Processing
 ```
 
-An explicit authorized replay may reset or supersede the consumer processing record.
+The replay record references that claim through `replayId`, `workerId`, and `claimVersion`. A concurrent replay for the same consumer and event is rejected by the active-replay uniqueness rule.
 
-This action must be audited.
+`ValidateOnly` and `RebuildProjection` do not change the live processed-event row.
+
+Re-executing an already `Processed` authoritative consumer is outside the MVP. A future typed data-migration workflow must model compensating or versioned domain commands rather than weakening consumer idempotency.
+
+---
+
+# Replay Authorization Timing
+
+The request transaction records durable intent and its Class B audit. Immediately before execution, the service revalidates:
+
+- active Human Identity
+- active Membership in the event Organization
+- current Organization status
+- required replay permission
+- current policy version
+- source-event Organization
+- ConsumerRegistration and owning-module recovery policy
+- expected dead-letter and ordering-state versions
+
+Revoked or stale authority produces `Denied`; it is not retried as a technical failure. A System Worker may execute an authorized replayId but cannot request, approve, broaden, or skip it.
+
+---
+
+# Replay Success Transaction
+
+For PostgreSQL-local authoritative effects, the final fenced transaction MUST atomically:
+
+```text
+Verify replay = Running and active replay claim
+Verify processed event = Processing and consumer claim fencing
+Invoke the owning module's typed command or handler
+Persist target Aggregate state and version
+Append required Outbox and audit evidence
+Change processed event -> Processed
+Change linked dead letter -> Resolved
+Advance or unblock ordering state according to the registered policy
+Change replay -> Completed with stable result reference
+COMMIT
+```
+
+If any predicate or mutation fails, none of these terminal outcomes commits.
+
+For external effects, replay completion and ordering unblocking require the registered effect ledger, provider idempotency key, and provider-outcome reconciliation. The database transaction MUST NOT claim success from a timeout or unknown provider outcome.
+
+---
+
+# Replay Failure Transaction
+
+A replay execution failure atomically returns the processed event to `Failed`, keeps or returns the dead letter to `Open` or `Investigating`, preserves the required ordering block, changes the replay to `Failed`, records bounded error metadata, and clears both claims.
+
+A replay failure never silently consumes the poison event or advances ordering.
 
 ---
 
 # Replay Safety
 
-Before domain-changing replay:
+Before any domain-changing replay:
 
-- verify current target Aggregate state
-- verify business effect has not already occurred
-- verify Organization scope
-- verify System capability
-- verify event contract
+- verify current target Aggregate state and expected version
+- verify the business effect has not already occurred
+- verify Organization scope and current Human authorization
+- verify System capability and registered recovery policy
+- verify event contract and handler version
 - verify later events are not invalidated
-- define rollback or remediation strategy
+- verify idempotency or external effect evidence
+- define rollback, compensation, or remediation strategy
 
 ---
 
@@ -5480,44 +5513,45 @@ Before domain-changing replay:
 
 Replay must not:
 
-- change original event payload
-- change original actor
-- change original Organization
+- change original event payload, actor, Organization, or historical timestamps
 - fabricate Human authority
-- bypass Aggregate commands
-- disable idempotency silently
+- bypass Aggregate commands or current authorization
+- disable idempotency or fencing
+- reset `Processed` or `Skipped`
 - apply an event to a different resource
-- rewrite historical timestamps
+- replay an unknown non-idempotent external outcome
+- use broad-range replay in the MVP
+- resolve a dead letter merely because validation passed
 
 ---
 
 # Replay Audit
 
-Replay audit should capture:
+Replay audit captures:
 
 ```text
 replayId
 originalEventId
 consumerName
-requestedBy
+organizationId
+requesterIdentityId
+requesterMembershipId
+reasonCode
 reason
 mode
+authorizationPolicyId
+authorizationPolicyVersion
+expectedDeadLetterVersion
+expectedOrderingStateVersion
 handlerVersion
+claimVersion
 startedAt
 completedAt
-result
+resultCode
+resultReference
 ```
 
----
-
-# Event Reprocessing After Handler Upgrade
-
-When a handler upgrade changes behavior:
-
-- old successful consumer effects are not automatically replayed
-- explicit migration criteria are required
-- domain mutations require careful compatibility analysis
-- projection rebuilds are safer than authoritative state replay
+Payload content and unrestricted error text are excluded.
 
 ---
 
@@ -6639,63 +6673,52 @@ Every inspection of Restricted data should be auditable.
 
 # Replay Security
 
-Replay is an administrative operation.
-
-It requires:
-
-- authenticated Human operator
-- explicit replay permission
-- Organization scope
-- target consumer
-- reason
-- replay mode
-- audit record
+Replay is an Organization-scoped administrative operation. In the MVP it requires an authenticated active `HumanMemberPrincipal`; infrastructure credentials, Secretary principals, and ordinary System Workers do not grant Organization authority.
 
 ---
 
 # Replay Authorization
 
-Recommended permissions:
+Canonical permissions are:
 
 ```text
 events.read
-
 events.inspect_failed
-
 events.retry
-
 events.replay_projection
-
 events.replay_domain_consumer
-
 events.skip
 ```
 
-Domain-changing replay should require stronger authority than projection rebuild.
+Default Organization role mapping:
+
+| Operation | OrganizationOwner | OrganizationAdmin |
+|---|---:|---:|
+| Inspect redacted failed-event metadata | Allow | Allow |
+| ValidateOnly | Allow | Allow |
+| RetryOriginal for Failed delivery | Allow | Allow |
+| RebuildProjection | Allow | Allow |
+| ReprocessWithCurrentHandler for authoritative or irreversible effect | Allow | Deny unless explicit Organization policy grants it |
+| Skip rebuildable, independent projection result | Allow when registered skip policy permits | Allow when registered skip policy permits |
+| Skip Domain Coordination or irreversible Integration result | Allow only with registered safety or compensation evidence | Deny by default |
+
+The MVP does not require universal four-eyes approval. The authenticated authorized Human command is the approval, and its durable intent audit must commit before asynchronous execution. A future separation-of-duties policy may require a distinct approver without changing the command contract.
 
 ---
 
 # Replay Scope Restriction
 
-An operator authorized for one Organization must not replay events belonging to another Organization.
+The event Organization is loaded from immutable server-side event storage. It MUST match the selected Membership Organization and every linked processed-event, dead-letter, ordering-state, replay, target resource, and audit row.
 
-Global replay requires dedicated platform authority.
+Global or cross-Organization replay is outside the MVP. A deployment operator cannot substitute platform access for Organization Membership authority.
 
 ---
 
 # Skip Authorization
 
-Skipping a failed event is more dangerous than retrying it.
+Skipping is more dangerous than retrying. It requires current `events.skip` permission, the registered ConsumerRegistration skip policy, expected versions, explicit reason and impact confirmation, safety or compensation evidence where required, and immutable audit.
 
-It requires:
-
-- privileged Human operator
-- explicit reason
-- impact confirmation
-- downstream reconciliation plan
-- immutable audit record
-
-The Secretary and ordinary System Workers cannot skip events.
+The Secretary and System Workers cannot request or approve skip. A generic database update, feature flag, runbook checkbox, or support impersonation cannot authorize it.
 
 ---
 
