@@ -30,7 +30,8 @@ The Decision Aggregate is responsible for:
 - Recording review history.
 - Recording secretary contributions.
 - Preserving complete audit history.
-- Publishing domain events describing lifecycle changes.
+- Preserving one immutable related Work identifier for MVP routing and audit.
+- Publishing Domain Events describing lifecycle changes.
 
 ---
 
@@ -76,14 +77,17 @@ External systems never modify child entities directly.
 
 # Aggregate Structure
 
-```
+```text
 Decision
+ ├── relatedWorkId
  ├── DecisionRevision
  ├── DecisionSubmittedSnapshot
  ├── DecisionReviewRecord
  ├── DecisionSecretaryContribution
  └── DecisionActivityRecord
 ```
+
+`relatedWorkId` is an immutable external identifier. It is not a reference to a loaded Work object and does not import Work lifecycle state into the Decision Aggregate.
 
 ---
 
@@ -101,17 +105,20 @@ A Decision belongs to exactly one Organization.
 
 ---
 
-```
+```text
 Work
-  │
-  │ references
+  │ owns Completion Gate and blocking Decision reference
   ▼
 Decision
+  │ stores immutable relatedWorkId for routing and audit
+  └────────────────────────────────────────────────────
 ```
 
-A Work item may reference one or more Decisions.
+For the MVP, every Decision is created for exactly one related Work.
 
-The Decision Aggregate does not know the internal state of Work.
+The coordinated `RequestBlockingDecision` use case establishes both identifiers in one transaction and verifies that Work and Decision belong to the same Organization.
+
+Work remains authoritative for the Completion Gate and blocking relationship. Decision never loads, caches, or evaluates Work status.
 
 ---
 
@@ -255,13 +262,14 @@ Aggregate Root.
 
 Owns:
 
-- lifecycle
-- revisions
-- review history
-- secretary contributions
-- activity history
+- immutable `relatedWorkId`;
+- lifecycle;
+- revisions;
+- review history;
+- secretary contributions; and
+- activity history.
 
-Responsible for enforcing every business invariant.
+Responsible for enforcing every Decision-local business invariant.
 
 ---
 
@@ -419,17 +427,27 @@ Commands enforce business rules and preserve aggregate consistency.
 
 Creates a new Decision.
 
-Preconditions
+Application-level preconditions:
 
-- Organization exists.
-- Creator is authorized.
-- Initial content is valid.
+- Organization exists;
+- related Work exists;
+- related Work belongs to the same Organization;
+- creator is authorized; and
+- the coordinated Work use case permits the relationship.
 
-Result
+Aggregate preconditions:
 
-- Decision created.
-- Initial Draft Revision created.
-- Activity recorded.
+- `relatedWorkId` is supplied;
+- identity and Organization are supplied; and
+- initial content is valid.
+
+Result:
+
+- Decision created;
+- immutable `relatedWorkId` recorded;
+- initial Draft Revision created;
+- activity recorded; and
+- `DecisionCreated` emitted.
 
 ---
 
@@ -791,9 +809,11 @@ A Review Record always references one immutable Submitted Snapshot.
 
 ## Invariant 13
 
-The aggregate never references Work state.
+For the MVP, the Aggregate has exactly one non-null `relatedWorkId`.
 
-Only external identifiers may be stored when necessary.
+The identifier is immutable and belongs to the same Organization as the Decision, as verified by the coordinating Application Service and database constraints.
+
+The Aggregate stores no Work status, Completion Gate, or other Work-owned state.
 
 ---
 
@@ -888,118 +908,103 @@ No revision is ever deleted.
 No historical snapshot is ever modified.
 # Domain Events
 
-The Decision Aggregate publishes domain events describing lifecycle changes.
+The Decision Aggregate emits immutable internal Domain Events. Each event uses the shared EventEnvelope metadata defined in `events-and-outbox.md`, including event identity, category, type, schema version, Organization, Aggregate identity and version, occurrence time, correlation, causation, and ActorReference.
 
-Domain events are immutable facts.
+The canonical event names are:
 
-They do not contain business behavior.
+```text
+DecisionCreated
+DecisionDraftEdited
+DecisionSecretaryContributionRecorded
+DecisionSubmitted
+DecisionApproved
+DecisionRejected
+DecisionWithdrawn
+DecisionRevisionStarted
+```
 
-Business behavior is coordinated by the Application Layer.
+`SecretaryContributionRecorded` is not a valid alias because it is ambiguous with Memory and other future Aggregates.
 
 ---
 
 ## DecisionCreated
 
-Published when a new Decision is created.
+Payload:
 
-Payload
-
-- decisionId
-- organizationId
-- createdBy
-- createdAt
+- decisionId;
+- relatedWorkId;
+- createdByHumanActorReference; and
+- createdAt.
 
 ---
 
 ## DecisionDraftEdited
 
-Published when the active Draft Revision changes.
+Payload:
 
-Payload
-
-- decisionId
-- revisionNumber
-- editedBy
-- editedAt
+- decisionId;
+- revisionNumber;
+- editedByHumanActorReference; and
+- editedAt.
 
 ---
 
-## SecretaryContributionRecorded
+## DecisionSecretaryContributionRecorded
 
-Published when the Secretary provides advisory assistance.
+Payload:
 
-Payload
+- decisionId;
+- contributionId;
+- contributionType;
+- secretaryActorReference; and
+- recordedAt.
 
-- decisionId
-- contributionId
-- contributionType
-- recordedAt
+This event is advisory and cannot cause submission or a review outcome.
 
 ---
 
 ## DecisionSubmitted
 
-Published when a Draft Revision is submitted for review.
+Payload:
 
-Payload
-
-- decisionId
-- revisionNumber
-- submittedSnapshotId
-- submittedBy
-- submittedAt
-
----
-
-## DecisionApproved
-
-Published when a submitted revision is approved.
-
-Payload
-
-- decisionId
-- revisionNumber
-- approvedBy
-- approvedAt
+- decisionId;
+- relatedWorkId;
+- revisionNumber;
+- submittedSnapshotId;
+- submittedByHumanActorReference; and
+- submittedAt.
 
 ---
 
-## DecisionRejected
+## Decision Outcome Domain Events
 
-Published when a submitted revision is rejected.
+`DecisionApproved`, `DecisionRejected`, and `DecisionWithdrawn` use one canonical payload shape:
 
-Payload
+- decisionId;
+- relatedWorkId;
+- revisionNumber;
+- submittedSnapshotId;
+- reviewRecordId;
+- outcome;
+- resolvedByHumanActorReference;
+- resolvedAt; and
+- review rationale reference where present.
 
-- decisionId
-- revisionNumber
-- rejectedBy
-- rejectedAt
+The `outcome` must match the Domain Event type.
 
----
-
-## DecisionWithdrawn
-
-Published when a submitted revision is withdrawn.
-
-Payload
-
-- decisionId
-- revisionNumber
-- withdrawnBy
-- withdrawnAt
+These Domain Events remain internal to Decision Management. The owning module maps them to `Integration / DecisionOutcomeOccurred / 1` in the same Application transaction. Cross-context consumers do not subscribe directly to the three Domain Events.
 
 ---
 
 ## DecisionRevisionStarted
 
-Published when a new Draft Revision is created.
+Payload:
 
-Payload
-
-- decisionId
-- revisionNumber
-- createdBy
-- createdAt
+- decisionId;
+- revisionNumber;
+- basedOnRevisionNumber;
+- createdByHumanActorReference; and
+- createdAt.
 
 ---
 
