@@ -1010,86 +1010,59 @@ Payload:
 
 # Transaction Boundary
 
-Every command executes inside a single transaction.
+The Decision Aggregate defines the consistency boundary for Decision-owned state; the Application Service owns the database transaction.
 
-The transaction includes:
+One Decision command transaction includes:
 
-- Aggregate validation
-- Aggregate mutation
-- Domain Event creation
-- Outbox persistence
+- authorization and command-idempotency checks outside the Aggregate;
+- Aggregate validation and mutation;
+- collection of immutable Domain Events;
+- `DecisionRepository.Add` for creation or `DecisionRepository.Save` with `expectedVersion` for mutation;
+- mapping of required Integration Events;
+- Outbox persistence;
+- processed-command and required transactional audit persistence; and
+- one commit or rollback.
 
-The transaction ends only after all changes have been committed successfully.
-
----
-
-```
-┌─────────────────────────────┐
-│ Decision Aggregate          │
-│                             │
-│ Validation                  │
-│ State Change                │
-│ Domain Event                │
-│ Outbox Write                │
-└──────────────┬──────────────┘
-               │ Commit
-               ▼
-        Transaction Complete
+```text
+Decision Aggregate                 Application Transaction
+┌──────────────────────┐          ┌─────────────────────────────┐
+│ Validate command     │          │ Save or Add Decision        │
+│ Mutate owned state   │─events──►│ Map Integration Events      │
+│ Emit Domain Events   │          │ Append Outbox records       │
+└──────────────────────┘          │ Persist idempotency + audit │
+                                  └──────────────┬──────────────┘
+                                                 │ COMMIT
 ```
 
----
-
-The aggregate never communicates directly with:
-
-- Work
-- Memory
-- External Services
-- Message Brokers
-
-Those responsibilities belong outside the transaction boundary.
+The Aggregate does not insert Outbox rows, begin or commit transactions, publish messages, or communicate directly with Work, Memory, external services, or message brokers.
 
 ---
 
 # Transactional Outbox
 
-Every published Domain Event must be written to the Transactional Outbox.
+The Application Layer collects Decision Domain Events and appends the required durable records through an Outbox Writer participating in the same PostgreSQL transaction as Decision persistence.
 
-The Aggregate never publishes events directly.
+For `DecisionApproved`, `DecisionRejected`, and `DecisionWithdrawn`, the owning module also maps the Domain Event to `Integration / DecisionOutcomeOccurred / 1` before commit. Cross-context consumers subscribe to that Integration Event, not to the internal Decision Domain Event.
 
-Example
-
-```
-ApproveDecision()
-
+```text
+Decision.ApproveDecision()
         │
         ▼
-
-DecisionApproved
-
+DecisionApproved Domain Event
         │
-        ▼
-
-Transactional Outbox
-
-        │
- Commit Transaction
-        │
-        ▼
-
-Background Worker
-
-        │
-        ▼
-
-Event Bus
+        ├── Persist internal durable event as required
+        └── Map DecisionOutcomeOccurred / 1
+                         │
+                         ▼
+             Transactional Outbox
+                         │
+                    COMMIT
+                         │
+                         ▼
+               Background Worker
 ```
 
-This guarantees:
-
-- atomic persistence
-- reliable delivery
-- retry support
-- eventual consistency
+A persistence or Outbox failure rolls back the entire Application transaction. A publication failure after commit leaves the immutable Outbox record pending or failed for retry and never reverses the Decision.
 
 ---
 
@@ -1296,17 +1269,18 @@ This preserves loose coupling and enables future scalability.
 
 The Decision Aggregate provides strong consistency inside its own transaction boundary.
 
-The following changes are committed atomically:
+The Application transaction commits the following atomically:
 
-- Decision state
-- active revision
-- submitted snapshot
-- review record
-- activity record
-- domain events
-- outbox records
+- Decision state and Aggregate version;
+- active revision;
+- submitted snapshot;
+- review record;
+- activity record;
+- emitted Domain Event records required for durable handling;
+- mapped Integration Event records;
+- processed-command and required transactional audit records.
 
-If any operation fails, the entire transaction is rolled back.
+If any required persistence operation fails, the entire transaction is rolled back. This atomicity is provided by the Application transaction, not by the Aggregate performing infrastructure work.
 
 ---
 
@@ -1339,13 +1313,13 @@ Decision Approved
 Decision transaction committed
         │
         ▼
-DecisionApproved stored in Outbox
+DecisionOutcomeOccurred / 1 stored in Outbox
         │
         ▼
-Background Worker publishes event
+Background Worker publishes the Integration Event
         │
         ▼
-Application Handler processes event
+Work Application Handler processes the Integration Event
         │
         ▼
 Work records Decision outcome
