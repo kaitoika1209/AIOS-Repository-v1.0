@@ -1324,11 +1324,13 @@ The AI provider call begins only after this transaction. Long calls renew the ge
 
 ## Provider Call and Candidate Rule
 
-The provider receives only the committed source snapshot. No PostgreSQL transaction remains open.
+The provider receives only the committed source snapshot. No PostgreSQL transaction remains open. The bounded input excludes secrets, attachment binaries, unrestricted comments, and fields not allowlisted by the versioned generation policy.
 
 The provider response is untrusted candidate data. It has no domain authority and does not mean generation succeeded until the final local transaction validates the candidate and creates Memory.
 
 A stale response whose `lockedBy`, `claimVersion`, or `lockedUntil` no longer matches is discarded. It cannot create or overwrite Memory.
+
+Human review resolves and displays the exact committed source snapshot bound to the Memory; it must not substitute current Work, Decision, search, or Secretary projections. If governance policy has restricted or erased required source content, generation, submission, or review fails with a typed error rather than silently rebuilding input.
 
 ---
 
