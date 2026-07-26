@@ -33,6 +33,27 @@ Memory generation is triggered asynchronously after Work completion.
 A failed generation attempt does not create a Memory lifecycle state. Generation attempts and retries are operational process state outside the Memory Aggregate until a valid draft is created.
 Archival is an orthogonal visibility or retention concern in the MVP, not a Memory lifecycle state.
 ---
+# Source Snapshot Contract
+
+Before AI generation begins, the Memory-generation workflow persists one immutable, Organization-scoped source snapshot derived from the committed `WorkCompleted` fact, the terminal Work version, and any immutable Decision submitted snapshots used as input.
+
+The snapshot is identified by:
+
+- `sourceSnapshotId`;
+- source Work identity and Aggregate version;
+- Work content revision identity;
+- `workCompletedEventId`;
+- immutable Decision snapshot identities and content hashes;
+- source schema version;
+- canonical source-snapshot hash; and
+- capture timestamp.
+
+The AI provider receives input derived only from this persisted snapshot. The workflow records a separate provider-input hash together with the prompt, model, and generation-policy versions.
+
+A retry reuses the same source snapshot. The system must not reconstruct generation input from a later Work, Decision, projection, or search-index state.
+
+The submitted Memory snapshot binds to the source snapshot identifier and hash. Reviewers therefore evaluate one fixed Memory version against the same fixed source context used for generation.
+
 # State Summary
 | State | Meaning | Content editable | Reviewable | Authoritative | Terminal |
 |---|---|---:|---:|---:|---:|
@@ -102,8 +123,8 @@ The submitted content is locked so the reviewer evaluates one specific snapshot.
 ### Allowed Actions
 An authorized Human Member may:
 - view the submitted snapshot;
-- inspect the completed Work snapshot;
-- inspect related Decision references;
+- inspect the immutable completed Work source snapshot identified by sourceSnapshotId and sourceSnapshotHash;
+- inspect the immutable Decision snapshot references and hashes used for generation;
 - inspect edit and generation provenance;
 - add a review comment;
 - approve the Memory; or
@@ -170,7 +191,8 @@ An Approved Memory contains:
 - the approving Human Member;
 - an approval comment or confirmation;
 - the approval timestamp;
-- complete generation provenance;
+- complete generation provenance, including sourceSnapshotId, sourceSnapshotHash, and providerInputHash;
+- the same immutable source snapshot binding reviewed during InReview;
 - complete edit history;
 - complete review history; and
 - permanent source references.
