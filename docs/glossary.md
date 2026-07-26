@@ -12,20 +12,51 @@ All documentation, source code, user interfaces, and discussions should use thes
 
 The company, team, or business unit operating within AIOS.
 
-An organization owns members, work, knowledge, and capabilities.
+An Organization is the tenant, ownership, authorization, and data-isolation boundary for its Human Members and Organization-owned resources.
+
+---
+
+## Principal
+
+An authenticated or trusted execution identity that may request or perform actions in AIOS.
+
+AIOS recognizes three principal categories:
+
+- Human Member
+- AI Principal
+- System Principal
+
+Principal type is part of the authorization boundary. A non-Human Principal must never be treated as a Human Member.
 
 ---
 
 ## Member
 
-An actor within an organization.
+A human participant who has a Membership in an Organization.
 
-A member can be either:
+A Member may receive Organization-scoped roles and permissions and may perform authoritative business actions when authorized.
 
-- Human
-- AI Employee
+**Member** is reserved for humans. A Secretary, AI Employee, or System Principal is not a Member and must not hold Human Memberships or Human roles.
 
-AIOS intentionally uses **Member** instead of **User**.
+AIOS intentionally uses **Member** instead of **User** for a human participant in the domain.
+
+---
+
+## AI Principal
+
+A non-human execution identity that performs governed assistance or explicitly permitted delegated operations.
+
+The Secretary and future AI Employees are AI Principals.
+
+AI Principals do not inherit Human Member permissions and cannot exercise Human-only business authority.
+
+---
+
+## System Principal
+
+A trusted internal execution identity used for technical processing such as event delivery, background work, retries, and reconciliation.
+
+A System Principal may execute an explicitly permitted operational action caused by prior authoritative intent. It cannot create new Human business intent, hold a Human Membership, or exercise Human-only authority.
 
 ---
 
@@ -98,15 +129,17 @@ A workspace provides access to work, AI collaboration, and organizational inform
 
 ## Secretary
 
-The primary AI interface within AIOS.
+The primary advisory AI interface within AIOS.
 
-The Secretary helps members organize work, prioritize tasks, and coordinate AI employees.
+The Secretary is an AI Principal assigned to one Organization. It helps Human Members organize Work, prioritize activity, and coordinate future AI Employees.
+
+The Secretary is not a Member and cannot perform Human-only authoritative actions.
 
 ---
 
 ## AI Employee
 
-An AI agent assigned a specific organizational role.
+A future AI Principal assigned a specialized organizational role.
 
 Examples:
 
@@ -115,7 +148,7 @@ Examples:
 - Analyst
 - Reviewer
 
-AI Employees collaborate with human members throughout the lifecycle of work.
+AI Employees collaborate with Human Members under explicit authorization and governance. They are not Members, do not hold Human Memberships or Human roles, and cannot exercise Human-only business authority.
 
 ---
 
@@ -157,7 +190,9 @@ The following terms should be used consistently throughout AIOS.
 
 | Preferred | Avoid |
 |-----------|-------|
-| Member | User |
+| Member | User, Human User |
+| AI Principal | AI Member, Non-Human Member |
+| System Principal | System Member |
 | Work | Task |
 | Memory | History |
 | Organization | Company |
