@@ -552,6 +552,7 @@ ADR identifiers are unique and immutable after adoption. A superseded ADR retain
 | [ADR-0003](../adr/0003-select-mvp-observability-stack.md) | Select the MVP Observability and Operations Stack | Accepted |
 | [ADR-0004](../adr/0004-separate-external-computation-and-business-effects.md) | Separate External Computation from External Business Effects | Accepted |
 | [ADR-0005](../adr/0005-adopt-boundary-enforced-modular-monolith.md) | Adopt a Boundary-Enforced Modular Monolith for the MVP | Accepted |
+| [ADR-0006](../adr/0006-use-postgresql-transactional-outbox.md) | Use a PostgreSQL Transactional Outbox with Durable Local Consumer Handoff | Accepted |
 
 Location:
 
@@ -956,11 +957,10 @@ ADR identifiers are assigned only when a decision record is created.
 
 Accepted identifiers are immutable, never reused, and never renumbered. Superseded ADRs remain in the register with their original identifiers and changed status.
 
-Future decisions MUST NOT reserve numeric identifiers in prose. At the time this Blueprint version was reviewed, the accepted sequence ends at ADR-0005 and the next unassigned identifier is ADR-0006. Concurrent ADR creation must recheck the register before assigning that identifier.
+Future decisions MUST NOT reserve numeric identifiers in prose. At the time this Blueprint version was reviewed, the accepted sequence ends at ADR-0006 and the next unassigned identifier is ADR-0007. Concurrent ADR creation must recheck the register before assigning that identifier.
 
 Potential later decisions include:
 
-- Transactional Outbox and event-delivery implementation;
 - Work and Decision consistency;
 - Actor Model implementation;
 - Memory correction and versioning;
