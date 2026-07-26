@@ -1,531 +1,430 @@
 # Context Map
 
+> **Document status:** Proposed  
+> **Blueprint version:** 0.2.1  
+> **MVP architecture:** Modular Monolith
+
 ## Purpose
 
-This document defines the high-level bounded contexts of AIOS and the relationships between them.
+This document defines the business-language boundaries of AIOS and the relationships between them.
 
-The Context Map provides a conceptual view of how major business capabilities are separated while still collaborating through well-defined interfaces and domain events.
+A Bounded Context is a DDD semantic boundary. It owns a domain model, Ubiquitous Language, and business rules.
 
-It complements the Aggregate design by describing the responsibilities and interactions of larger domain boundaries.
+A Bounded Context is not automatically:
 
-The Context Map is implementation-independent.
+- a deployable service;
+- a PostgreSQL schema;
+- a code repository;
+- an infrastructure component; or
+- one Aggregate.
 
-It does not prescribe deployment, database boundaries, or microservice architecture.
-
----
-
-# Design Principles
-
-The AIOS Context Map follows these principles:
-
-- Each bounded context owns a distinct business capability.
-- Each context defines its own ubiquitous language.
-- Aggregates never span multiple bounded contexts.
-- Cross-context communication occurs through references, application services, or domain events.
-- Historical traceability is preserved across contexts.
-- AI assistance never bypasses context boundaries.
+The MVP deploys multiple Bounded Contexts together in one Modular Monolith and one authoritative PostgreSQL database.
 
 ---
 
-# Context Overview
+# Boundary Classification
 
-```text
-                   +----------------------+
-                   |   Organization       |
-                   |  Identity & Access   |
-                   +----------+-----------+
-                              │
-                              │
-      +-----------------------+-----------------------+
-      │                                               │
-      ▼                                               ▼
-+-------------------+                     +----------------------+
-| Work Management   |-------------------->| Decision Management  |
-+-------------------+     Decision        +----------------------+
-          │
-          │ WorkCompleted
-          ▼
-+------------------------+
-| Organizational Memory  |
-+------------------------+
-          │
-          │ Approved Memory
-          ▼
-+------------------------+
-| Knowledge Management   |
-+------------------------+
-          │
-          │ Published Knowledge
-          ▼
-+------------------------+
-| Capability Management  |
-+------------------------+
+AIOS uses three distinct architectural classifications.
 
-                 ▲
-                 │
-        AI Secretary (Cross-cutting)
-```
+| Classification | Purpose | MVP examples |
+|---|---|---|
+| Domain Bounded Context | Owns business language and domain rules | Identity & Organization, Work Management, Decision Management, Organizational Memory |
+| Implementation Module | Groups code and persistence ownership inside the Modular Monolith | Organization and Access, Work and Decision, Organizational Learning |
+| Technical Platform Capability | Provides cross-cutting execution or infrastructure without owning business language | Transactional Outbox, Worker Runtime, Observability, Persistence adapters |
+
+These classifications must not be used interchangeably.
+
+Authorization is an explicit Application and Security capability. It evaluates whether a Principal may attempt a command. It does not own the lifecycle or invariants of Work, Decision, Memory, Organization, or Membership.
+
+Transactional Outbox, processed-event handling, Workers, replay, reconciliation, telemetry, and database adapters are technical platform capabilities. They are not Domain Bounded Contexts.
 
 ---
 
-# Bounded Contexts
+# Domain Bounded Contexts
 
-## Organization Context
+## Identity & Organization Context
+
+**Classification:** Supporting Domain  
+**MVP:** Implemented
 
 ### Purpose
 
-Defines organizational identity and security boundaries.
-
-### Responsibilities
-
-- Organization lifecycle
-- Member management
-- Authentication
-- Authorization
-- Roles
-- Permissions
-- Secretary registration
-- Organization policies
+Defines durable Human identity, Organization tenancy, Membership, and Organization-scoped participation.
 
 ### Owns
 
-- Organization
-- Member
-- Secretary
+- Human Identity Aggregate;
+- Organization Aggregate;
+- Membership Aggregate;
+- authentication-subject associations;
+- Organization-scoped role assignments; and
+- Secretary assignment or registration metadata required by the MVP.
 
-### Publishes Events
+A Human Identity is global and may participate in multiple Organizations through separate Memberships.
 
-Examples:
+An Organization is the tenant, ownership, authorization-scope, and data-isolation boundary. It is not a transaction boundary containing all Organization-owned Aggregates.
 
-```text
-MemberInvited
-MemberActivated
-MemberSuspended
-OrganizationCreated
-SecretaryRegistered
-```
+### Publishes representative facts
+
+- `HumanIdentityCreated`
+- `HumanIdentityDisabled`
+- `OrganizationCreated`
+- `OrganizationSuspended`
+- `MembershipInvited`
+- `MembershipActivated`
+- `MembershipSuspended`
+- `MembershipRevoked`
+
+### Does not own
+
+- Work, Decision, or Memory lifecycle;
+- authorization decisions for every use case;
+- AI-generated business content; or
+- technical Outbox and Worker state.
+
+Authorization policies consume current Identity, Membership, role, Organization, Principal, and resource facts but remain an Application and Security capability.
 
 ---
 
 ## Work Management Context
 
+**Classification:** Core Domain  
+**MVP:** Implemented
+
 ### Purpose
 
-Represents organizational activity.
-
-### Responsibilities
-
-- Work lifecycle
-- Participants
-- Ownership
-- Progress
-- Completion
+Represents organizational activity and explicit Human-controlled completion.
 
 ### Owns
 
-- Work Aggregate
+- Work Aggregate;
+- Work lifecycle;
+- assignments and participants;
+- attributable progress;
+- Work-local completion gate;
+- recorded Decision outcome snapshots; and
+- completion or cancellation history.
 
-### Publishes Events
+### Publishes representative facts
 
-```text
-WorkCreated
-WorkStarted
-WorkCompleted
-WorkArchived
-```
+- `WorkCreated`
+- `WorkStarted`
+- `WorkDecisionRequested`
+- `WorkDecisionOutcomeRecorded`
+- `WorkCompleted`
+- `WorkCancelled`
 
-### Consumes
-
-- Member information
-- Organization information
+Decision approval never completes Work. Work completion is an explicit Human-authorized command.
 
 ---
 
 ## Decision Management Context
 
+**Classification:** Core Domain  
+**MVP:** Implemented
+
 ### Purpose
 
-Represents organizational judgment.
-
-### Responsibilities
-
-- Decision lifecycle
-- Decision revisions
-- Options
-- Approval
-- Blocking Decisions
+Represents an explicit organizational question, stable review snapshot, and Human resolution.
 
 ### Owns
 
-- Decision Aggregate
+- Decision Aggregate;
+- Decision revisions;
+- submitted snapshots;
+- options;
+- review history;
+- approval, rejection, withdrawal, and revision behavior; and
+- blocking designation.
 
-### Publishes Events
+### Publishes representative facts
 
-```text
-DecisionProposed
-DecisionApproved
-DecisionRejected
-DecisionRevised
-```
+- `DecisionCreated`
+- `DecisionDraftEdited`
+- `DecisionSubmitted`
+- `DecisionApproved`
+- `DecisionRejected`
+- `DecisionWithdrawn`
+- `DecisionRevisionStarted`
 
-### Consumes
-
-- Work references
-- Member information
+The Decision Context does not modify Work directly. The Work Context records authoritative Decision outcomes through an idempotent Application handler.
 
 ---
 
 ## Organizational Memory Context
 
+**Classification:** Core Domain  
+**MVP:** Implemented
+
 ### Purpose
 
-Preserves organizational experience.
-
-### Responsibilities
-
-- Memory generation
-- Review
-- Approval
-- Historical preservation
-- Secretary contributions
+Creates one Human-reviewable historical record from one completed Work and preserves the approved result as immutable organizational history.
 
 ### Owns
 
-- Memory Aggregate
+- Memory Aggregate;
+- editable generated draft;
+- immutable submitted snapshots;
+- Human review lifecycle;
+- generation and edit provenance;
+- immutable source-snapshot references; and
+- approval or rejection history.
 
-### Publishes Events
+### Publishes representative facts
 
-```text
-MemoryGenerated
-MemoryApproved
-MemoryRejected
-KnowledgePromotionRequested
-```
+- `MemoryGenerated`
+- `MemoryEdited`
+- `MemorySubmittedForReview`
+- `MemoryApproved`
+- `MemoryRejected`
+- `MemoryReopened`
 
-### Consumes
+The MVP stops at Approved Memory.
 
-- WorkCompleted
-- Decision summaries
+The Memory Context does not emit Knowledge promotion or publication events in the MVP.
 
 ---
 
 ## Knowledge Management Context
 
+**Classification:** Future Core Domain  
+**MVP:** Not implemented
+
 ### Purpose
 
-Transforms organizational experience into reusable Knowledge.
+Will govern reusable organizational guidance, Evidence, publication, revision, supersession, and deprecation.
 
-### Responsibilities
+Approved Memory may provide Evidence, but Memory approval does not create Knowledge.
 
-- Knowledge lifecycle
-- Evidence
-- Confidence
-- Revision history
-- Publication
-- Deprecation
-
-### Owns
-
-- Knowledge Aggregate
-
-### Publishes Events
-
-```text
-KnowledgePublished
-KnowledgeRevisionPublished
-KnowledgeDeprecated
-KnowledgeArchived
-```
-
-### Consumes
-
-- Approved Memory
-- Knowledge promotion requests
+Before implementation, the Knowledge Aggregate, Evidence eligibility, Human publication authority, persistence model, event contracts, and ADRs must be reviewed together.
 
 ---
 
 ## Capability Management Context
 
+**Classification:** Future Domain  
+**MVP:** Not implemented
+
 ### Purpose
 
-Organizes reusable Knowledge into organizational capabilities.
+Will organize reusable Knowledge and measurable organizational competence.
 
-### Responsibilities
+Capability is not inferred from one Memory or one AI output.
 
-- Capability catalog
-- Capability ownership
-- Knowledge association
-- Organizational competency analysis
-
-### Owns
-
-- Capability Aggregate (future)
-
-### Publishes Events
-
-```text
-CapabilityCreated
-CapabilityUpdated
-CapabilityStrengthened
-```
-
-### Consumes
-
-- Published Knowledge
+No Capability module, table, event handler, or public interface is created in the MVP.
 
 ---
 
-# AI Secretary
+# MVP Implementation Modules
 
-The Secretary is a cross-cutting AI participant rather than a bounded context.
+The following modules are code and persistence ownership boundaries inside one deployable Modular Monolith.
 
-The Secretary interacts with multiple contexts while respecting their ownership boundaries.
+| MVP implementation module | Contained domain boundaries | Owned persistence |
+|---|---|---|
+| Organization and Access | Identity & Organization; Authorization policies and Principal resolution | Human Identity, authentication subject, Organization, Membership, role assignment, authorization-audit tables |
+| Work and Decision | Work Management; Decision Management | Work-owned tables and Decision-owned tables, kept behind separate repositories |
+| Organizational Learning | Organizational Memory only in the MVP | Memory, Memory revision/review, generation source, and generation-operation tables |
+| Platform Runtime | No Domain Bounded Context | Outbox, processed command/event, dead-letter, replay, Worker-claim, reconciliation, and projection infrastructure |
 
-The Secretary may:
+Knowledge Management and Capability Management remain documented future Bounded Contexts. The MVP must not create empty packages, tables, handlers, or ports for them.
 
-- summarize Work,
-- assist Decisions,
-- generate Memory drafts,
-- identify Knowledge candidates,
-- recommend Confidence,
-- retrieve Published Knowledge.
+One implementation module may contain more than one Bounded Context. This co-location does not merge their Aggregates, language, repositories, or invariants.
 
-The Secretary must not:
+A coarse module may use internal packages such as:
 
-- approve Decisions,
-- approve Memory,
-- publish Knowledge,
-- bypass authorization,
-- modify published history.
+```text
+work-decision
+├── work
+└── decision
+```
 
-The Secretary communicates through application services and domain events rather than directly modifying aggregates across contexts.
+Cross-context writes occur only through an explicit Application Service or idempotent event handler. A repository writes only its owned Aggregate tables.
 
 ---
 
 # Context Relationships
 
-## Organization → All Contexts
+## Identity & Organization → Organization-Owned Contexts
 
-Organization provides the shared identity and authorization boundary.
+Identity & Organization supplies trusted identity, active Membership, role, Organization status, and tenant-scope facts.
 
-Every business context belongs to exactly one Organization.
+Work, Decision, and Memory remain authoritative for their own business state.
 
----
+Every Organization-owned Aggregate contains exactly one `organizationId`. Human Identity remains global and does not become owned by one Organization.
 
-## Work → Decision
-
-Relationship:
+Relationship type:
 
 ```text
-Customer / Supplier
-```
-
-Work provides organizational activity.
-
-Decision depends on Work context.
-
----
-
-## Work → Organizational Memory
-
-Relationship:
-
-```text
-Domain Event
-```
-
-```text
-WorkCompleted
-        │
-        ▼
-MemoryGenerated
-```
-
-Memory owns the resulting historical record.
-
-Work does not own Memory.
-
----
-
-## Decision → Organizational Memory
-
-Relationship:
-
-```text
-Reference
-```
-
-Memory stores Decision identifiers and summaries.
-
-Decision remains the source of truth.
-
----
-
-## Organizational Memory → Knowledge
-
-Relationship:
-
-```text
-Upstream / Downstream
-```
-
-Approved Memory provides Evidence.
-
-Knowledge never modifies Memory.
-
-Memory remains the historical source.
-
----
-
-## Knowledge → Capability
-
-Relationship:
-
-```text
-Customer / Supplier
-```
-
-Capability organizes reusable Knowledge.
-
-Knowledge remains authoritative.
-
-Capability does not duplicate Knowledge.
-
----
-
-## Organization → Secretary
-
-The Secretary belongs to exactly one Organization.
-
-Secretary permissions are governed by the Organization Context.
-
----
-
-# Integration Patterns
-
-Contexts communicate using:
-
-- Domain Events
-- Aggregate references
-- Application Services
-
-Contexts do not communicate through shared mutable state.
-
-Examples:
-
-```text
-WorkCompleted
-        │
-        ▼
-MemoryGenerated
-
-MemoryApproved
-        │
-        ▼
-KnowledgeCandidateIdentified
-
-KnowledgePublished
-        │
-        ▼
-CapabilityStrengthened
+Published Language / Application Policy Input
 ```
 
 ---
 
-# Ubiquitous Language
+## Work Management ↔ Decision Management
 
-Each context owns its own terminology.
+A Decision belongs to one Work in the MVP.
 
-| Context | Core Concepts |
-|----------|---------------|
-| Organization | Organization, Member, Secretary |
-| Work | Work, Participant |
-| Decision | Decision, Option, Revision |
-| Memory | Memory, Review, Lessons Learned |
-| Knowledge | Knowledge, Evidence, Confidence |
-| Capability | Capability |
+Work requests or references a Decision. Decision owns review and resolution. Work owns its local completion gate.
 
-Concept meanings must remain consistent within their owning context.
+Authoritative Decision outcomes are applied to Work by an idempotent handler.
 
----
+Relationship type:
 
-# Context Boundaries
+```text
+Explicit Application Coordination + Domain Events
+```
 
-Each context owns its own:
-
-- lifecycle,
-- business rules,
-- invariants,
-- domain events,
-- aggregate roots.
-
-Contexts must not directly enforce another context's invariants.
+The MVP may commit the initial Work/Decision coordination atomically because both contexts share one PostgreSQL database. This is an explicit use-case transaction and does not make them one Aggregate.
 
 ---
 
-# Evolution Strategy
+## Work Management → Organizational Memory
 
-The Context Map is intentionally designed for gradual evolution.
+Successful Human Work completion stores `WorkCompleted` in the Transactional Outbox.
 
-### MVP
+The Memory-generation workflow uses the event to persist one immutable, Organization-scoped generation source snapshot before calling the external AI provider.
 
-Implemented:
+Relationship type:
 
-- Organization
-- Work
-- Decision
-- Memory
+```text
+Durable Asynchronous Domain Event
+```
 
-Knowledge and Capability remain future roadmap items.
-
-### Future
-
-Potential future contexts include:
-
-- Policy Management
-- AI Employee Management
-- Skill Management
-- External Knowledge Sources
-- Analytics
-- Semantic Search
-- Notification
-- Workflow
-- Integration
-
-These should integrate through existing context boundaries rather than expanding existing Aggregates.
+Work does not own Memory. Generation failure does not reopen or roll back completed Work.
 
 ---
 
-# Architectural Benefits
+## Decision Management → Organizational Memory
 
-This Context Map provides:
+Memory generation may use only immutable Decision submitted or resolved snapshots identified by revision or snapshot identity and content hash.
 
-- Clear ownership boundaries
-- Independent evolution of business capabilities
-- Reduced coupling
-- Strong traceability
-- Consistent ubiquitous language
-- AI governance boundaries
-- Future microservice readiness
-- Better maintainability
+Relationship type:
+
+```text
+Versioned Immutable Reference
+```
+
+Memory does not depend on the current mutable Decision draft or a search projection.
 
 ---
 
-# Relationship to Other Documents
+## Organizational Memory → Knowledge Management
 
-This document complements:
+**Future relationship — not active in the MVP.**
 
-- `docs/architecture/domain-model.md`
-- `docs/architecture/authorization.md`
-- `docs/architecture/aggregates/*`
-- `docs/architecture/state-machines/*`
+Approved Memory may be selected as Evidence by an explicit Human-authorized Knowledge use case.
 
-The Domain Model defines **what** the core business concepts are.
+No Memory state transition automatically enters the Knowledge lifecycle.
 
-The Aggregate documents define **how** each concept protects its invariants.
+---
 
-The State Machines define **how** those concepts evolve.
+## Knowledge Management → Capability Management
 
-The Context Map defines **where** each responsibility belongs.
+**Future relationship — not active in the MVP.**
 
-Together, these documents describe the complete domain architecture of AIOS Blueprint v0.2.0.
+Published Knowledge may later support Capability classification or measurement. Capability does not own or rewrite Knowledge.
+
+---
+
+# AI Secretary
+
+The Secretary is an Organization-scoped AI Principal and cross-cutting participant. It is not a Bounded Context or a domain-owning central service.
+
+Secretary capabilities are exposed through context-specific Application ports.
+
+The Secretary may:
+
+- summarize Work;
+- prepare Decision drafts;
+- generate or suggest Memory draft content; and
+- provide future Knowledge recommendations when that phase is implemented.
+
+The Secretary must not:
+
+- call repositories owned by another context directly;
+- approve Decisions or Memory;
+- complete Work;
+- publish Knowledge;
+- grant authority;
+- bypass authorization; or
+- turn advisory output into an authoritative transition automatically.
+
+Every Secretary request is bound to one Organization, one authorized initiating Human or permitted System workflow, an allowlisted capability, bounded source data, and attributable provenance.
+
+---
+
+# Integration Rules
+
+Contexts collaborate through:
+
+- typed Application Service commands;
+- immutable identity or revision references;
+- Domain Events persisted through the Transactional Outbox;
+- idempotent event handlers; and
+- authorization-aware query interfaces.
+
+Contexts do not collaborate through:
+
+- shared mutable domain objects;
+- direct cross-context repository writes;
+- mutable foreign objects loaded inside Aggregates;
+- telemetry or projections treated as source of truth; or
+- synchronous network calls between MVP modules.
+
+Within the Modular Monolith, in-process calls are permitted only through explicit module interfaces.
+
+---
+
+# Consistency and Transaction Boundaries
+
+An Aggregate protects only invariants provable from its own state and command input.
+
+A coordinated Application Service may use one PostgreSQL transaction across multiple Aggregates only when the use case explicitly requires atomicity and the participating Aggregate commands remain independently valid.
+
+Required asynchronous follow-up uses Transactional Outbox delivery and eventual consistency.
+
+The following distinctions are mandatory:
+
+| Concern | Owner |
+|---|---|
+| Aggregate lifecycle and local invariants | Owning Aggregate |
+| Cross-context use-case orchestration | Application Service |
+| Principal permission | Authorization policy |
+| Cross-Aggregate structural uniqueness | PostgreSQL constraint where practical |
+| Durable asynchronous delivery | Platform Runtime |
+| Operational detection and recovery | Platform Runtime plus owning module command |
+
+---
+
+# Evolution Rules
+
+A Bounded Context becomes an independently deployed service only when a demonstrated need exists, such as independent scale, deployment, operational isolation, stable external contract, or team ownership.
+
+Future extraction must preserve:
+
+- Organization isolation;
+- Human authority;
+- Aggregate ownership;
+- event compatibility;
+- idempotency;
+- source provenance; and
+- explicit failure recovery.
+
+Microservice extraction is not an MVP objective.
+
+---
+
+# Canonical Document Responsibilities
+
+| Concern | Canonical document |
+|---|---|
+| Ubiquitous Language and Principal terms | `docs/glossary.md` |
+| Bounded Context classification and relationships | This Context Map |
+| MVP implementation-module mapping | This Context Map and `docs/architecture/overview.md` |
+| Aggregate ownership and invariants | `docs/architecture/aggregates/*` |
+| Lifecycle transitions | `docs/architecture/state-machines/*` |
+| Cross-Aggregate orchestration | `docs/architecture/application-services.md` |
+| Authorization and Human/AI/System authority | `docs/architecture/authorization.md` |
+| Event delivery and Worker semantics | `docs/architecture/events-and-outbox.md` |
+| Table and migration ownership | `docs/architecture/persistence-and-data-model.md` |
+| MVP delivery scope | `docs/product/mvp.md` |
