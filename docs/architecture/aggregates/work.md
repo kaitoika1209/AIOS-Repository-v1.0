@@ -584,7 +584,21 @@ Every event includes:
 - Decision resolution timestamp;
 - source event identifier; and
 - processing System Principal where applicable.
-`WorkCompleted` contains enough immutable completion context for downstream Memory generation.
+`WorkCompleted` defines the immutable source contract for downstream Memory generation.
+
+Its transition-specific payload includes:
+
+- Work identity;
+- terminal Work Aggregate version;
+- Work content revision identity;
+- completion-record identity;
+- completion summary;
+- completion timestamp;
+- completing Human ActorReference;
+- completion-gate snapshot; and
+- immutable related Decision submitted-snapshot or revision references used at completion.
+
+The event is not a full AI prompt and must not embed unbounded Work or Decision content. The Memory-generation handler uses these versioned identifiers to persist one canonical source snapshot before any external AI-provider call. Because completed Work business data is terminal and Decision source references identify immutable snapshots, the handler must fail visibly if the referenced versions or hashes cannot be loaded exactly.
 Required downstream events must use a Transactional Outbox or equivalent durable mechanism.
 ---
 # Transaction Boundary
