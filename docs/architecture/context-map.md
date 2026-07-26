@@ -264,7 +264,7 @@ Published Language / Application Policy Input
 
 A Decision belongs to one Work in the MVP.
 
-Work requests or references a Decision. Decision owns review and resolution. Work owns its local completion gate.
+Work requests or references a Decision. Decision owns review and resolution. Work owns its local completion gate and matches outcomes to an immutable `decisionId + revisionNumber + submittedSnapshotId` reference.
 
 Authoritative Decision outcomes are applied to Work by an idempotent handler.
 
@@ -274,7 +274,7 @@ Relationship type:
 Explicit Application Coordination + Domain Events
 ```
 
-The MVP may commit the initial Work/Decision coordination atomically because both contexts share one PostgreSQL database. This is an explicit use-case transaction and does not make them one Aggregate.
+The MVP commits submission of a blocking Decision revision and Work's matching transition to `WaitingForDecision` atomically because both contexts share one PostgreSQL database. A Draft Decision never blocks Work. This `RequestBlockingDecision` transaction is the only approved Work/Decision exception; outcome propagation is asynchronous and does not make the contexts one Aggregate.
 
 ---
 
