@@ -189,21 +189,20 @@ Work Aggregate emits WorkCompleted
 
 # Integration Event
 
-An Integration Event is a stable message contract intended for asynchronous consumers.
+An Integration Event is a stable, versioned contract intended for consumers outside the producing Bounded Context.
 
-It may be derived from a Domain Event.
+It is produced by the owning module from one or more committed Domain Events.
 
 Example:
 
 ```text
-Domain Event:
-    DecisionApproved
-
-Integration Event:
-    DecisionOutcomeOccurred
+DecisionApproved Domain Event
+        │
+        ▼
+DecisionOutcomeOccurred Integration Event
 ```
 
-An Integration Event may intentionally expose less internal detail than the source Domain Event.
+A cross-module consumer subscribes to the Integration Event, not to the source Aggregate's Domain Event.
 
 ---
 
@@ -211,11 +210,11 @@ An Integration Event may intentionally expose less internal detail than the sour
 
 Integration Events provide:
 
-- stable asynchronous contracts
-- decoupling from internal Aggregate structure
-- explicit schema versioning
-- safe publication to future external brokers
-- compatibility across module boundaries
+- stable asynchronous contracts;
+- decoupling from internal Aggregate structure;
+- explicit schema versioning;
+- safe publication to future external brokers; and
+- compatibility across module boundaries.
 
 ---
 
@@ -223,18 +222,23 @@ Integration Events provide:
 
 ```text
 Domain Event
-    describes an internal domain fact
+    internal fact owned by one Aggregate
 
 Integration Event
-    describes a stable message for consumers
+    consumer-facing contract owned by the producing module
 ```
 
-The two may use the same payload in the MVP only when:
+A Domain Event may be handled locally inside its owning module. Before a fact crosses a Bounded Context boundary, the module maps it to an Integration Event and persists that message through the Transactional Outbox in the same Application transaction whenever the downstream reaction is required.
 
-- ownership is explicit
-- schema is explicit
-- consumers do not depend on internal object structure
-- future translation remains possible
+The same semantic name and payload may be reused in the MVP only when all of the following are true:
+
+- `eventCategory` distinguishes the Domain and Integration contracts;
+- the Integration contract is independently versioned;
+- the payload already contains only stable consumer-facing data;
+- consumers do not depend on internal Aggregate object structure; and
+- a future translation can be introduced without changing the Aggregate.
+
+`WorkCompleted` satisfies this tradeoff for the MVP because its versioned payload is already the immutable Work-to-Memory source locator. Decision outcome events do not: three internal outcome facts are translated to one `DecisionOutcomeOccurred` Integration Event.
 
 ---
 
@@ -509,19 +513,25 @@ Retries and repeated publication preserve the same eventId.
 
 # Event Type
 
-The eventType identifies the semantic event.
+The `eventType` identifies the semantic contract inside one `eventCategory`.
 
 Examples:
 
 ```text
-WorkCompleted
+Domain / DecisionApproved
 
-DecisionApproved
+Integration / DecisionOutcomeOccurred
 
-MembershipRevoked
+Integration / WorkCompleted
 ```
 
-Event type names must remain stable within a schema version.
+The runtime registry key is:
+
+```text
+eventCategory + eventType + schemaVersion
+```
+
+That key must resolve to exactly one payload schema and one owning module. Event type names remain stable within a schema version.
 
 ---
 
@@ -936,25 +946,33 @@ The correction must preserve reference to the original eventId.
 
 # Event Naming
 
-Event names should:
+Event names must:
 
-- use past tense
-- describe one committed fact
-- avoid implementation terms
-- avoid transport terms
-- remain domain-specific
+- use past tense;
+- describe one committed fact;
+- avoid implementation and transport terms;
+- remain domain-specific; and
+- be unambiguous within their `eventCategory`.
 
 Preferred:
 
 ```text
 MembershipRevoked
+
+DecisionSecretaryContributionRecorded
+
+MemorySecretaryContributionRecorded
 ```
 
 Avoid:
 
 ```text
 MembershipRowUpdated
+
+SecretaryContributionRecorded
 ```
+
+When two Aggregates could produce the same fact name, prefix it with the owning Aggregate. Once published, a rename requires a new contract or an explicit compatibility mapping.
 
 ---
 
@@ -1023,41 +1041,23 @@ They do not replace dedicated domain history where an Aggregate requires richer 
 
 # Domain Event Catalog
 
-The MVP event catalog includes events from the following domains:
-
-```text
-Work
-
-Decision
-
-Memory
-
-Human Identity
-
-Organization
-
-Membership
-```
+The following names are the canonical MVP Domain Event contracts for the core Work, Decision, and Memory Aggregates. Aggregate documents remain authoritative for command behavior and invariants; this catalog is authoritative for registered event names.
 
 ---
 
 # Work Events
 
-Representative Work events:
-
 ```text
 WorkCreated
-
+WorkDetailsUpdated
+WorkAssignmentChanged
+WorkParticipantChanged
+WorkProgressRecorded
+WorkSecretaryContributionRecorded
 WorkStarted
-
-WorkUpdated
-
 WorkDecisionRequested
-
 WorkDecisionOutcomeRecorded
-
 WorkCompleted
-
 WorkCancelled
 ```
 
@@ -1065,23 +1065,14 @@ WorkCancelled
 
 # Decision Events
 
-Representative Decision events:
-
 ```text
 DecisionCreated
-
 DecisionDraftEdited
-
-SecretaryContributionRecorded
-
+DecisionSecretaryContributionRecorded
 DecisionSubmitted
-
 DecisionApproved
-
 DecisionRejected
-
 DecisionWithdrawn
-
 DecisionRevisionStarted
 ```
 
@@ -1089,159 +1080,154 @@ DecisionRevisionStarted
 
 # Memory Events
 
-Representative Memory events:
-
 ```text
 MemoryGenerated
-
-MemoryEdited
-
-SecretaryContributionRecorded
-
-MemorySubmittedForReview
-
-MemoryApproved
-
-MemoryRejected
-
-MemoryReopened
-```
-
-When identical event names could occur in multiple domains, the event catalog should use module-qualified names or unambiguous contracts.
-
-Example:
-
-```text
-DecisionSecretaryContributionRecorded
-
+MemoryDraftEdited
 MemorySecretaryContributionRecorded
+MemorySubmittedForReview
+MemoryApproved
+MemoryRejected
+MemoryReopenedForRevision
 ```
 
 ---
 
-# Human Identity Events
+# Supporting-Domain Events
 
-Representative events:
+Representative supporting-domain events include:
 
 ```text
 HumanIdentityCreated
-
 HumanIdentityProfileUpdated
-
 AuthenticationSubjectLinked
-
 AuthenticationSubjectUnlinked
-
 HumanIdentityDisabled
-
 HumanIdentityReactivated
-```
 
----
-
-# Organization Events
-
-Representative events:
-
-```text
 OrganizationCreated
-
 OrganizationRenamed
-
 OrganizationSuspended
-
 OrganizationReactivated
-
 OrganizationArchived
-```
 
----
-
-# Membership Events
-
-Representative events:
-
-```text
 MembershipInvited
-
 MembershipActivated
-
 MembershipSuspended
-
 MembershipReactivated
-
 MembershipRevoked
-
 OrganizationRoleAssigned
-
 OrganizationRoleRevoked
-
 OrganizationOwnershipTransferred
 ```
+
+Before implementation, each supporting-domain Aggregate document must confirm its exact emitted-event subset. A representative name must not be registered merely because it appears in this roadmap list.
+
+---
+
+# Integration Event Catalog
+
+The canonical cross-module MVP contracts are:
+
+| Category | Event type | Schema | Producing module | Source fact | Consumer |
+|---|---|---:|---|---|---|
+| Integration | `DecisionOutcomeOccurred` | 1 | Work and Decision | `DecisionApproved`, `DecisionRejected`, or `DecisionWithdrawn` | `RecordDecisionOutcomeInWorkHandler` |
+| Integration | `WorkCompleted` | 1 | Work and Decision | `WorkCompleted` | `GenerateMemoryHandler` |
+| Integration | `MembershipRevoked` | 1 | Organization and Access | `MembershipRevoked` | `AssignmentReconciliationHandler` |
+| Integration | `HumanIdentityDisabled` | 1 | Organization and Access | `HumanIdentityDisabled` | `SessionInvalidationHandler` |
+
+No Knowledge or Capability Integration Event is registered in the MVP.
+
+---
+
+# Decision Outcome Integration Contract
+
+`DecisionOutcomeOccurred` schema version 1 contains:
+
+```text
+organizationId
+workId
+decisionId
+decisionAggregateVersion
+revisionNumber
+submittedSnapshotId
+outcome
+resolvedAt
+resolvedByHumanActorReference
+sourceDomainEventId
+sourceDomainEventType
+```
+
+Rules:
+
+- `outcome` is exactly `Approved`, `Rejected`, or `Withdrawn`;
+- `sourceDomainEventType` matches the outcome;
+- `resolvedByHumanActorReference` preserves the Human authority from the Decision transition;
+- `workId` is the Decision's immutable related-Work routing reference;
+- the Integration Event does not contain mutable Decision content;
+- Organization, Work, and Decision references must belong to the same Organization; and
+- the mapping is persisted atomically with the Decision state change and source event.
+
+The generic dispatcher does not query Work or Decision tables to enrich this contract.
 
 ---
 
 # Event Catalog Ownership
 
-Each module owns:
+Each producing module owns:
 
-- event names
-- payload definitions
-- schema versions
-- source Aggregate mapping
-- allowed consumers
-- privacy classification
-- deprecation policy
+- Domain Event names and payloads;
+- Integration Event names and payloads;
+- schema versions;
+- source Aggregate mapping;
+- allowed consumers;
+- privacy classification; and
+- deprecation policy.
 
-A shared event catalog may document all contracts.
+The catalog must never use a shortened alias that differs from the owning Aggregate document.
 
 ---
 
 # Event Consumer Registry
 
-Every asynchronously consumed event must have an explicit consumer registration.
-
-Conceptual registry:
+Every asynchronously consumed contract has one explicit registration key:
 
 ```text
-DecisionApproved
+eventCategory + eventType + schemaVersion + consumerName
+```
+
+MVP registrations:
+
+```text
+Integration / DecisionOutcomeOccurred / 1
     -> RecordDecisionOutcomeInWorkHandler
 
-DecisionRejected
-    -> RecordDecisionOutcomeInWorkHandler
-
-DecisionWithdrawn
-    -> RecordDecisionOutcomeInWorkHandler
-
-WorkCompleted
+Integration / WorkCompleted / 1
     -> GenerateMemoryHandler
 
-MembershipRevoked
+Integration / MembershipRevoked / 1
     -> AssignmentReconciliationHandler
 
-HumanIdentityDisabled
+Integration / HumanIdentityDisabled / 1
     -> SessionInvalidationHandler
 ```
+
+Platform Runtime validates the envelope and routes the registered contract. The receiving module's Application handler interprets business meaning and invokes its own Aggregate and Repository.
+
+A Domain Event must not be registered directly to a handler owned by another Bounded Context.
 
 ---
 
 # Unhandled Events
 
-A committed event may legitimately have no asynchronous consumer.
+A committed Domain Event may legitimately have no asynchronous consumer when it exists only for local audit, future projections, or internal module processing.
 
-Examples:
-
-- event exists only for audit
-- event supports future projections
-- event is currently informational
-
-However, consumer absence must be intentional and documented.
+Consumer absence for an Integration Event is a deployment or configuration error unless the registry explicitly marks the contract optional.
 
 ---
 
 # Unknown Event Types
 
-When a Worker receives an unknown eventType:
+When a Worker receives an unknown registry key:
 
 ```text
 Do not discard silently
@@ -1253,18 +1239,13 @@ Record processing failure
 Move to operational failure handling
 ```
 
-Unknown event types may indicate:
-
-- deployment mismatch
-- configuration error
-- unsupported producer version
-- corrupted data
+Unknown keys may indicate deployment mismatch, configuration error, an unsupported producer version, or corrupted data.
 
 ---
 
 # Unsupported Schema Versions
 
-When eventType is known but schemaVersion is unsupported:
+When the category and event type are known but the schema version is unsupported:
 
 ```text
 Consumer fails permanently
@@ -3416,22 +3397,22 @@ Operational Consumer
 
 # Domain Coordination Consumer
 
-A Domain Coordination Consumer reacts to one Aggregate fact by invoking an Application Service against another Aggregate.
+A Domain Coordination Consumer invokes an Application Service in one Bounded Context after receiving a registered Integration Event from another context.
 
 Examples:
 
 ```text
-DecisionApproved
+Integration / DecisionOutcomeOccurred / 1
     -> RecordDecisionOutcomeInWorkHandler
 
-WorkCompleted
+Integration / WorkCompleted / 1
     -> GenerateMemoryHandler
 
-MembershipRevoked
+Integration / MembershipRevoked / 1
     -> AssignmentReconciliationHandler
 ```
 
-The consumer does not modify the target Aggregate directly.
+The Platform Runtime dispatcher validates and routes the contract. The receiving module's handler owns business interpretation and never modifies the target Aggregate directly outside its Application Service.
 
 ---
 
@@ -4793,50 +4774,50 @@ A policy change does not automatically regenerate existing approved Memory.
 
 # Decision Outcome Consumer
 
-The Decision outcome consumer handles:
+The Work module consumer handles only:
 
 ```text
-DecisionApproved
-
-DecisionRejected
-
-DecisionWithdrawn
+Integration / DecisionOutcomeOccurred / 1
 ```
+
+It does not subscribe directly to `DecisionApproved`, `DecisionRejected`, or `DecisionWithdrawn`.
 
 ---
 
 # Decision Outcome Business Key
 
-Recommended key:
+Recommended business key:
 
 ```text
-decisionId + revisionNumber + outcome
+organizationId + decisionId + revisionNumber + outcome
 ```
 
-The target Work must verify that the Decision is related to its Completion Gate.
+Technical delivery idempotency additionally uses `sourceDomainEventId` and the consumer registration key.
+
+The target Work must verify that `workId` identifies the loaded Work and that its Completion Gate references the same `decisionId`.
 
 ---
 
 # Decision Outcome Flow
 
 ```text
-Receive Decision Outcome Event
+Receive DecisionOutcomeOccurred v1
 
 ↓
 
-Validate Human-authoritative source actor
+Validate envelope, schema, Organization, and Human-authoritative source actor
 
 ↓
 
-Resolve related Work
+Invoke Work module event-handler interface
 
 ↓
 
-Verify same Organization
+Load Work by organizationId and workId
 
 ↓
 
-Load Work
+Verify Completion Gate references decisionId
 
 ↓
 
@@ -4844,12 +4825,10 @@ Work.RecordDecisionOutcome(...)
 
 ↓
 
-Persist Work and Outbox
-
-↓
-
-Mark event processed
+Persist Work, resulting Work events, and processed-event state atomically
 ```
+
+The Work module does not query the Decision Aggregate during handling. All required immutable outcome facts are present in the Integration Event.
 
 ---
 
@@ -4857,12 +4836,13 @@ Mark event processed
 
 The handler must not:
 
-- complete Work
-- cancel Work
-- create another Decision automatically
-- rewrite the Decision
-- override the Completion Gate directly
-- infer a different outcome
+- complete Work;
+- cancel Work;
+- create another Decision automatically;
+- rewrite or reload the Decision;
+- override the Completion Gate directly;
+- infer a different outcome; or
+- accept a mismatched Organization, Work, Decision, or source-event type.
 
 ---
 
@@ -7855,28 +7835,32 @@ events/
 
 # Module-Owned Events
 
-Each domain module should own its event definitions.
+Each domain module owns its internal Domain Events and exported Integration Event contracts.
 
 Example:
 
 ```text
-work/
-    events/
-        WorkCreated
-        WorkCompleted
-        WorkCancelled
+modules/
+    work-decision/
+        work/domain/events/
+            WorkCreated
+            WorkCompleted
+            WorkCancelled
+        decision/domain/events/
+            DecisionSubmitted
+            DecisionApproved
+            DecisionRejected
+        integration/
+            DecisionOutcomeOccurredV1
+            WorkCompletedV1
 
-decision/
-    events/
-        DecisionSubmitted
-        DecisionApproved
-        DecisionRejected
-
-memory/
-    events/
-        MemoryGenerated
-        MemoryApproved
+    organizational-learning/
+        memory/domain/events/
+            MemoryGenerated
+            MemoryApproved
 ```
+
+Platform Runtime owns the shared envelope, registry, delivery state, retries, and dispatch adapters. It does not own these business contracts and must not reinterpret their payloads.
 
 ---
 
@@ -7890,27 +7874,33 @@ The business payload remains module-owned.
 
 # Event Registry
 
-The Event Registry should map:
+The Event Registry maps:
 
 ```text
+eventCategory
 eventType
-
 schemaVersion
-
 payloadType
-
-sourceAggregate
-
+owningModule
+sourceAggregateOrMapper
+allowedConsumers
 actorPolicy
-
-OrganizationPolicy
-
+organizationPolicy
 privacyClassification
-
 serializer
-
 upcaster
 ```
+
+The tuple `eventCategory + eventType + schemaVersion` is unique.
+
+Startup validation fails when:
+
+- two payload types claim the same key;
+- an Integration Event has no declared owner;
+- a required Integration Event has no enabled consumer;
+- a consumer registers an unsupported schema;
+- an authority-sensitive contract has no actor policy; or
+- an Organization-owned contract has no Organization policy.
 
 ---
 
