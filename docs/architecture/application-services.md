@@ -1535,25 +1535,33 @@ Application Services must not depend on database tables directly.
 
 ## Repository Port Contract
 
-Every authoritative Aggregate Repository must expose Aggregate-specific operations rather than a generic `Repository<T>`.
+Every authoritative Aggregate Repository exposes Aggregate-specific operations rather than a generic `Repository<T>`.
 
-Minimum contract:
+Minimum command-side contract:
 
 ```text
+Add(organizationId, aggregate)
+
 Get(organizationId, aggregateId)
 
 Save(organizationId, aggregate, expectedVersion)
 ```
 
-The contract must guarantee:
+Rules:
 
-- `organizationId` is mandatory on every authoritative load and save;
+- `Add` inserts a new Aggregate and fails on duplicate identity; it never upserts;
+- `Get` returns one Organization-scoped Aggregate Root or a scoped not-found result;
+- `Save` updates an existing Aggregate only when `expectedVersion` matches atomically;
+- `organizationId` is mandatory and must equal the Aggregate's immutable Organization;
 - a missing Aggregate is indistinguishable from an Organization-scope mismatch to an unauthorized caller;
-- `expectedVersion` is checked atomically;
 - child state is persisted only through its Aggregate Root;
-- emitted events are not published by the Repository;
+- emitted events are collected and written by the Application transaction, not published by the Repository;
 - the Repository does not begin, commit, or retry the Application transaction; and
 - infrastructure exceptions are translated into stable persistence outcomes.
+
+Creation use cases call `Add`. Mutation use cases call `Get`, execute an Aggregate command, and then call `Save`.
+
+An Aggregate-specific lookup such as `MemoryRepository.FindBySourceWorkId(organizationId, workId)` is allowed when required for idempotency or a documented invariant. Generic `Exists`, unrestricted search, and cross-module Repository reuse are prohibited.
 
 Repository methods must not return mutable child entities, ORM entities, unrestricted query builders, or database connections.
 
