@@ -1693,6 +1693,9 @@ OutboxMessage
 - organizationId
 - payload
 - headers
+- destination
+- consumerSetVersion nullable
+- targetCount nullable
 - occurredAt
 - recordedAt
 - correlationId
@@ -1734,19 +1737,15 @@ The same eventId must not produce multiple authoritative Outbox messages for the
 
 # Event Identifier Uniqueness
 
-Recommended constraint:
+Each Outbox record has one canonical destination.
+
+Required uniqueness:
 
 ```text
-UNIQUE (event_id)
+UNIQUE (event_id, destination)
 ```
 
-When one logical event is published independently to multiple destinations, use either:
-
-```text
-event_id + destination
-```
-
-or a separate delivery table.
+This permits one logical event to have independently acknowledged local or future broker destination records without sharing publication state. Consumer fan-out inside `local-consumer-bus` uses `consumer_name + event_id` in `processed_events`; it does not create another Outbox row per local consumer.
 
 ---
 
@@ -1848,7 +1847,7 @@ A permanent lock is prohibited.
 Published
 ```
 
-means the configured publication operation succeeded.
+means the configured transport durably accepted the message.
 
 The record stores:
 
@@ -1856,7 +1855,9 @@ The record stores:
 publishedAt
 ```
 
-Published does not imply every downstream consumer has completed processing.
+For `local-consumer-bus`, success requires all resolved consumer deliveries and the Published transition to commit atomically. For an external broker destination, success requires the configured broker acknowledgement.
+
+Published does not imply that any consumer business effect completed.
 
 ---
 
@@ -1894,6 +1895,9 @@ CREATE TABLE outbox_messages (
     organization_id        uuid NULL,
     payload                jsonb NOT NULL,
     headers                jsonb NOT NULL DEFAULT '{}'::jsonb,
+    destination            text NOT NULL,
+    consumer_set_version   text NULL,
+    target_count           integer NULL,
     occurred_at            timestamptz NOT NULL,
     recorded_at            timestamptz NOT NULL,
     correlation_id         uuid NOT NULL,
@@ -1918,8 +1922,8 @@ CREATE TABLE outbox_messages (
 
 ```sql
 ALTER TABLE outbox_messages
-ADD CONSTRAINT uq_outbox_event_id
-UNIQUE (event_id);
+ADD CONSTRAINT uq_outbox_event_destination
+UNIQUE (event_id, destination);
 ```
 
 ```sql
@@ -2145,21 +2149,27 @@ An external broker is optional.
 
 # Local Publication
 
-In a Modular Monolith, publication may mean:
+In the MVP Modular Monolith, local publication means a durable PostgreSQL handoff:
 
 ```text
-Load Outbox Message
+Load and validate claimed Outbox Message
 
 ↓
 
-Deserialize Integration Event
+Resolve the versioned enabled ConsumerRegistration set
 
 ↓
 
-Dispatch to registered local consumers
+Insert one Pending processed-event delivery per consumer
+
+↓
+
+Commit all delivery rows and Outbox Published together
 ```
 
-The event remains asynchronous even when no external broker exists.
+The event remains asynchronous even when no external broker exists. Direct post-commit function invocation is not the durable transport boundary.
+
+For `local-consumer-bus`, `Published` means every resolved target consumer has a durable `Pending` delivery row. It does not mean that any consumer effect completed.
 
 ---
 
@@ -2340,23 +2350,32 @@ A stale Worker cannot overwrite a newer Worker’s result.
 
 # Publication Success
 
-After successful publication:
+For `local-consumer-bus`, one short transaction performs:
 
 ```text
 BEGIN
 
-Verify claim ownership
+Verify claim ownership and fencing
 
-Set status = Published
+Resolve and validate the versioned enabled consumer set
 
-Set publishedAt = now
+Insert Pending processed-event rows
+using consumerName + eventId uniqueness
 
-Clear lock fields
+Verify targetCount
 
-Clear transient error fields
+Set Outbox status = Published
+
+Set publishedAt, consumerSetVersion, and targetCount
+
+Clear lock fields and transient errors
 
 COMMIT
 ```
+
+If any target insert or validation fails, no partial fan-out and no Published transition commits.
+
+For an external broker destination, the Outbox record is marked Published only after configured broker acknowledgement. Local consumer rows are not evidence of broker acceptance.
 
 ---
 
@@ -2392,9 +2411,11 @@ preserve error metadata
 
 # Publication Acknowledgement
 
-When an external broker is used, the Outbox record is marked Published only after the broker confirms acceptance according to the configured producer guarantee.
+For `local-consumer-bus`, acknowledgement is the atomic commit of every target `Pending` processed-event row and the Outbox `Published` transition.
 
-A local function call returning before durable consumer acceptance must not be described as broker publication success.
+When an external broker is used, acknowledgement is broker confirmation according to the configured producer guarantee.
+
+A local function call, task submission, or in-memory queue write is not durable publication acknowledgement.
 
 ---
 
@@ -2604,16 +2625,20 @@ When one event has multiple independent destinations, two patterns are possible.
 ## Pattern A: One Outbox Event, Multiple Consumers
 
 ```text
-One published event
+One claimed Outbox event
 
 ↓
 
-Multiple registered consumers
+One atomic local fan-out transaction
+
+↓
+
+One Pending processed-event row per registered consumer
 ```
 
 Each consumer tracks its own processing state.
 
-This is preferred inside the MVP Modular Monolith.
+This is required for the MVP `local-consumer-bus`. The Outbox record becomes Published only in the same transaction that materializes the complete versioned consumer set.
 
 ---
 
@@ -3890,6 +3915,7 @@ processedAt
 failedAt
 skippedAt
 handlerVersion
+consumerSetVersion
 resultReference
 lastErrorCode
 lastErrorMessage
@@ -3909,6 +3935,7 @@ Organization-owned deliveries derive Organization scope, ordering key, and sourc
 # Canonical Processed-Event Status Model
 
 ```text
+Pending
 Processing
 Processed
 RetryPending
@@ -3924,23 +3951,25 @@ These names are canonical across Events, Persistence, Application Services, and 
 # Processed-Event State Machine
 
 ```text
-NoRecord ───────────────► Processing
-   │                         │
-   │ blocked predecessor     ├────────► Processed
-   ▼                         ├────────► RetryPending ──► Processing
-Blocked ───────────────────► Processing
-                             └────────► Failed
+NoRecord ──local durable fan-out──► Pending
+Pending ──────────────────────────► Processing
+   │                                   │
+   │ blocked predecessor               ├────────► Processed
+   ▼                                   ├────────► RetryPending ──► Processing
+Blocked ──────────────────────────────► Processing
+                                       └────────► Failed
 
-Failed ──authorized retry/replay──► Processing
-Failed ──authorized skip──────────► Skipped
+Failed ──authorized retry/replay──────► Processing
+Failed ──authorized skip──────────────► Skipped
 ```
 
-`Processed` and `Skipped` are terminal for ordinary delivery. A transition out of `Failed` requires an audited recovery command and replay record. `Blocked` means the delivery has not executed because an earlier non-terminal delivery prevents claim under the registered ordering policy.
+`Pending` means durable transport acceptance with no real handler attempt started. `Processed` and `Skipped` are terminal for ordinary delivery. A transition out of `Failed` requires an audited recovery command and replay record. `Blocked` means the delivery has not executed because an earlier non-terminal delivery prevents claim under the registered ordering policy.
 
 ---
 
 # Status Invariants
 
+- `Pending` requires `firstReceivedAt`, cleared claim fields, zero handler attempts, and the materialized consumer-set version;
 - `Processing` requires `lockedBy`, `lockedUntil`, `processingStartedAt`, and a positive `claimVersion`;
 - `RetryPending` requires `nextAttemptAt`, cleared claim fields, and retryable failure metadata;
 - `Processed` requires `processedAt`, cleared claim fields, and a stable `resultReference` when a prior result must be returned;
@@ -3976,7 +4005,10 @@ BEGIN
 
 Validate envelope, registration, schema, Organization scope, and System capability
 Derive trusted ordering key and source sequence
-Insert or lock processed_events by consumerName + eventId
+Lock the existing processed_events row by consumerName + eventId
+
+If no row exists for a local-consumer-bus delivery:
+    fail delivery validation and reconcile the incomplete handoff
 
 If status = Processed:
     return prior success without executing
@@ -3992,7 +4024,8 @@ If an earlier non-terminal delivery blocks this key:
     do not increment attemptCount
     COMMIT
 
-Otherwise:
+If status is Pending, eligible RetryPending,
+or an authorized unblocked Blocked delivery:
     set status = Processing
     increment attemptCount
     increment claimVersion
@@ -7523,6 +7556,28 @@ Aggregate save fails
 No Outbox row exists
 ```
 
+Local handoff tests must also verify:
+
+```text
+One target processed-event insert fails
+
+↓
+
+No target delivery row commits
+Outbox does not become Published
+```
+
+and:
+
+```text
+Outbox Published commits
+
+↓
+
+Every consumer in the stored consumerSetVersion
+has one durable Pending-or-later delivery row
+```
+
 ---
 
 # Commit Visibility Tests
@@ -8199,15 +8254,19 @@ It should:
 
 # In-Process Dispatch
 
-For the MVP, the dispatcher may run in-process.
+For the MVP, the dispatcher may run in-process, but the durable local transport boundary is PostgreSQL.
 
-It must still preserve:
+Before any handler attempt, the publisher atomically materializes one `Pending` processed-event row per enabled registered consumer and marks the Outbox record Published in that same transaction.
 
-- asynchronous execution
-- consumer-level idempotency
-- independent retry
-- durable failure state
-- no direct Aggregate mutation
+Consumer Workers then claim Pending rows independently. An in-memory callback, task, or queue may wake a Worker, but it cannot replace the durable delivery row.
+
+The dispatcher must still preserve:
+
+- asynchronous execution;
+- consumer-level idempotency;
+- independent retry;
+- durable failure state; and
+- no direct Aggregate mutation.
 
 ---
 
@@ -8758,8 +8817,9 @@ Global Ordering:
 
 The architecture guarantees:
 
-- no committed domain change without a durable event record
+- no committed domain change that promises a required asynchronous reaction without its durable Outbox record
 - no published event for a rolled-back domain change
+- no local Outbox Published transition before the complete versioned consumer set is durably materialized
 - duplicate delivery does not require duplicate business effect
 - failed processing remains visible and recoverable
 - event contracts evolve explicitly
