@@ -277,6 +277,10 @@ AI Principals may not independently:
 
 Human authority must remain explicit in both the domain model and the application flow.
 
+The Secretary is not a domain-owning central service. A Secretary Runtime adapter may invoke only context-owned, typed AI Assistance Application Ports. These ports expose advisory operations and structurally omit Human-only commands, repositories, mutable Aggregates, database access, and generic command dispatch.
+
+Every invocation is Organization-scoped, deny-by-default, bound to an initiating Human or permitted System workflow, and authorized for one context, assistance operation, and port contract version. Generation and Human adoption are separate commands. [ADR-0011](../adr/0011-bound-secretary-to-context-owned-assistance-ports.md) defines this boundary.
+
 ---
 
 ## Historical Integrity
@@ -576,6 +580,7 @@ ADR identifiers are unique and immutable after adoption. A superseded ADR retain
 | [ADR-0008](../adr/0008-define-work-to-memory-generation-process.md) | Define Work-to-Memory Generation as a Durable Process | Accepted |
 | [ADR-0009](../adr/0009-assign-rule-enforcement-responsibilities.md) | Assign Each Rule to an Explicit Enforcement Owner | Accepted |
 | [ADR-0010](../adr/0010-classify-blueprint-scope-and-implementation-authority.md) | Classify Blueprint Scope and Implementation Authority | Accepted |
+| [ADR-0011](../adr/0011-bound-secretary-to-context-owned-assistance-ports.md) | Bind the Secretary to Context-Owned AI Assistance Ports | Accepted |
 
 Location:
 
@@ -975,7 +980,7 @@ ADR identifiers are assigned only when a decision record is created.
 
 Accepted identifiers are immutable, never reused, and never renumbered. Superseded ADRs remain in the register with their original identifiers and changed status.
 
-Future decisions MUST NOT reserve numeric identifiers in prose. At the time this Blueprint version was reviewed, the accepted sequence ends at ADR-0010 and the next unassigned identifier is ADR-0011. Concurrent ADR creation must recheck the register before assigning that identifier.
+Future decisions MUST NOT reserve numeric identifiers in prose. At the time this Blueprint version was reviewed, the accepted sequence ends at ADR-0011 and the next unassigned identifier is ADR-0012. Concurrent ADR creation must recheck the register before assigning that identifier.
 
 Potential later decisions include:
 
