@@ -334,9 +334,11 @@ Published Knowledge may later support Capability classification or measurement. 
 
 # AI Secretary
 
-The Secretary is an Organization-scoped AI Principal and cross-cutting participant. It is not a Bounded Context or a domain-owning central service.
+The Secretary is an Organization-scoped AI Principal and cross-cutting participant. It is not a Bounded Context, Aggregate, cross-context Domain Service, or domain-owning central service.
 
-Secretary capabilities are exposed through context-specific Application ports.
+The Secretary Runtime is an Application/Infrastructure adapter. It calls only narrow, context-owned AI Assistance Application Ports such as `WorkAiAssistancePort`, `DecisionAiAssistancePort`, or `MemoryAiAssistancePort`. Each owning context defines the typed request, bounded source snapshot, validation, provenance, failure result, and optional command that records an advisory contribution.
+
+Secretary-facing ports never expose repositories, mutable Aggregates, database access, unrestricted queries, generic command dispatch, or Human-only commands. The runtime must not depend on a context's internal tables or Repository implementation.
 
 The Secretary may:
 
@@ -356,6 +358,10 @@ The Secretary must not:
 - turn advisory output into an authoritative transition automatically.
 
 Every Secretary request is bound to one Organization, one authorized initiating Human or permitted System workflow, an allowlisted capability, bounded source data, and attributable provenance.
+
+The allowlist key is `organizationId + secretaryPrincipalId + contextKey + assistanceOperation + portContractVersion`. This is an AI-assistance permission, not the future Capability domain concept. Unknown or revoked operations fail closed before provider invocation.
+
+Generation authorizes only a proposal or attributable advisory contribution. A later Human command through the ordinary owning Application Service is required to adopt it and re-evaluates current authorization and Aggregate rules. The complete boundary is defined by [ADR-0011](../adr/0011-bound-secretary-to-context-owned-assistance-ports.md).
 
 ---
 
