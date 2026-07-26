@@ -856,9 +856,11 @@ The external provider call occurs after that commit and outside the database tra
 
 Retries for one generation operation reuse the same source snapshot. If an exact source revision is missing, has a different hash, or belongs to another Organization, processing fails visibly and no Memory is created.
 
-The generated Memory records the source snapshot identifier and hash, provider-input hash, model version, prompt version, and generation-policy version. Human review uses the same source snapshot binding.
+The generated Memory records the source snapshot identifier and hash, provider-input hash, model version, prompt version, and generation-policy version. Every submitted Memory snapshot and approval binds to that same source snapshot; Human review must not substitute current mutable projections.
 
 This contract preserves reproducibility without Event Sourcing and without embedding large or sensitive domain content in the Outbox event.
+
+The canonical source snapshot is Organization-owned Restricted domain data. Its hash verifies integrity but is not anonymization. Work or Decision archival does not remove it while the Memory is retained; Organization deletion, personal-data correction or erasure, legal hold, provider-input cleanup, and restore reconciliation follow ADR-0012. These are data-governance operations, not Domain Events that rewrite approved history.
 
 ---
 
