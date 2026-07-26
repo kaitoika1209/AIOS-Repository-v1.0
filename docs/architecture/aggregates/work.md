@@ -630,20 +630,35 @@ Eventual consistency must not permit invalid Work completion.
 The local completion gate exists specifically to protect the completion transition without loading another Aggregate inside Work.
 ---
 # Repository Interface
+
+`WorkRepository` is an internal persistence port of the Work context.
+
 ```text
 WorkRepository
-- findById(workId): Work?
-- save(work, expectedVersion): void
-- exists(workId): boolean
+- Add(organizationId, work)
+- Get(organizationId, workId): Work | NotFound
+- Save(organizationId, work, expectedVersion)
 ```
-Cross-Aggregate coordination may also use:
-```text
-DecisionRepository
-- findUnresolvedBlockingByWorkId(workId): Decision?
-```
-The Work repository must support optimistic concurrency.
-The domain model must not depend on database, ORM, transport, or framework-specific types.
+
+Repository rules:
+
+- `organizationId` is mandatory and must equal the Aggregate's immutable Organization;
+- `Add` inserts only and must never become an upsert;
+- `Save` updates only when the stored version equals `expectedVersion`;
+- `Get` returns one Aggregate Root or a scoped not-found result;
+- a missing Aggregate and an Aggregate owned by another Organization are indistinguishable to an unauthorized caller;
+- child entities, ORM rows, query builders, and database connections are never exposed;
+- the Repository does not begin, commit, publish events, or retry the Application transaction; and
+- database errors are translated to stable outcomes such as `DuplicateAggregateId`, `NotFound`, `ConcurrencyConflict`, or `PersistenceFailure`.
+
+The domain model does not depend on database, ORM, transport, or framework-specific types.
+
+The `RequestBlockingDecision` coordinator may use both Work and Decision Repository ports because it is the documented atomic coordination use case inside the `Work and Decision` module. Ordinary Work services and event handlers must not receive `DecisionRepository`.
+
+Cross-context reads use explicit query ports or Integration Event data, not another Aggregate's Repository.
+
 ---
+
 # Application Service Responsibilities
 ## Creating and Updating Work
 Authenticate the Human Member, evaluate Organization permission, validate referenced Members, load or create Work, invoke the Aggregate command, save with the expected version, and publish events durably.
