@@ -17,7 +17,7 @@ The model preserves explicit Human authority while allowing the Secretary and Sy
 
 Authorization is enforced before Aggregate commands are executed.
 
-Business invariants remain enforced inside Aggregates.
+Aggregate-local invariants remain enforced inside the owning Aggregate. Other rule classes remain with their explicit owners under [ADR-0009](../adr/0009-assign-rule-enforcement-responsibilities.md).
 
 ---
 
@@ -160,7 +160,7 @@ Aggregate Command
 
 Authorization occurs before the Aggregate command.
 
-The Aggregate still validates business invariants after authorization succeeds.
+The Aggregate still validates its own lifecycle and state invariants after authorization succeeds. Authorization success does not prove domain validity or external preconditions.
 
 ---
 
@@ -199,6 +199,8 @@ Responsible for:
 - rejecting denied commands
 - supplying ActorReference to the Aggregate
 - preserving correlation metadata
+- evaluating documented external and cross-Aggregate preconditions
+- invoking Domain Policies or Specifications without duplicating their semantics
 
 ---
 
@@ -206,13 +208,12 @@ Responsible for:
 
 Responsible for:
 
-- business invariants
-- lifecycle rules
-- state transition validation
+- Aggregate-local invariants, lifecycle rules, and state transition validation
+- context-owned deterministic Domain Policies and Specifications
 - Human authority invariants where domain-significant
 - recording authoritative actors
 
-The Domain Layer does not query permission stores.
+The Domain Layer does not query permission stores or repositories. Facts required by a Domain Policy are supplied explicitly by the Application Layer.
 
 ---
 
