@@ -3507,9 +3507,75 @@ ConsumerRegistration
 - orderingKeyStrategy
 - failureContinuationPolicy
 - sideEffectClass
+- providerIdempotencyMode
+- providerOutcomeQueryMode
+- compensationMode
+- externalEffectPolicyReference nullable
 - skipPolicy
 - enabled
 ```
+
+A registration is version-controlled configuration. Runtime exception type, ad hoc operator judgment, or handler code MUST NOT silently change its side-effect class or recovery policy.
+
+---
+
+# Canonical Side-Effect Classes
+
+```text
+PostgreSQLLocal
+ExternalComputation
+ExternalBusinessEffect
+```
+
+## PostgreSQLLocal
+
+The effect is fully committed inside the authoritative PostgreSQL consistency boundary. Aggregate state, processed-event result, Outbox, audit, and ordering-state changes can be finalized atomically.
+
+## ExternalComputation
+
+A provider computes candidate data but does not become the source of an AIOS business outcome. The provider result has no authority until validated and committed locally.
+
+Memory generation is the MVP example. A timeout with no usable response may duplicate provider cost when retried, but it does not create a duplicate Memory or unknown external business state. It uses the typed Memory-generation operation, not the generic external-effect ledger.
+
+## ExternalBusinessEffect
+
+The provider changes externally visible state such as sending an email, posting a webhook, creating a remote object, transferring value, or revoking remote access. Local rollback cannot undo it.
+
+This class requires the External Effect Contract below before the consumer can be enabled.
+
+---
+
+# External Effect Capability Modes
+
+Canonical registration values are:
+
+```text
+providerIdempotencyMode = NotApplicable | ProviderEnforced | Unsupported
+providerOutcomeQueryMode = NotApplicable | Supported | Unsupported
+compensationMode = NotApplicable | Supported | Unsupported
+```
+
+For `ExternalBusinessEffect`, at least one safe completion path is mandatory:
+
+- provider-enforced idempotency with a stable key whose retention window covers every retry and recovery window; or
+- durable provider operation identity plus authoritative outcome query.
+
+A non-idempotent, non-queryable external business effect is prohibited for automatic MVP consumers. Application-only deduplication is insufficient because a crash may occur after the provider effect and before local commit.
+
+---
+
+# MVP Side-Effect Scope
+
+The baseline MVP registrations are:
+
+| Consumer | sideEffectClass | Recovery store |
+|---|---|---|
+| Domain coordination and projections | `PostgreSQLLocal` | processed event and ordering state |
+| In-app PostgreSQL-backed notification | `PostgreSQLLocal` | notification record and processed event |
+| Memory generation provider call | `ExternalComputation` | Memory-generation operation |
+| Email, webhook, remote-object, or other external business effect | Disabled / out of baseline MVP | Requires External Effect Contract and ledger before enablement |
+
+The existence of a future-facing ledger schema does not authorize an external integration. Registration, adapter, security review, runbook, metrics, and tests are all required before enablement.
 
 ---
 
@@ -5177,18 +5243,83 @@ Otherwise the projection uses `BlockOrderingKey`.
 
 ---
 
-# Irreversible Side-Effect Rule
+# External Business Effect Contract
 
-For a consumer that may have performed an irreversible or outcome-ambiguous external effect, timeout or acknowledgement loss is not proof that the effect failed.
+For `ExternalBusinessEffect`, timeout, connection loss, acknowledgement loss, or local commit failure is not proof that the provider effect failed.
 
-The ordering key remains blocked until the Operations Application Service records one of:
+Before the first provider call, one short transaction MUST create or reuse a stable external-effect operation and commit:
 
-- provider-confirmed success and local idempotency reconciliation
-- provider-confirmed absence followed by safe retry
-- approved compensation followed by validation
-- explicit Human resolution under the high-risk skip policy
+```text
+effectOperationId
+organizationId
+consumerName
+eventId
+effectType
+effectKey
+requestFingerprint
+providerIdempotencyKey or providerOperationReference strategy
+status = Prepared
+```
 
-The consumer MUST NOT continue later ordered effects or repeat the side effect merely because its local processed-event row is not `Processed`.
+Immediately before sending, a fenced claim changes `Prepared`, `ConfirmedAbsent`, or policy-permitted `Failed` to `InFlight`. The external call occurs outside the database transaction.
+
+The same logical effect always reuses the same effect operation and provider idempotency key. A changed request fingerprint under the same effect key is a terminal conflict, never a new send.
+
+---
+
+# External Effect Outcome Model
+
+Canonical external-effect statuses are:
+
+```text
+Prepared
+InFlight
+Succeeded
+ConfirmedAbsent
+OutcomeUnknown
+Failed
+Compensating
+Compensated
+```
+
+A timeout, lease loss after send, or database failure after provider acknowledgement changes or reconciles the operation to `OutcomeUnknown` unless provider-enforced idempotency or an authoritative provider query proves the outcome.
+
+`OutcomeUnknown` is not retryable by ordinary consumer retry. The processed event becomes or remains `Failed`, the linked dead letter remains `Investigating`, and the ordering key remains blocked.
+
+---
+
+# External Effect Reconciliation
+
+The Operations Application Service may resolve `OutcomeUnknown` only through typed evidence:
+
+- provider-confirmed success using the stored provider operation reference;
+- provider-confirmed absence followed by safe retry using the same logical effect identity;
+- provider-enforced idempotent retry using the same key within the verified retention window; or
+- approved compensation followed by validation.
+
+Provider-confirmed success commits local effect evidence, processed-event result, dead-letter resolution, required Outbox and audit, and ordering-state decision in one fenced PostgreSQL transaction.
+
+Provider-confirmed absence changes the effect to `ConfirmedAbsent`; a later retry reacquires the same operation and key. Compensation is a separate linked effect operation with its own identity, request fingerprint, provider key, audit, and outcome. It never rewrites the original operation as if it did not occur.
+
+The consumer MUST NOT continue later ordered effects or repeat the provider request merely because its local processed-event row is not `Processed`.
+
+---
+
+# External Computation Rule
+
+`ExternalComputation` does not use `Succeeded` as proof of an external business mutation. Its result becomes meaningful only when validated and committed to an AIOS Aggregate or operational record.
+
+For Memory generation:
+
+- the committed source snapshot and stable generation operation precede the provider call;
+- a real attempt holds a fenced generation claim;
+- timeout with no usable candidate becomes `RetryPending` when policy permits;
+- retry reuses the same source snapshot, policy version, and provider-input hash;
+- a stale or lease-lost response is discarded and cannot create Memory;
+- retry exhaustion becomes `Failed`; and
+- `Generated` commits atomically with the Memory Aggregate, processed event, Outbox, and required audit.
+
+Duplicate provider cost is an operational risk and metric, not permission to weaken one-Memory-per-Work or Human review invariants.
 
 ---
 
