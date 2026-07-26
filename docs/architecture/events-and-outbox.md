@@ -4775,39 +4775,43 @@ work-123:v1
 # Memory Generation Flow
 
 ```text
-Receive WorkCompleted
+Receive Integration / WorkCompleted / 1
 
 ↓
 
-Check processed event
+Validate envelope, Organization, source identity, and consumer state
 
 ↓
 
-Check active Memory by workId
+BEGIN initialization transaction
+Create or prove exact immutable source snapshot
+Create or reuse stable generation operation
+Verify source and provider-input fingerprints
+COMMIT
 
 ↓
 
-Load immutable Work source material
+BEGIN fenced claim transaction
+Pending or due RetryPending → Generating
+Increment attemptCount and claimVersion
+Set lease from database time
+COMMIT
 
 ↓
 
-Create generation attempt
+Invoke AI outside PostgreSQL using only committed source snapshot
 
 ↓
 
-Invoke AI outside transaction
+Validate untrusted candidate and reject stale claim response
 
 ↓
 
-Validate generated candidate
+BEGIN final transaction
 
-↓
+Verify generation and consumer fencing
 
-BEGIN
-
-Recheck processed event
-
-Recheck active Memory uniqueness
+Recheck source identity and Memory uniqueness
 
 Create Memory Aggregate in Generated state
 
@@ -4815,10 +4819,16 @@ Save Memory
 
 Write MemoryGenerated to Outbox
 
-Mark event processed
+Set generation operation = Generated
+
+Mark processed event = Processed with stable result reference
+
+Persist required audit evidence
 
 COMMIT
 ```
+
+`WorkCompleted` is the only registered MVP generation trigger. The initialization commit is a durable checkpoint, not successful completion of the consumer event. `MemoryGenerationRequested` is not an additional Domain or Integration Event.
 
 ---
 
@@ -4827,7 +4837,9 @@ COMMIT
 If an active Memory already exists for the Work:
 
 ```text
-Do not create another Memory
+Verify the same Organization, source Work, source snapshot, and generation identity
+
+Do not create or overwrite Memory
 
 Mark event processed
 
@@ -4842,9 +4854,11 @@ When AI generation fails:
 
 - Work remains Completed
 - no partial Memory is created
-- generation attempt records the failure
+- the same stable generation operation becomes `RetryPending`, `Failed`, or explicitly `Abandoned`
 - consumer retry follows policy
 - Human authority is unaffected
+
+`MemoryGenerationFailed` is not a registered MVP Domain or Integration Event. Operation state, operational logs, metrics, alerts, and administrative queries expose the failure without inventing a second event flow.
 
 ---
 
@@ -4857,6 +4871,8 @@ Pending
 
 Generating
 
+RetryPending
+
 Generated
 
 Failed
@@ -4864,7 +4880,7 @@ Failed
 Abandoned
 ```
 
-Generation attempt records are operational metadata.
+Generation-operation records are authoritative operational process state and durable recovery evidence.
 
 They are not the Memory Aggregate.
 
