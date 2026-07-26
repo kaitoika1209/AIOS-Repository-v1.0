@@ -165,7 +165,7 @@ The MVP excludes:
 - Capability;
 - Capability extraction;
 - Organization Brain;
-- Replay;
+- broad historical, range, or successful-authoritative-consumer replay beyond the typed failed-delivery recovery required for operations;
 - semantic retrieval;
 - embeddings and vector search;
 - external knowledge ingestion;
@@ -616,7 +616,9 @@ Retention and visibility may be managed operationally without changing the histo
 
 ## Notifications
 
-The MVP requires basic notifications for actions that need human attention.
+The MVP requires basic in-app notifications for actions that need human attention. Notification state is stored in PostgreSQL and is therefore a `PostgreSQLLocal` consumer effect.
+
+Email, SMS, webhook, push-provider, and other externally delivered notifications are outside the baseline MVP. They may be enabled later only through the registered `ExternalBusinessEffect` contract, durable effect ledger, provider idempotency or outcome query, security review, runbook, metrics, and tests.
 
 Examples include:
 
@@ -762,9 +764,11 @@ An external message broker is not required for the MVP.
 
 AI calls must occur outside critical domain transactions.
 
-AI failure must not corrupt committed domain state.
+Memory generation uses `sideEffectClass = ExternalComputation`, not an authoritative external business effect. The committed source snapshot and one stable generation operation precede the provider call.
 
-Generated output must be treated as untrusted input until validated and, where required, reviewed by a human.
+AI failure must not corrupt committed domain state. Timeout with no usable candidate reuses the same operation and source snapshot under bounded retry; it must not create duplicate Memory or accept a stale Worker response.
+
+Generated output must be treated as untrusted input until validated and, where required, reviewed by a Human. Provider success does not approve Memory.
 
 ## Authorization
 
@@ -812,7 +816,7 @@ The following are outside the MVP:
 - Knowledge reuse;
 - Organization Brain;
 - semantic organizational search;
-- Replay;
+- broad historical, range, or successful-authoritative-consumer replay beyond typed failed-delivery recovery;
 - learning optimization; and
 - Capability extraction.
 
