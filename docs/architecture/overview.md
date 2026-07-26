@@ -133,6 +133,25 @@ These concepts are retained in the architecture because they influence terminolo
 
 Their presence in the Blueprint does not place them in the MVP implementation scope.
 
+## Scope Classification and Implementation Authority
+
+Every architectural statement is interpreted using one of four classifications:
+
+| Classification | Interpretation |
+|---|---|
+| MVP Normative | Current implementation, security, test, and operational obligation |
+| Reserved Extension Point | A generic seam required by an MVP use case; it does not authorize a future feature |
+| Future Hypothesis | Candidate future design with no current implementation authority |
+| Explicitly Out of Scope | Must not be required or implemented by the MVP |
+
+Knowledge, Evidence, Capability, AI Employees, External Knowledge Sources, Semantic Search, and cross-Organization sharing are Future Hypotheses and Explicitly Out of Scope for the MVP. Their detailed documents preserve candidate language and boundaries only.
+
+No empty module, table, repository, port, event, handler, route, user interface, deployment dependency, or test fixture may be created solely for a Future Hypothesis. A future capability becomes normative only through an accepted implementation ADR and an update to the authoritative release-scope document.
+
+A Reserved Extension Point must have a current MVP consumer and test. Provider-neutral ports, versioned event envelopes, and provenance fields may qualify; speculative Knowledge or Capability interfaces do not.
+
+[ADR-0010](../adr/0010-classify-blueprint-scope-and-implementation-authority.md) defines the complete interpretation and promotion rules.
+
 ## MVP
 
 The MVP is the smallest implementation that can validate the core product hypothesis.
@@ -556,6 +575,7 @@ ADR identifiers are unique and immutable after adoption. A superseded ADR retain
 | [ADR-0007](../adr/0007-coordinate-work-and-blocking-decisions.md) | Coordinate Work and Blocking Decisions with Atomic Activation and Asynchronous Outcomes | Accepted |
 | [ADR-0008](../adr/0008-define-work-to-memory-generation-process.md) | Define Work-to-Memory Generation as a Durable Process | Accepted |
 | [ADR-0009](../adr/0009-assign-rule-enforcement-responsibilities.md) | Assign Each Rule to an Explicit Enforcement Owner | Accepted |
+| [ADR-0010](../adr/0010-classify-blueprint-scope-and-implementation-authority.md) | Classify Blueprint Scope and Implementation Authority | Accepted |
 
 Location:
 
@@ -955,7 +975,7 @@ ADR identifiers are assigned only when a decision record is created.
 
 Accepted identifiers are immutable, never reused, and never renumbered. Superseded ADRs remain in the register with their original identifiers and changed status.
 
-Future decisions MUST NOT reserve numeric identifiers in prose. At the time this Blueprint version was reviewed, the accepted sequence ends at ADR-0009 and the next unassigned identifier is ADR-0010. Concurrent ADR creation must recheck the register before assigning that identifier.
+Future decisions MUST NOT reserve numeric identifiers in prose. At the time this Blueprint version was reviewed, the accepted sequence ends at ADR-0010 and the next unassigned identifier is ADR-0011. Concurrent ADR creation must recheck the register before assigning that identifier.
 
 Potential later decisions include:
 
