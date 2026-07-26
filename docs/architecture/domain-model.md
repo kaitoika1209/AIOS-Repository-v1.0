@@ -77,21 +77,25 @@ Each concept has a distinct responsibility and lifecycle.
 
 ## Organization
 
-Represents the organizational boundary.
+Represents the tenant, business-ownership, authorization, and data-isolation boundary.
 
-The Organization owns all business resources.
+Every Organization-scoped business resource belongs to exactly one Organization.
 
 Examples:
 
-- Members
+- Memberships
 - Work
 - Decisions
 - Memory
 - Knowledge
 - Capabilities
-- Secretary
+- Secretary registration
 
-Organization is the highest-level consistency boundary for business ownership.
+Business ownership does not imply one transactional boundary.
+
+The Organization does not contain all Organization-scoped resources inside the Organization Aggregate. Human Identity, Membership, Work, Decision, Memory, Knowledge, and Capability preserve their separately defined Aggregate boundaries.
+
+Organization is not a single transactional consistency boundary. Each Aggregate Root remains its own local consistency boundary.
 
 ---
 
@@ -477,9 +481,11 @@ Historical revisions remain preserved.
 
 ## Organization Isolation
 
-Every Aggregate belongs to one Organization.
+Every Organization-owned business Aggregate belongs to exactly one Organization and preserves its Organization identity.
 
-Cross-Organization modification is prohibited.
+Human Identity is not Organization-owned. Membership links one Human Identity to one Organization and scopes Human authority within that Organization.
+
+Cross-Organization references, reads, and modifications are denied by default unless a future explicit sharing model grants access without changing ownership.
 
 ---
 
