@@ -2188,29 +2188,34 @@ Backup logs must not expose:
 
 # Operational Action Logging
 
-Privileged operator actions require structured operational logs in addition to durable audit.
+Privileged operational actions require structured operational logs in addition to durable audit.
 
-Examples:
+Canonical replay and dead-letter log names include:
 
 ```text
 ReplayRequested
-
-ReplayApproved
-
+ReplayValidationStarted
 ReplayStarted
-
 ReplayCompleted
-
+ReplayFailed
+ReplayDenied
+ReplayCancelled
 DeadLetterSkipped
+OrderingKeyUnblocked
+```
 
+`ReplayRequested` records durable Human intent, not execution success. `ReplayCompleted` is emitted only from the committed terminal transaction. `ValidateOnly` completion records `replay.mode = ValidateOnly` and MUST NOT emit `OrderingKeyUnblocked`.
+
+Additional privileged action examples include:
+
+```text
 IntegrityRepairRequested
-
 IntegrityRepairApplied
-
 WorkerPaused
-
 WorkerResumed
 ```
+
+High-cardinality replayId, eventId, OrganizationId, ordering key, IdentityId, and MembershipId belong in authorized logs and audit, never metric labels.
 
 ---
 
@@ -3047,17 +3052,33 @@ Audit:
 
 # Replay Audit
 
-Replay requires:
+Replay is Class B durable operational audit. The request intent MUST commit before asynchronous execution.
 
-- requester identity
-- requester Membership
-- reason
-- target event
-- target consumer
-- replay mode
-- approval when required
-- result
-- timestamps
+Required request evidence includes:
+
+- replayId
+- requester Identity and Membership
+- source Organization
+- reason code and reason
+- immutable target event and registered consumer
+- canonical replay mode
+- expected dead-letter and ordering-state versions
+- authorization policy identifier and version
+- side-effect class and registered recovery-policy reference
+- request timestamp
+
+Required execution evidence includes:
+
+- execution-time authorization result
+- handler version
+- replay and consumer claim versions
+- start and completion timestamps
+- terminal replay, processed-event, dead-letter, and ordering-state results
+- stable result, reconciliation, compensation, effect-ledger, or error reference
+
+Authorization denial is audited as `Denied`, not reported as a technical replay failure. A successful `ValidateOnly` audit explicitly states that no consumer effect, dead-letter resolution, or ordering unblock occurred.
+
+Payload content, authentication credentials, provider secrets, and unrestricted exception text are excluded.
 
 ---
 
@@ -3996,6 +4017,14 @@ consumer_claim_expired_total
 consumer_processing_rate
 
 dead_letter_open_total
+dead_letter_skipped_total
+
+event_replay_requested_total
+event_replay_running_total
+event_replay_completed_total
+event_replay_failed_total
+event_replay_denied_total
+event_replay_oldest_requested_age_seconds
 ```
 
 Labels are limited to registered low-cardinality values such as Worker type, consumer name, event type, status, failure category, and policy. OrganizationId, eventId, ordering key, AggregateId, workerId, and claimVersion are prohibited metric labels.
@@ -6100,17 +6129,22 @@ Validation:
 
 Steps:
 
-1. inspect event metadata
-2. inspect consumer error classification
-3. validate event schema
-4. identify affected Organization
-5. determine whether failure is transient or permanent
-6. fix consumer or data condition
-7. request replay
-8. validate idempotency
-9. resolve dead-letter record
+1. inspect only authorized, redacted event metadata and consumer failure evidence;
+2. confirm the source Organization, ConsumerRegistration, side-effect class, ordering policy, and affected ordering key;
+3. determine whether the processed event is `Failed`, whether later deliveries are blocked, and whether any external effect outcome is unknown;
+4. fix the handler, configuration, association, projection, or external dependency without editing the immutable source event;
+5. select one canonical recovery mode: `RetryOriginal`, `ReprocessWithCurrentHandler`, `RebuildProjection`, or `ValidateOnly`;
+6. use `ValidateOnly` first when handler compatibility, current authorization, idempotency, or ordering impact is uncertain;
+7. have an active OrganizationOwner or OrganizationAdmin issue the typed Organization-scoped replay command under the authorization matrix;
+8. monitor replay, processed-event, dead-letter, ordering-state, and effect-ledger outcomes together;
+9. close only when the typed recovery transaction records `Resolved`, or when an authorized validated skip records `Skipped`;
+10. verify blocked successors resume and reconciliation reports no remaining gap.
 
-Skipping requires explicit Human approval and reason.
+Do not use a database update, process restart, lease expiry, feature flag, or successful `ValidateOnly` to mark a dead letter resolved or unblock ordering.
+
+Skipping requires the registered skip policy, current Human authorization, expected versions, explicit reason, impact analysis, and required reconciliation or compensation evidence. For a Domain Coordination Consumer or irreversible Integration Consumer, the default is deny; OrganizationOwner authority and owning-module safety evidence are required.
+
+A provider timeout or unknown non-idempotent external outcome remains blocked until effect-ledger and provider reconciliation prove absence, success, or approved compensation. Blind replay is prohibited.
 
 ---
 
