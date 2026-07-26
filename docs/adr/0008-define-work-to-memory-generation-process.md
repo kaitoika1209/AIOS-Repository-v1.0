@@ -217,6 +217,7 @@ Positive consequences:
 Costs and constraints:
 
 - the generation-operation table and fencing logic are mandatory;
+- a versioned canonical source snapshot is authoritative retained provenance rather than disposable worker input;
 - processed-event records may remain non-terminal while external computation is pending;
 - operators need typed retry and abandonment controls; and
 - a future need for cross-context generation status events requires explicit contract design.
@@ -242,6 +243,7 @@ Tests must cover:
 
 - [ADR-0004](0004-separate-external-computation-and-business-effects.md)
 - [ADR-0006](0006-use-postgresql-transactional-outbox.md)
+- [ADR-0012](0012-define-memory-source-snapshot-and-data-governance.md)
 - [Architecture Overview](../architecture/overview.md)
 - [Memory Aggregate](../architecture/aggregates/memory.md)
 - [Memory State Machine](../architecture/state-machines/memory.md)
