@@ -641,7 +641,7 @@ Every event includes:
 - transition-specific data.
 `MemoryGenerated` includes generation provenance.
 Review events identify the Human Member who acted.
-Events requiring downstream processing must use a Transactional Outbox or equivalent durable mechanism.
+The Aggregate only emits Domain Events in memory. The Application transaction atomically persists Memory state, required durable event records, idempotency records, and transactional audit evidence through the Transactional Outbox architecture; the Aggregate never inserts Outbox rows or publishes messages.
 ---
 # Transaction Boundary
 One Memory transaction may modify only:
@@ -719,7 +719,7 @@ Memory generation first checks the processed-event and generation-operation iden
 
 # Application Service Responsibilities
 ## Generating Memory
-The Application Service consumes `WorkCompleted`, checks idempotency, confirms that no Memory exists, loads permitted source data, invokes Secretary generation outside the domain transaction, validates the result, creates the Aggregate in `Generated`, saves it under unique `workId` protection, and publishes `MemoryGenerated` durably.
+The Application Service consumes `WorkCompleted` in two short transactions separated by the external AI call. The first transaction validates Organization scope and idempotency, captures and commits the exact immutable source snapshot and a stable generation operation. The Secretary receives only that committed snapshot outside any database transaction. The second transaction rechecks the operation and snapshot, creates Memory in `Generated`, calls `MemoryRepository.Add` under the `(organizationId, sourceWorkId)` uniqueness constraint, appends `MemoryGenerated`, records the processed event and required audit evidence, and commits atomically. A concurrent uniqueness conflict resolves to the already-created Memory and must never overwrite it.
 Generation failure must not reopen Work.
 ## Editing Memory
 The Application Service authenticates the actor, evaluates Organization permission, loads Memory, invokes `EditGeneratedMemory`, saves with the expected Aggregate version, and publishes the edit event. Secretary-assisted edits preserve AI attribution.
@@ -749,7 +749,7 @@ AggregateVersion
 ```
 ---
 # Failure Semantics
-- Generation failure leaves Work Completed, exposes no partial Memory, records the operational failure, and permits retry.
+- Generation failure leaves Work Completed and creates no partial Memory Aggregate. A committed source snapshot and generation-attempt record may remain as durable retry evidence and must be reused rather than rebuilt from mutable current data.
 - Edit failure leaves the previous draft unchanged and commits no edit event.
 - Approval or rejection failure leaves Memory `InReview` with no authoritative outcome.
 - Downstream notification, projection, or indexing failure does not reverse a committed Memory transition and must be retried.
