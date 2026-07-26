@@ -554,6 +554,7 @@ ADR identifiers are unique and immutable after adoption. A superseded ADR retain
 | [ADR-0005](../adr/0005-adopt-boundary-enforced-modular-monolith.md) | Adopt a Boundary-Enforced Modular Monolith for the MVP | Accepted |
 | [ADR-0006](../adr/0006-use-postgresql-transactional-outbox.md) | Use a PostgreSQL Transactional Outbox with Durable Local Consumer Handoff | Accepted |
 | [ADR-0007](../adr/0007-coordinate-work-and-blocking-decisions.md) | Coordinate Work and Blocking Decisions with Atomic Activation and Asynchronous Outcomes | Accepted |
+| [ADR-0008](../adr/0008-define-work-to-memory-generation-process.md) | Define Work-to-Memory Generation as a Durable Process | Accepted |
 
 Location:
 
@@ -665,60 +666,52 @@ ADR-0007 and the detailed Work and Decision State Machines define the exact MVP 
 
 # Organizational Learning
 
-The complete Blueprint learning flow is:
+The canonical MVP learning flow is:
 
 ```text
 WorkCompleted
       │
-      ▼
-MemoryGenerationRequested
+      ▼ Integration / WorkCompleted / 1
+Durable Memory Generation Operation
+      │ Pending → Generating → RetryPending | Failed
       │
-      ├──► MemoryGenerated
-      │
-      └──► MemoryGenerationFailed
-                 │
-                 └──► Retry or Manual Recovery
+      └── validated local commit
+                  ▼
+            MemoryGenerated
 
 MemoryGenerated
       │
-      ▼
-MemoryReviewed
+      ├──► MemoryDraftEdited (optional Human edit)
       │
+      ▼
+MemorySubmittedForReview
       ├──► MemoryApproved
-      │
       └──► MemoryRejected
-
-MemoryApproved
-      │
-      ▼
-KnowledgeCandidateIdentified
-      │
-      ▼
-KnowledgePromotionRequested
-      │
-      ▼
-KnowledgePublished
-      │
-      ▼
-CapabilityStrengthened
 ```
 
-The MVP stops at:
+`WorkCompleted` is the only registered generation trigger. `MemoryGenerationRequested` and `MemoryGenerationFailed` are not MVP Domain or Integration Events; durable generation-operation state represents scheduling, retry, failure, and recovery. `MemoryGenerated` means a reviewable draft was committed, not that organizational history was approved.
+
+The MVP stops at Human review:
 
 ```text
-MemoryApproved
+MemoryApproved | MemoryRejected
 ```
 
-The following events belong to later phases:
+The future learning hypothesis is conceptually:
 
-- `KnowledgeCandidateIdentified`
-- `KnowledgePromotionRequested`
-- `KnowledgePublished`
-- `CapabilityStrengthened`
+```text
+Approved Memory
+      ↓ selected as Evidence by an explicit Human-authorized use case
+Knowledge Draft
+      ↓ Human publication
+Published Knowledge
+      ↓ later measurement
+Capability
+```
 
-Event names represent completed facts unless explicitly named as requests.
+This future flow registers no MVP event, command, handler, table, port, or user interface. Any future event names are illustrative until accepted in the event catalog and an implementation ADR.
 
-Generation request, success, and failure must remain distinguishable where operational recovery depends on that distinction.
+Generation request, success, retry, and failure remain distinguishable through the source event, generation operation, committed Memory event, and operational evidence.
 
 ---
 
@@ -958,7 +951,7 @@ ADR identifiers are assigned only when a decision record is created.
 
 Accepted identifiers are immutable, never reused, and never renumbered. Superseded ADRs remain in the register with their original identifiers and changed status.
 
-Future decisions MUST NOT reserve numeric identifiers in prose. At the time this Blueprint version was reviewed, the accepted sequence ends at ADR-0007 and the next unassigned identifier is ADR-0008. Concurrent ADR creation must recheck the register before assigning that identifier.
+Future decisions MUST NOT reserve numeric identifiers in prose. At the time this Blueprint version was reviewed, the accepted sequence ends at ADR-0008 and the next unassigned identifier is ADR-0009. Concurrent ADR creation must recheck the register before assigning that identifier.
 
 Potential later decisions include:
 
