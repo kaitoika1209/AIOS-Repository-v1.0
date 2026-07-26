@@ -4856,49 +4856,88 @@ Recommended table:
 
 ```text
 dead_letter_events
-```
-
-Conceptual structure:
-
-```text
-dead_letter_events
 - dead_letter_id
+- organization_id
 - consumer_name
 - event_id
-- organization_id
+- ordering_key_type nullable
+- ordering_key nullable
+- source_sequence nullable
 - failure_category
 - error_code
 - error_reference
 - status
-- assigned_to_identity_id
+- assigned_to_identity_id nullable
 - first_failed_at
 - last_failed_at
-- resolved_at
-- resolution
-- replay_id
+- resolution_type nullable
+- resolution_reference nullable
+- resolution_reason_code nullable
+- resolved_by_identity_id nullable
+- resolved_by_membership_id nullable
+- resolved_at nullable
+- replay_id nullable
+- version
 - created_at
 - updated_at
 ```
+
+Required identity and isolation rules include:
+
+```text
+UNIQUE (consumer_name, event_id)
+Organization-scoped foreign key to immutable source event
+Organization-scoped reference to processed event
+Composite Organization-scoped references for resolver Membership and Identity where practical
+```
+
+Repository methods require `organization_id`; a consumer and event lookup without Organization scope is prohibited outside restricted integrity tooling.
 
 ---
 
 # Dead Letter Status Values
 
+Canonical values are:
+
 ```text
 Open
-
 Investigating
-
 ReadyForReplay
-
 Resolved
-
 Skipped
 ```
 
-The original event remains in immutable event storage.
+Permitted transitions are:
 
-The dead-letter record stores processing failure metadata.
+```text
+Open -> Investigating
+Open -> ReadyForReplay
+Investigating -> ReadyForReplay
+ReadyForReplay -> Resolved        only with ReplaySucceeded
+ReadyForReplay -> Open            when replay fails before effect
+ReadyForReplay -> Investigating   when outcome requires Human investigation
+Open | Investigating -> Skipped   only with approved and validated SkipDeadLetter
+```
+
+`Resolved` and `Skipped` are terminal. A successful `ValidateOnly`, deployment, process restart, lease expiry, manual database update, or replay request alone cannot resolve the record.
+
+The original event remains immutable. Dead-letter resolution metadata is bounded and references durable audit, replay, reconciliation, compensation, or rebuild evidence; it does not copy unrestricted payload or error content.
+
+---
+
+# Dead Letter Transaction Invariants
+
+For a PostgreSQL-local replay success, the linked dead letter becomes `Resolved` in the same transaction as:
+
+- processed event `Processing -> Processed`;
+- target Aggregate or registered consumer effect;
+- follow-up Outbox and required audit;
+- ordering-state advancement or unblock; and
+- replay `Running -> Completed`.
+
+For skip, the linked dead letter becomes `Skipped` in the same transaction as processed event `Failed -> Skipped`, ordering-state decision, required Outbox evidence, and audit.
+
+An independent repository call to set `Resolved` or `Skipped` is prohibited.
 
 ---
 
@@ -4908,27 +4947,56 @@ Recommended table:
 
 ```text
 event_replays
-```
-
-Conceptual structure:
-
-```text
-event_replays
 - replay_id
+- organization_id
 - original_event_id
 - consumer_name
-- organization_id
 - replay_mode
 - requested_by_identity_id
 - requested_by_membership_id
+- reason_code
 - reason
 - status
-- handler_version
-- started_at
-- completed_at
-- result
+- authorization_policy_id
+- authorization_policy_version
+- authorized_at
+- source_processed_event_status
+- expected_dead_letter_version
+- expected_ordering_state_version nullable
+- requested_handler_version nullable
+- executed_handler_version nullable
+- attempt_count
+- next_attempt_at nullable
+- locked_by nullable
+- locked_until nullable
+- claim_version
+- started_at nullable
+- completed_at nullable
+- result_code nullable
+- result_reference nullable
+- last_error_code nullable
+- error_reference nullable
+- version
 - created_at
+- updated_at
 ```
+
+Requester Identity and Membership are derived from trusted execution context. The source event, requester Membership, processed event, dead letter, ordering state, and replay row MUST agree on `organization_id`.
+
+The table stores bounded operational metadata. Event payload, unrestricted exception text, authorization token, and provider secret are prohibited.
+
+---
+
+# Canonical Replay Modes
+
+```text
+RetryOriginal
+ReprocessWithCurrentHandler
+RebuildProjection
+ValidateOnly
+```
+
+A database constraint or reference table enforces these exact values.
 
 ---
 
@@ -4936,25 +5004,127 @@ event_replays
 
 ```text
 Requested
-
 Validating
-
 Running
-
 Completed
-
 Failed
-
+Denied
 Cancelled
+```
+
+Permitted transitions are:
+
+```text
+Requested -> Validating
+Validating -> Running
+Validating -> Completed     for successful ValidateOnly
+Validating -> Failed        for validation failure
+Validating -> Denied        for current authorization or Organization denial
+Validating -> Cancelled     for stale expected state or authorized cancellation
+Running -> Completed
+Running -> Failed
+Running -> Cancelled        only before authoritative or external effect begins
+```
+
+Terminal replay records retain immutable request, authorization, target, mode, and result identity. Investigation notes are separate append-only records or audit entries.
+
+---
+
+# Active Replay Uniqueness
+
+Only one active replay may exist for one consumer delivery:
+
+```sql
+CREATE UNIQUE INDEX uq_event_replays_active_delivery
+ON event_replays (
+    consumer_name,
+    original_event_id
+)
+WHERE status IN (
+    'Requested',
+    'Validating',
+    'Running'
+);
+```
+
+Because `event_id` is globally server-owned in the MVP, this key is globally unique. Repository access and all joins remain Organization-scoped. If future import permits non-global event identifiers, the key expands to include `organization_id`.
+
+Claim and retry indexes include:
+
+```sql
+CREATE INDEX ix_event_replays_runnable
+ON event_replays (
+    status,
+    next_attempt_at,
+    created_at
+)
+WHERE status IN (
+    'Requested',
+    'Validating'
+);
+
+CREATE INDEX ix_event_replays_expired_claim
+ON event_replays (
+    locked_until
+)
+WHERE status = 'Running';
 ```
 
 ---
 
-# Replay Immutability
+# Replay Claim and Fencing Invariants
 
-The replay record may transition operational status.
+A real execution claim increments `attempt_count` and `claim_version`, sets `locked_by`, `locked_until`, and `started_at` using database time, and changes the replay to `Running`.
 
-The original event fields must not be copied and edited as a replacement event.
+Before any authoritative consumer mutation, the final transaction verifies:
+
+```text
+replay.status = Running
+replay.locked_by = currentWorkerId
+replay.claim_version = acquiredReplayClaimVersion
+replay.locked_until > now()
+
+processed_event.status = Processing
+processed_event.locked_by = currentWorkerId
+processed_event.claim_version = acquiredConsumerClaimVersion
+processed_event.locked_until > now()
+```
+
+Failure returns `LeaseLost` before domain mutation. Lease recovery may return an abandoned `Running` replay to a retryable validation state only when no external-effect outcome is unknown and the fenced claim version still matches.
+
+---
+
+# Replay and Processed-Event Persistence
+
+`RetryOriginal` and `ReprocessWithCurrentHandler` require the canonical processed-event status `Failed` at validation and transition the same row `Failed -> Processing` when execution is claimed.
+
+`Processed` and `Skipped` rows are terminal and MUST NOT be reset, deleted, or superseded. A foreign key or stable reference from replay to the existing processed-event identity preserves lineage.
+
+`ValidateOnly` and `RebuildProjection` do not mutate the live processed-event row. Projection rebuild progress belongs to a dedicated rebuild session or checkpoint table rather than consumer deduplication state.
+
+---
+
+# Replay Authorization Persistence
+
+The replay record stores the policy identifier and version evaluated at request time, but that snapshot is evidence rather than present authority.
+
+Immediately before execution, current Identity, Membership, Organization, permission, and policy are re-evaluated. Denial changes replay status to `Denied` and appends the required audit without changing processed-event, dead-letter, or ordering state.
+
+---
+
+# Replay Result References
+
+`result_reference`, `error_reference`, and dead-letter `resolution_reference` point to durable bounded evidence such as:
+
+- Aggregate and version;
+- projection rebuild session and checkpoint;
+- effect-ledger entry and provider outcome;
+- reconciliation finding;
+- compensation command;
+- audit record; or
+- immutable operational error detail in restricted storage.
+
+They are not free-form declarations of success.
 
 ---
 
