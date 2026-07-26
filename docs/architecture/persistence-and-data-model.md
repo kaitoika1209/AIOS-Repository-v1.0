@@ -4709,11 +4709,7 @@ A JSONB metadata field may supplement these columns.
 
 # Processed Event Persistence
 
-Recommended table:
-
-```text
-processed_events
-```
+`processed_events` is the durable per-consumer delivery and execution table. It is not the immutable source event archive.
 
 Primary key:
 
@@ -4721,7 +4717,7 @@ Primary key:
 consumer_name + event_id
 ```
 
-Required fields include:
+Required fields:
 
 ```text
 consumer_name
@@ -4735,8 +4731,13 @@ aggregate_version
 correlation_id
 status
 attempt_count
+first_received_at
 processing_started_at
+last_attempt_at
+next_attempt_at
 processed_at
+failed_at
+skipped_at
 handler_version
 result_reference
 last_error_code
@@ -4744,39 +4745,108 @@ last_error_message
 locked_by
 locked_until
 claim_version
+ordering_key_type
+ordering_key
+source_sequence
+blocked_by_event_id
 ```
+
+Canonical status values:
+
+```text
+Processing
+Processed
+RetryPending
+Failed
+Blocked
+Skipped
+```
+
+`DeadLettered` is represented by `status = Failed` plus a linked `dead_letter_events` row. `Abandoned` is not a processed-event status.
 
 ---
 
 # Processed Event Constraints
 
-Recommended status values:
-
-```text
-Processing
-
-Processed
-
-RetryPending
-
-Failed
-
-Skipped
-```
-
-Recommended attempt constraint:
+Required invariants:
 
 ```text
 attempt_count >= 0
-```
+claim_version >= 0
 
-Recommended claim constraint:
-
-```text
 Processing
     -> locked_by is not null
     -> locked_until is not null
+    -> processing_started_at is not null
+    -> claim_version > 0
+
+RetryPending
+    -> next_attempt_at is not null
+    -> locked_by is null
+    -> locked_until is null
+
+Processed
+    -> processed_at is not null
+    -> locked_by is null
+    -> locked_until is null
+
+Failed
+    -> failed_at is not null
+    -> locked_by is null
+    -> locked_until is null
+
+Blocked
+    -> blocked_by_event_id is not null or durable ordering-state evidence exists
+    -> locked_by is null
+    -> locked_until is null
+
+Skipped
+    -> skipped_at is not null
+    -> locked_by is null
+    -> locked_until is null
 ```
+
+A transition to `Processed`, `RetryPending`, `Failed`, or `Skipped` uses a fenced update matching `consumer_name`, `event_id`, `status = Processing`, `locked_by`, and `claim_version`. Success also requires a non-expired lease or an atomic lease renewal in the same transaction.
+
+---
+
+# Consumer Ordering State Persistence
+
+Ordered consumers require durable state equivalent to:
+
+```text
+consumer_ordering_state
+- consumer_name
+- organization_id nullable
+- ordering_key_type
+- ordering_key
+- last_terminal_sequence
+- blocked_event_id nullable
+- blocked_sequence nullable
+- blocked_at nullable
+- block_reason_code nullable
+- status
+- version
+- updated_at
+```
+
+Canonical ordering-state statuses:
+
+```text
+Active
+Blocked
+Recovering
+```
+
+Organization-owned rows use uniqueness on:
+
+```text
+consumer_name + organization_id + ordering_key_type + ordering_key
+```
+
+Global rows with `organization_id IS NULL` require a separate partial unique index or an equivalent non-null platform-scope key; ordinary SQL uniqueness must not treat multiple global keys as distinct merely because Organization is null.
+
+The ordering-state update, a processed-event `Failed` transition, dead-letter creation, and any required recovery Outbox record commit atomically. A waiting delivery uses processed-event status `Blocked` and reason `BlockedByPredecessor`, or remains an equivalent queryable projection until materialized. It consumes no handler attempt.
 
 ---
 
@@ -6461,61 +6531,60 @@ Publication occurs after commit.
 
 # Consumer Worker Claims
 
-Processed-event consumers use equivalent lease-based claiming.
-
-The uniqueness key remains:
+Consumer claims use a short PostgreSQL transaction and the uniqueness key:
 
 ```text
 consumer_name + event_id
 ```
 
-A consumer must not hold target Aggregate locks while waiting for external dependencies.
+The claim transaction:
+
+- validates the registered consumer, Organization scope, ordering key, and source sequence;
+- inserts or locks the processed-event row;
+- returns prior success for `Processed`;
+- defers when another valid `Processing` lease exists;
+- records `Blocked` without incrementing attempts when a predecessor prevents execution; or
+- changes an eligible row to `Processing`, increments `attempt_count` and `claim_version`, and sets `locked_by`, `locked_until`, `processing_started_at`, and `last_attempt_at` using database time.
+
+A consumer does not hold target Aggregate locks or an open database transaction while waiting for an external dependency.
 
 ---
 
-# Claim Version
+# Claim Version and Fencing
 
-Recommended field:
+Every claim or reclaim increments:
 
 ```text
 claim_version
 ```
 
-Every claim or reclaim increments it.
-
-A Worker updates the final status only when:
+Before any target Aggregate mutation, the final transaction locks the processed-event row and verifies:
 
 ```text
-workerId matches
-
-AND
-
-claimVersion matches
+status = Processing
+locked_by = currentWorkerId
+claim_version = acquiredClaimVersion
+locked_until > now()
 ```
 
-This prevents stale Worker completion from overwriting a newer claim.
+If verification fails, the transaction returns `LeaseLost` before domain mutation. A stale Worker cannot save an Aggregate, append Outbox records, change ordering state, create a dead letter, or overwrite the newer claim.
+
+Long-running work renews the lease in bounded transactions matching both `locked_by` and `claim_version`. Renewal does not increment `attempt_count` or change business state.
 
 ---
 
 # Expired Claim Recovery
 
-A recovery Worker identifies:
+A recovery Worker selects `Processing` rows with `locked_until < now()` and, in one fenced transaction:
 
-```text
-status = Claimed or Processing
+- verifies the expired `claim_version`;
+- changes the row to `RetryPending`;
+- sets `next_attempt_at` from the registered retry policy;
+- preserves `attempt_count`;
+- records the bounded `LeaseExpired` error; and
+- clears `locked_by` and `locked_until`.
 
-AND
-
-locked_until < now()
-```
-
-It then:
-
-- clears lock ownership
-- preserves attempt count
-- schedules the next attempt
-- records claim expiration
-- does not alter immutable event content
+Recovery does not mutate target Aggregate state and does not count as a new handler attempt. If a newer claim exists, the recovery update affects zero rows and is a no-op.
 
 ---
 
@@ -6665,12 +6734,67 @@ The index should align with the Worker claim query.
 CREATE INDEX ix_processed_events_retry
 ON processed_events (
     next_attempt_at,
-    first_received_at
+    first_received_at,
+    consumer_name,
+    event_id
 )
 WHERE status = 'RetryPending';
 ```
 
-If `next_attempt_at` is stored in a separate consumer-delivery table, index that table instead.
+`next_attempt_at` is part of the canonical `processed_events` contract for this Blueprint.
+
+---
+
+# Expired Consumer Claim Index
+
+```sql
+CREATE INDEX ix_processed_events_expired_claim
+ON processed_events (
+    locked_until,
+    consumer_name,
+    event_id
+)
+WHERE status = 'Processing';
+```
+
+This supports bounded lease recovery without scanning terminal consumer history.
+
+---
+
+# Blocked Consumer Delivery Index
+
+```sql
+CREATE INDEX ix_processed_events_blocked
+ON processed_events (
+    consumer_name,
+    organization_id,
+    ordering_key_type,
+    ordering_key,
+    source_sequence
+)
+WHERE status = 'Blocked';
+```
+
+It supports ordering-key diagnosis and controlled unblocking. The implementation may replace this with an equivalent materialized delivery table only if the canonical status and attempt semantics remain unchanged.
+
+---
+
+# Consumer Ordering State Uniqueness
+
+Organization-owned ordering rows require:
+
+```sql
+CREATE UNIQUE INDEX uq_consumer_ordering_state_organization
+ON consumer_ordering_state (
+    consumer_name,
+    organization_id,
+    ordering_key_type,
+    ordering_key
+)
+WHERE organization_id IS NOT NULL;
+```
+
+Global ordering rows require a separate partial unique index where `organization_id IS NULL`, or a non-null trusted platform-scope key. This avoids PostgreSQL null-distinct behavior creating duplicate global ordering state.
 
 ---
 
