@@ -555,6 +555,7 @@ ADR identifiers are unique and immutable after adoption. A superseded ADR retain
 | [ADR-0006](../adr/0006-use-postgresql-transactional-outbox.md) | Use a PostgreSQL Transactional Outbox with Durable Local Consumer Handoff | Accepted |
 | [ADR-0007](../adr/0007-coordinate-work-and-blocking-decisions.md) | Coordinate Work and Blocking Decisions with Atomic Activation and Asynchronous Outcomes | Accepted |
 | [ADR-0008](../adr/0008-define-work-to-memory-generation-process.md) | Define Work-to-Memory Generation as a Durable Process | Accepted |
+| [ADR-0009](../adr/0009-assign-rule-enforcement-responsibilities.md) | Assign Each Rule to an Explicit Enforcement Owner | Accepted |
 
 Location:
 
@@ -629,14 +630,17 @@ Such rules must be assigned explicitly to the appropriate mechanism.
 
 Typical mechanisms include:
 
-| Rule Type | Enforcement Mechanism |
+| Rule Type | Primary Enforcement Owner |
 |---|---|
-| Current membership and permission | Application Service |
-| Human-only authority | Application Policy and Domain Policy |
-| Same-Organization reference | Application Service and persistence constraint where possible |
-| One Memory per source Work | Unique database constraint and idempotent handler |
-| Event-driven follow-up | Transactional Outbox and background worker |
-| Multi-Aggregate workflow | Process coordinator or Application Service |
+| Aggregate lifecycle and local invariant | Owning Aggregate |
+| Context-wide deterministic rule with no natural Aggregate owner | Domain Policy or Specification |
+| Current membership and permission | Authorization Policy invoked by the Application Service |
+| External or cross-Aggregate precondition | Application Service using scoped repository facts |
+| Same-Organization reference and structural uniqueness | PostgreSQL constraint, coordinated by the Application Service where necessary |
+| Long-running temporal rule | Durable process handler or process manager |
+| Event delivery, retry, and dead-letter behavior | Platform Runtime |
+
+Every rule must have one primary owner, an explicit failure outcome, and tests at that ownership boundary. ADR-0009 defines the complete classification and prevents the phrase "business rules belong in Aggregates" from being interpreted as a requirement to overload Aggregate Roots.
 
 ---
 
@@ -951,7 +955,7 @@ ADR identifiers are assigned only when a decision record is created.
 
 Accepted identifiers are immutable, never reused, and never renumbered. Superseded ADRs remain in the register with their original identifiers and changed status.
 
-Future decisions MUST NOT reserve numeric identifiers in prose. At the time this Blueprint version was reviewed, the accepted sequence ends at ADR-0008 and the next unassigned identifier is ADR-0009. Concurrent ADR creation must recheck the register before assigning that identifier.
+Future decisions MUST NOT reserve numeric identifiers in prose. At the time this Blueprint version was reviewed, the accepted sequence ends at ADR-0009 and the next unassigned identifier is ADR-0010. Concurrent ADR creation must recheck the register before assigning that identifier.
 
 Potential later decisions include:
 
