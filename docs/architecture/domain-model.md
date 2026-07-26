@@ -415,9 +415,7 @@ No Aggregate assumes another Aggregate's responsibility.
 
 # Domain Events
 
-Learning progresses through Domain Events.
-
-Examples:
+The canonical MVP learning facts are:
 
 ```text
 WorkCompleted
@@ -428,22 +426,18 @@ MemoryGenerated
 
 ↓
 
-MemoryApproved
+MemorySubmittedForReview
 
 ↓
 
-KnowledgeCandidateIdentified
-
-↓
-
-KnowledgePublished
-
-↓
-
-CapabilityStrengthened
+MemoryApproved | MemoryRejected
 ```
 
-Events coordinate Aggregates while preserving independence.
+`WorkCompleted` is delivered through the Transactional Outbox to the durable Memory-generation process. Generation scheduling and failure use generation-operation state, not additional `MemoryGenerationRequested` or `MemoryGenerationFailed` Domain Events.
+
+The future learning hypothesis continues conceptually from Approved Memory to Human-selected Evidence, Published Knowledge, and Capability measurement. Names such as `KnowledgeCandidateIdentified`, `KnowledgePublished`, and `CapabilityStrengthened` are illustrative until their future Bounded Contexts, event contracts, authorization rules, and implementation ADRs are accepted. They are not registered MVP events.
+
+Events coordinate implemented Aggregates while preserving independence.
 
 ---
 
