@@ -388,11 +388,16 @@ The following distinctions are mandatory:
 | Concern | Owner |
 |---|---|
 | Aggregate lifecycle and local invariants | Owning Aggregate |
+| Context-wide deterministic rule with no natural Aggregate owner | Owning Bounded Context's Domain Policy or Specification |
 | Cross-context use-case orchestration | Application Service |
+| External or cross-Aggregate precondition | Application Service using Organization-scoped facts |
 | Principal permission | Authorization policy |
-| Cross-Aggregate structural uniqueness | PostgreSQL constraint where practical |
+| Structural and race-safe integrity | PostgreSQL constraint; it reinforces but does not define lifecycle meaning |
+| Long-running temporal or completion rule | Durable process handler or process manager |
 | Durable asynchronous delivery | Platform Runtime |
 | Operational detection and recovery | Platform Runtime plus owning module command |
+
+Every rule has one primary enforcement owner, failure outcome, and test boundary as defined by [ADR-0009](../adr/0009-assign-rule-enforcement-responsibilities.md). Coordination may invoke several owners but must not duplicate their semantics.
 
 ---
 
