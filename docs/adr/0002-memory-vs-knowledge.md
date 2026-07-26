@@ -1,4 +1,4 @@
-# ADR-0001: Separate Memory and Knowledge
+# ADR-0002: Separate Memory and Knowledge
 
 - Status: Accepted
 - Date: 2026-07-23
@@ -57,8 +57,9 @@ Knowledge represents reusable organizational understanding.
 
 Knowledge:
 
-- is derived from one or more Approved Memories,
-- is supported by Evidence,
+- is created separately through explicit Human-authorized promotion and publication,
+- is supported by traceable Evidence, including one or more Approved Memories in the initial future model,
+- is never created automatically by Memory approval or a Memory state transition,
 - evolves through revisions,
 - may increase or decrease in confidence,
 - may eventually be deprecated.
@@ -73,9 +74,11 @@ Knowledge is organizational guidance.
 
 Evidence provides the traceable relationship between Memory and Knowledge.
 
-Evidence references Approved Memory.
+In the initial future model, Evidence references Approved Memory and every publishable Knowledge revision references at least one Approved Memory.
 
-Knowledge therefore remains explainable and auditable.
+Memory approval establishes trustworthy history. It does not create Knowledge.
+
+Knowledge therefore remains explainable and auditable while retaining a separate lifecycle and identity.
 
 Knowledge never owns or modifies Memory.
 
