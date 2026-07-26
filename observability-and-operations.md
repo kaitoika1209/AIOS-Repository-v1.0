@@ -1781,95 +1781,77 @@ Internal security telemetry may contain protected identifiers under restricted a
 
 # Worker Logging
 
-Every Worker attempt should be observable.
+Every real Worker attempt is observable. Claim deferral, predecessor blocking, and lease-recovery bookkeeping are observable outcomes but are not counted as handler attempts.
 
-Recommended Worker operational log names:
+Recommended generic Worker operational log names:
 
 ```text
 WorkerBatchStarted
-
 WorkerItemClaimed
-
 WorkerItemSucceeded
-
 WorkerItemRetryScheduled
-
 WorkerItemFailed
-
 WorkerLeaseExpired
-
 WorkerBatchCompleted
 ```
+
+Claim-sensitive logs include, when applicable:
+
+```text
+worker.operation_id
+worker.worker_id
+worker.attempt
+worker.maximum_attempts
+worker.claim_version
+worker.lease_expires_at
+worker.next_attempt_at
+worker.retry_delay_ms
+event.consumer_name
+event.processed_status
+identity.correlation_id
+error.category
+error.code
+```
+
+`worker.attempt` increments only when a real `Processing` claim is acquired. A duplicate `Processed` delivery, a valid competing lease, a predecessor-blocked delivery, or lease-recovery bookkeeping does not increment it.
 
 ---
 
 # Worker Success Logging
 
-High-volume successful item logs may be sampled.
+High-volume successful item logs may be sampled. Metrics remain the primary tool for throughput.
 
-Metrics remain the primary tool for throughput.
-
-Failures, retries, lease expiry, and poison-event failure logs must not be sampled away.
+Failures, retry scheduling, lease loss or expiry, permanent consumer failure, ordering-key blocking, and poison-event creation must not be sampled away.
 
 ---
 
 # Retry Logging
 
-A retry log must include:
+A retry log records the claim version that failed, the completed attempt number, the registered maximum-attempt and elapsed-time policy, the bounded failure category and code, and the database-derived next attempt time.
 
-```text
-worker.operation_id
-
-worker.attempt
-
-worker.maximum_attempts
-
-error.category
-
-error.code
-
-worker.next_attempt_at
-
-worker.retry_delay_ms
-
-worker.worker_id
-
-identity.correlation_id
-```
+It must not log unrestricted event payloads, provider responses, or ordering-key content. High-cardinality identifiers remain in authorized logs and traces only.
 
 ---
 
 # Retry Exhaustion
 
-When retries are exhausted, emit:
+When retries are exhausted, emit `RetryExhausted` with `Error` or `Critical` severity according to business impact.
+
+Terminal persistence is type-specific:
 
 ```text
-RetryExhausted
+Outbox publication
+    -> outbox status = Failed
+
+Consumer delivery
+    -> processed-event status = Failed
+    -> linked dead-letter status = Open
+
+Memory generation operation
+    -> generation status = Failed or Abandoned under its typed policy
 ```
 
-with severity:
-
-```text
-Error
-```
-
-or:
-
-```text
-Critical
-```
-
-depending on business impact.
-
-The item should transition to a visible terminal operational state such as:
-
-```text
-Failed
-
-DeadLettered
-
-Abandoned
-```
+`DeadLettered` and `Abandoned` are not aliases for generic processed-event status. Operational logs report both the canonical persisted status and the linked dead-letter or generation-operation status.
 
 ---
 
@@ -1894,21 +1876,34 @@ Relay logs populate `integrationMessageId` and `integrationMessageType` when an 
 
 # Consumer Delivery Logging
 
+Canonical processed-event statuses are `Processing`, `Processed`, `RetryPending`, `Failed`, `Blocked`, and `Skipped`. Telemetry uses these persisted values without aliases.
+
 Required operational log names:
 
 ```text
 ConsumerDeliveryReceived
 ConsumerDuplicateDeliveryDetected
+ConsumerDeliveryClaimed
 ConsumerDeliveryStarted
+ConsumerLeaseRenewed
+ConsumerLeaseLost
+ConsumerDeliveryBlocked
 ConsumerEffectsCommitted
 ConsumerDeliveryRetryScheduled
 ConsumerDeliveryDeadLettered
 ConsumerDeliverySkipped
+ConsumerLeaseRecovered
 ```
 
-`ConsumerEffectsCommitted` is emitted only after the consumer effect and processed-event marker commit atomically. Handler return, transport acknowledgement, or log emission alone MUST NOT use this name.
+`ConsumerEffectsCommitted` is emitted only after the target effect, follow-up Outbox records, processed-event `Processed` transition, required audit metadata, and ordering-state advancement commit atomically.
 
-`ConsumerDeliverySkipped` records the approved ordering-impact classification and recovery reference. It does not imply successful business processing.
+`ConsumerDeliveryDeadLettered` means the processed event became `Failed` and the linked dead-letter record was committed. It does not introduce a `DeadLettered` processed-event status.
+
+`ConsumerDeliveryBlocked` records canonical processed-event status `Blocked` and bounded reason code `BlockedByPredecessor`; a protected ordering-key reference may appear in authorized logs or traces but never as a metric label.
+
+`ConsumerLeaseLost` is emitted when final fencing validation fails. It must precede any claim of success, and the stale Worker must commit no target Aggregate or consumer outcome.
+
+`ConsumerDeliverySkipped` records the approved ordering-impact classification and recovery reference. It does not imply successful business processing. Lease-renewal success may be traced or sampled, but lease loss and recovery must not be sampled away.
 
 ---
 
@@ -3983,21 +3978,29 @@ worker_duration_seconds
 
 # Queue Metrics
 
-Outbox and consumer queues should expose:
+Outbox publication and consumer execution expose separate bounded metrics:
 
 ```text
-pending_messages
+outbox_pending_total
+outbox_claimed_total
+outbox_failed_total
+outbox_oldest_pending_age_seconds
 
-oldest_pending_age_seconds
+consumer_processing_total
+consumer_retry_pending_total
+consumer_failed_total
+consumer_blocked_total
+consumer_oldest_retry_age_seconds
+consumer_oldest_blocked_age_seconds
+consumer_claim_expired_total
+consumer_processing_rate
 
-retry_pending_total
-
-dead_letter_total
-
-processing_rate
+dead_letter_open_total
 ```
 
-Queue age is often more important than queue length.
+Labels are limited to registered low-cardinality values such as Worker type, consumer name, event type, status, failure category, and policy. OrganizationId, eventId, ordering key, AggregateId, workerId, and claimVersion are prohibited metric labels.
+
+Queue age is often more important than queue length. `Blocked` deliveries do not increase attempt or retry counters; they use blocked-count and blocked-age metrics.
 
 ---
 
