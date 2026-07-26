@@ -1868,7 +1868,7 @@ OutboxRelayFailed
 OutboxOrderingKeyBlocked
 ```
 
-`OutboxRecordRelayed` means that the configured transport or in-process delivery boundary acknowledged the message. It does not mean that any consumer committed its effects.
+`OutboxRecordRelayed` means that the configured transport acknowledged the message. For `local-consumer-bus`, it is emitted only after all target `Pending` processed-event rows and the Outbox `Published` transition commit atomically. For an external broker, it requires configured broker acknowledgement. It does not mean that any consumer committed its effects.
 
 Relay logs populate `integrationMessageId` and `integrationMessageType` when an Integration Message exists. They may also populate `domainEventId` and `domainEventType` when the Outbox record carries an internal Domain Event directly.
 
@@ -1876,11 +1876,12 @@ Relay logs populate `integrationMessageId` and `integrationMessageType` when an 
 
 # Consumer Delivery Logging
 
-Canonical processed-event statuses are `Processing`, `Processed`, `RetryPending`, `Failed`, `Blocked`, and `Skipped`. Telemetry uses these persisted values without aliases.
+Canonical processed-event statuses are `Pending`, `Processing`, `Processed`, `RetryPending`, `Failed`, `Blocked`, and `Skipped`. Telemetry uses these persisted values without aliases.
 
 Required operational log names:
 
 ```text
+ConsumerDeliveryMaterialized
 ConsumerDeliveryReceived
 ConsumerDuplicateDeliveryDetected
 ConsumerDeliveryClaimed
@@ -1894,6 +1895,8 @@ ConsumerDeliveryDeadLettered
 ConsumerDeliverySkipped
 ConsumerLeaseRecovered
 ```
+
+`ConsumerDeliveryMaterialized` is emitted only after the local handoff transaction commits. It records bounded destination, consumer-set version, and target-count evidence without using event or tenant identifiers as metric labels.
 
 `ConsumerEffectsCommitted` is emitted only after the target effect, follow-up Outbox records, processed-event `Processed` transition, required audit metadata, and ordering-state advancement commit atomically.
 
@@ -4055,6 +4058,8 @@ outbox_claimed_total
 outbox_failed_total
 outbox_oldest_pending_age_seconds
 
+consumer_pending_total
+consumer_oldest_pending_age_seconds
 consumer_processing_total
 consumer_retry_pending_total
 consumer_failed_total
