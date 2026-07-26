@@ -8,15 +8,13 @@
 
 # Purpose
 
-Application Services coordinate business use cases that span multiple aggregates.
+Application Services coordinate business use cases, including single-Aggregate commands and the few documented workflows that span multiple Aggregates.
 
 They orchestrate workflows, manage transactional boundaries, invoke aggregate commands, and coordinate asynchronous processing through Domain Events.
 
-Application Services contain application workflow.
+Application Services contain application workflow, evaluate Authorization and Domain Policy ports, and enforce external or cross-Aggregate preconditions that require scoped repository facts.
 
-They do **not** contain business rules.
-
-Business rules always remain inside Aggregates.
+They do **not** own Aggregate-local lifecycle rules or mutate Aggregate-owned state directly. Rule ownership follows ADR-0009; not every business-relevant rule is an Aggregate invariant.
 
 ---
 
@@ -34,6 +32,8 @@ Application Services are responsible for:
 - Publishing integration events.
 - Dispatching asynchronous work.
 - Returning application results.
+- Evaluating documented external and cross-Aggregate preconditions.
+- Invoking context-owned Domain Policies or Specifications with explicit facts.
 
 ---
 
@@ -41,11 +41,12 @@ Application Services are responsible for:
 
 Application Services are **not** responsible for:
 
-- Business rule enforcement.
+- Aggregate-local lifecycle rule enforcement.
 - Aggregate validation.
 - Aggregate invariants.
-- Decision making.
+- Human business judgment.
 - Authorization policy definition.
+- Domain Policy definition.
 - Persistence implementation.
 - Infrastructure messaging.
 - User interface concerns.
@@ -79,7 +80,7 @@ Infrastructure Adapter ─────► PostgreSQL
 
 Application Services sit between incoming requests and the Domain Model.
 
-They coordinate execution without owning business knowledge.
+They coordinate execution without duplicating Aggregate or Domain Policy semantics.
 
 A Background Worker, HTTP controller, CLI adapter, scheduler, or another module is a caller of the owning module's Application interface. It must not use the owning module's Repository directly.
 
@@ -115,6 +116,8 @@ Responsible for:
 - Idempotency handling.
 - Correlation metadata.
 - Retry coordination.
+- External and cross-Aggregate precondition evaluation.
+- Invocation of Authorization and Domain Policies.
 
 ---
 
@@ -122,8 +125,8 @@ Responsible for:
 
 Responsible for:
 
-- Business rules.
-- Aggregate invariants.
+- Aggregate-local business rules and invariants.
+- Context-owned Domain Policies and Specifications.
 - State transitions.
 - Domain Events.
 - Value Objects.
@@ -147,6 +150,24 @@ Infrastructure never contains business decisions.
 
 ---
 
+# Rule Ownership
+
+Every rule has one primary enforcement owner. The Application Service may coordinate enforcement, but it must not duplicate another owner's semantics.
+
+| Rule category | Primary owner | Typical example |
+|---|---|---|
+| Aggregate-local invariant | Aggregate Root | A completed Work cannot be completed again |
+| Context-wide deterministic rule | Domain Policy or Specification | A rule derived from facts that do not naturally belong to one Aggregate |
+| Permission decision | Authorization Policy | Whether an Actor may execute a command in an Organization |
+| External or cross-Aggregate precondition | Application Service | Required related records exist and belong to the same Organization |
+| Structural or race-safe integrity | PostgreSQL constraint | Unique key, foreign key, version check, tenant-consistent reference |
+| Long-running temporal rule | Durable process handler | Retry, timeout, and completion of Work-to-Memory generation |
+| Delivery behavior | Platform Runtime | Outbox claiming, backoff, dead-letter handling, metrics |
+
+The complete classification, failure semantics, and verification requirements are defined by [ADR-0009](../adr/0009-assign-rule-enforcement-responsibilities.md).
+
+---
+
 # Design Principles
 
 Application Services follow several architectural principles.
@@ -155,9 +176,9 @@ Application Services follow several architectural principles.
 
 ## Principle 1
 
-Business rules belong inside Aggregates.
+Aggregate-local rules belong inside the owning Aggregate. Multi-fact domain meaning that has no natural Aggregate owner belongs in a context-owned deterministic Domain Policy or Specification.
 
-Application Services never duplicate domain logic.
+Application Services may enforce documented external preconditions, but never duplicate Aggregate transition logic or Domain Policy semantics.
 
 ---
 
@@ -3305,7 +3326,7 @@ A later phase may publish Outbox events to:
 
 This migration affects Infrastructure and event contracts.
 
-It must not move business rules out of Aggregates.
+It must not move Aggregate-local rules, Domain Policies, Authorization Policies, or durable process rules into transport infrastructure.
 
 # Security Integration
 
@@ -3322,7 +3343,7 @@ Authorization determines:
 
 Aggregates assume authorization has already been verified.
 
-Business invariants remain enforced inside the Aggregate.
+Each Aggregate continues to enforce the invariants of its own state and lifecycle. Authorization, cross-Aggregate preconditions, and durable process rules remain with their explicit owners under ADR-0009.
 
 ---
 
@@ -3358,7 +3379,7 @@ The Application Layer is responsible for:
 - supplying ActorReference to Aggregate commands
 - rejecting unauthorized requests
 
-The Aggregate is responsible only for business correctness.
+The Aggregate is responsible for the business correctness of its own state transition. The Application Service remains responsible for authorization invocation, external preconditions, transaction scope, and orchestration.
 
 ---
 
@@ -3581,7 +3602,7 @@ Application Services should be tested independently from transport mechanisms.
 
 Tests should focus on orchestration.
 
-Business rules remain the responsibility of Aggregate tests.
+Tests follow rule ownership: Aggregate tests cover local invariants, Domain Policy tests cover context-wide deterministic rules, Application Service tests cover orchestration and external preconditions, and integration tests verify database and delivery guarantees.
 
 ---
 
@@ -3852,7 +3873,7 @@ The following practices are prohibited.
 
 ## Fat Application Service
 
-Application Services must not contain business rules.
+Application Services must not duplicate Aggregate-local transition rules or Domain Policy semantics. They may enforce documented external and cross-Aggregate preconditions that require repository facts.
 
 Incorrect:
 
@@ -3977,9 +3998,9 @@ The Application Layer guarantees:
 - authorization integration
 - operational observability
 
-The Application Layer does **not** own business rules.
+The Application Layer owns workflow and documented external preconditions, but not Aggregate-local invariants or reusable Domain Policy semantics.
 
-Business rules remain inside Aggregates.
+Every rule is assigned to the narrowest correct owner under ADR-0009.
 
 ---
 
@@ -3991,7 +4012,7 @@ Business rules remain inside Aggregates.
 
 Application workflow is clearly separated from domain logic.
 
-Business rules remain inside Aggregates.
+Aggregate-local rules remain inside Aggregates; other rule classes have explicit owners and failure semantics.
 
 ---
 
