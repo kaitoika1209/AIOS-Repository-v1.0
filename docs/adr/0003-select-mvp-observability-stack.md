@@ -1,4 +1,4 @@
-# ADR-0002: Select the MVP Observability and Operations Stack
+# ADR-0003: Select the MVP Observability and Operations Stack
 
 - Status: Accepted
 - Date: 2026-07-26
