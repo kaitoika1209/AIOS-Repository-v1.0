@@ -1873,6 +1873,9 @@ aggregateVersion
 organizationId
 payload
 schemaVersion
+destination
+consumerSetVersion
+targetCount
 occurredAt
 correlationId
 causationId
@@ -1917,9 +1920,11 @@ This status may be represented through row locking rather than persisted state.
 
 ## Published
 
-The event has been published successfully.
+The configured transport durably accepted the event.
 
-The publication timestamp is recorded.
+For `local-consumer-bus`, every resolved target `Pending` processed-event row and the Outbox Published transition committed atomically. This status does not mean that any consumer effect completed.
+
+The publication timestamp, consumer-set version, and target count are recorded where applicable.
 
 ---
 
@@ -1962,8 +1967,8 @@ The Background Worker is responsible for:
 - publishing events
 - retrying transient failures
 - recording delivery attempts
-- invoking local event handlers
-- recording processed event identifiers
+- atomically materializing local `Pending` consumer deliveries
+- claiming and executing consumer deliveries in Consumer Worker roles
 - surfacing poison events
 - maintaining observability
 
@@ -1994,13 +1999,23 @@ Claim Bounded Batch
 ↓
 For Each Claimed Record
     Deserialize and validate publication contract
-    Publish to configured transport
-    Record publication result
+
+    If destination = local-consumer-bus:
+        Resolve versioned enabled consumer set
+        Atomically insert Pending processed-event rows
+        and set Outbox Published
+
+    If destination = external broker:
+        Publish and await configured broker acknowledgement
+        then set Outbox Published
+
+    Otherwise:
+        Fail visibly
 ↓
 Mark Published or schedule publication retry
 ```
 
-This loop owns Outbox publication only. Consumer claim, consumer effects, and processed-event state use the separate consumer lifecycle.
+This loop owns Outbox publication and durable local handoff only. It does not execute consumer business effects. Consumer Workers independently claim `Pending` or retry-eligible processed-event rows.
 
 ---
 
@@ -2056,7 +2071,9 @@ Shutdown must not cause event loss.
 
 # Event Dispatcher
 
-The Event Dispatcher maps event types to one or more handlers.
+The Event Dispatcher maps validated event contracts to versioned ConsumerRegistration entries.
+
+For `local-consumer-bus`, dispatch begins with one atomic transaction that inserts all target `Pending` processed-event rows and marks the Outbox record Published. Direct callback invocation is not the durable delivery boundary. Consumer Workers claim and invoke handlers independently after that commit.
 
 Example:
 
@@ -2338,13 +2355,13 @@ Example:
 RecordDecisionOutcomeInWorkHandler + evt-200
 ```
 
-The canonical processed-event statuses are `Processing`, `Processed`, `RetryPending`, `Failed`, `Blocked`, and `Skipped` as defined by `events-and-outbox.md`. Application code must not introduce aliases such as `DeadLettered` or `Abandoned` for generic consumer delivery.
+The canonical processed-event statuses are `Pending`, `Processing`, `Processed`, `RetryPending`, `Failed`, `Blocked`, and `Skipped` as defined by `events-and-outbox.md`. Application code must not introduce aliases such as `DeadLettered` or `Abandoned` for generic consumer delivery.
 
 ---
 
 # Consumer Claim and Execution Boundary
 
-The Worker first acquires a short, durable `Processing` claim. Claiming validates the consumer registration, Organization scope, ordering key, prior processed-event state, and predecessor state. A real claim increments `attemptCount` and `claimVersion`; duplicate, deferred, or predecessor-blocked delivery does not.
+A local delivery first exists durably as `Pending`. The Consumer Worker then acquires a short, durable `Processing` claim from an eligible `Pending`, `RetryPending`, or unblocked `Blocked` row. Claiming validates the consumer registration, Organization scope, ordering key, prior processed-event state, and predecessor state. A real claim increments `attemptCount` and `claimVersion`; duplicate, deferred, or predecessor-blocked delivery does not.
 
 External work executes only after the claim transaction commits. It holds no target Aggregate lock or open database transaction and renews the lease through bounded heartbeat transactions when required.
 
