@@ -2,11 +2,12 @@
 
 > **Document status:** Proposed  
 > **Blueprint version:** 0.2.1  
-> **Implementation target:** AIOS MVP
+> **Implementation target:** AIOS MVP  
+> **Scope classification:** MVP Normative — authoritative release scope
 
 ## Purpose
 
-This document defines the implementation scope of the Minimum Viable Product (MVP) for AIOS.
+This document defines the implementation scope of the Minimum Viable Product (MVP) for AIOS. It is the authoritative release-scope document under [ADR-0010](../adr/0010-classify-blueprint-scope-and-implementation-authority.md). Items not classified as MVP Normative have no MVP implementation authority.
 
 The MVP is the smallest coherent version of AIOS that can validate the core product hypothesis while preserving the architectural and domain principles of the full Blueprint.
 
@@ -978,25 +979,25 @@ The Blueprint defines the target domain model and long-term direction.
 
 The MVP implements only the following product slice:
 
-| Blueprint Concept | MVP Status | Notes |
-|---|---:|---|
-| Account / Identity | Included | Basic authentication only |
-| Organization | Included | Ownership and authorization boundary |
-| Human Member | Included | Holds business authority |
-| Secretary | Included | One AI Principal per Organization |
-| System Principal | Included conceptually | Background technical operations |
-| Workspace | Included as views | Not a domain boundary |
-| Work | Included | Core collaboration object |
-| Decision | Included | Human approval required |
-| Memory | Included | Generation, review, approval |
-| MemoryRevision | Deferred | No post-approval editing |
-| Knowledge | Deferred | No promotion in MVP |
-| Evidence | Deferred | Not an independent MVP domain |
-| Capability | Deferred | No extraction or reuse |
-| AI Employees | Deferred | No specialized agents |
-| External Knowledge | Deferred | No ingestion or retrieval |
-| Semantic Retrieval | Deferred | Structured retrieval only |
-| Marketplace / SDK | Deferred | No platform contract |
+| Blueprint Concept | Scope classification | Notes |
+|---|---|---|
+| Account / Identity | MVP Normative | Basic authentication only |
+| Organization | MVP Normative | Ownership and authorization boundary |
+| Human Member | MVP Normative | Holds business authority |
+| Secretary | MVP Normative | One AI Principal per Organization |
+| System Principal | MVP Normative for technical processing | Background technical operations |
+| Workspace | MVP Normative presentation views | Not a domain boundary |
+| Work | MVP Normative | Core collaboration object |
+| Decision | MVP Normative | Human approval required |
+| Memory | MVP Normative | Generation, review, approval |
+| MemoryRevision | Future Hypothesis; Explicitly Out of Scope | No post-approval editing |
+| Knowledge | Future Hypothesis; Explicitly Out of Scope | No promotion in MVP |
+| Evidence | Future Hypothesis; Explicitly Out of Scope | Not an independent MVP domain |
+| Capability | Future Hypothesis; Explicitly Out of Scope | No extraction or reuse |
+| AI Employees | Future Hypothesis; Explicitly Out of Scope | No specialized agents |
+| External Knowledge | Future Hypothesis; Explicitly Out of Scope | No ingestion or retrieval |
+| Semantic Retrieval | Future Hypothesis; Explicitly Out of Scope | Structured retrieval only |
+| Marketplace / SDK | Future Hypothesis; Explicitly Out of Scope | No platform contract |
 
 The existence of deferred concepts in architecture documents must not be interpreted as an implementation requirement for the MVP.
 
