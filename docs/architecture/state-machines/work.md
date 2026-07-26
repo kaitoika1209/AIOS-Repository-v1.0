@@ -485,8 +485,8 @@ Each event must include:
 - originating human actor;
 - Decision resolution timestamp; and
 - technical processing principal where applicable.
-`WorkCompleted` must contain enough information to request Memory generation without querying mutable Work state later.
-A separate integration event such as `MemoryGenerationRequested` may be derived from `WorkCompleted` by the Application Layer or outbox dispatcher.
+`WorkCompleted` must contain immutable version and snapshot locators sufficient to build the canonical generation source without querying mutable Work or Decision drafts.
+The Application Layer maps it to `Integration / WorkCompleted / 1` in the same Work transaction. That Integration Event is the only registered MVP Memory-generation trigger; no separate `MemoryGenerationRequested` event is emitted.
 ---
 # Concurrency and Idempotency
 The implementation must use optimistic concurrency or an equivalent mechanism.
