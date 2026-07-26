@@ -223,7 +223,7 @@ Draft → InReview
 - Lock current proposal content.
 - Record submitter and submission timestamp.
 - Open one review cycle.
-- Emit `DecisionSubmittedForReview`.
+- Emit `DecisionSubmitted`.
 For a blocking Decision, the event may cause the Work module to request:
 ```text
 InProgress → WaitingForDecision
@@ -400,13 +400,17 @@ The Decision Aggregate must never directly:
 ## Blocking Submission Flow
 ```text
 Decision: Draft
-        ↓ Human submits blocking Decision
+        ↓ Human invokes coordinated RequestBlockingDecision
+One PostgreSQL transaction:
+        ├─ Decision.SubmitForReview creates immutable submitted snapshot
+        └─ Work records the same decisionId + revisionNumber + submittedSnapshotId
+        ↓ COMMIT
 Decision: InReview
-        ↓ DecisionSubmittedForReview
-Work coordination records blocking Decision
-        ↓
 Work: WaitingForDecision
+Completion gate: Pending
 ```
+
+A Draft Decision does not block Work. The blocking Decision's transition to `InReview` and Work's transition to `WaitingForDecision` must commit together in the MVP. After rejection or withdrawal, submission of a new blocking revision uses the same coordinator; the `decisionId` may be reused, but the revision number and submitted-snapshot identifier must be new.
 ## Approval Flow
 ```text
 Decision: InReview
@@ -540,7 +544,7 @@ The Decision Aggregate may emit:
 - `DecisionOptionRemoved`
 - `DecisionBlockingStatusChanged`
 - `DecisionSecretaryContributionRecorded`
-- `DecisionSubmittedForReview`
+- `DecisionSubmitted`
 - `DecisionApproved`
 - `DecisionRejected`
 - `DecisionRevisionStarted`
