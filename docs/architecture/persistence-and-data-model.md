@@ -51,7 +51,7 @@ The persistence architecture must ensure that:
 
 - every Aggregate is persisted consistently
 - Aggregate boundaries remain explicit
-- business invariants are protected by both domain code and database constraints
+- Aggregate-local invariants are protected by domain code, while structural and race-safe integrity is reinforced by database constraints
 - every Organization-owned record is Organization-scoped
 - cross-Organization associations are prevented
 - optimistic concurrency is enforced
@@ -148,11 +148,11 @@ Commit
 
 ---
 
-# Principle 2: Database Constraints Are Defense in Depth
+# Principle 2: Database Constraints Have Explicit Ownership
 
-Business rules remain inside Aggregates.
+Aggregate-local lifecycle meaning remains in the Domain Model. Context-wide deterministic rules, authorization, external preconditions, and durable process rules remain with the owners defined by [ADR-0009](../adr/0009-assign-rule-enforcement-responsibilities.md).
 
-PostgreSQL constraints reinforce structural invariants.
+PostgreSQL is the primary enforcement owner for structural, referential, uniqueness, tenant-isolation, and race-safe integrity that cannot be protected reliably by an in-memory Aggregate check alone.
 
 Examples:
 
@@ -166,7 +166,7 @@ Database:
     constrains Decision status to supported values
 ```
 
-The database does not replace the Domain Model.
+The database does not replace the Domain Model, and the Domain Model does not replace race-safe database enforcement. Each rule is tested at its primary ownership boundary.
 
 ---
 
