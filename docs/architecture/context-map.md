@@ -187,8 +187,9 @@ The Memory Context does not emit Knowledge promotion or publication events in th
 
 ## Knowledge Management Context
 
-**Classification:** Future Core Domain  
-**MVP:** Not implemented
+**Domain classification:** Candidate Future Core Domain  
+**Scope classification:** Future Hypothesis  
+**MVP implementation authority:** None
 
 ### Purpose
 
@@ -198,12 +199,15 @@ Approved Memory may provide Evidence, but Memory approval does not create Knowle
 
 Before implementation, the Knowledge Aggregate, Evidence eligibility, Human publication authority, persistence model, event contracts, and ADRs must be reviewed together.
 
+The detailed future model creates no reserved MVP port or module. Promotion requires an accepted implementation ADR and release-scope update under [ADR-0010](../adr/0010-classify-blueprint-scope-and-implementation-authority.md).
+
 ---
 
 ## Capability Management Context
 
-**Classification:** Future Domain  
-**MVP:** Not implemented
+**Domain classification:** Candidate Future Domain  
+**Scope classification:** Future Hypothesis  
+**MVP implementation authority:** None
 
 ### Purpose
 
@@ -212,6 +216,8 @@ Will organize reusable Knowledge and measurable organizational competence.
 Capability is not inferred from one Memory or one AI output.
 
 No Capability module, table, event handler, or public interface is created in the MVP.
+
+Capability is not a Reserved Extension Point. Promotion requires an accepted implementation ADR and release-scope update under ADR-0010.
 
 ---
 
