@@ -611,22 +611,26 @@ The generation process must support:
 - manual recovery.
 A conceptual process is:
 ```text
-MemoryGenerationRequested
+Integration / WorkCompleted / 1
         ↓
-Generation attempt
-   ├── Success → MemoryGenerated
-   └── Failure → Record failure and retry
+Create or reuse immutable source snapshot and stable generation operation
+        ↓
+Fenced generation attempt
+   ├── Success → Commit Memory in Generated + MemoryGenerated
+   └── Failure → Update the same operation and retry or fail visibly
 ```
 Generation attempt status is not `MemoryStatus`.
-Suggested operational states may include:
+Canonical operational states are:
 - `Pending`;
-- `Processing`;
-- `Succeeded`;
-- `Failed`;
-- `RetryScheduled`; and
-- `ManualInterventionRequired`.
+- `Generating`;
+- `RetryPending`;
+- `Generated`;
+- `Failed`; and
+- `Abandoned`.
 These belong to an application process, job record, or process manager.
 They must not be confused with the business review lifecycle.
+
+`MemoryGenerationRequested` and `MemoryGenerationFailed` are not registered Domain or Integration Events. `WorkCompleted` is the durable trigger, and generation-operation state is the authoritative process evidence.
 ---
 # Concurrency and Idempotency
 The implementation must use optimistic concurrency or an equivalent mechanism.
