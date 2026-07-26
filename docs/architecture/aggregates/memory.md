@@ -687,17 +687,36 @@ Relationships with generation, notifications, activity feeds, search, analytics,
 Eventual consistency must not weaken Approved Memory immutability.
 ---
 # Repository Interface
+
+`MemoryRepository` is an internal persistence port of Organizational Memory.
+
 ```text
 MemoryRepository
-- findById(memoryId): Memory?
-- findByWorkId(workId): Memory?
-- existsByWorkId(workId): boolean
-- save(memory, expectedVersion): void
+- Add(organizationId, memory)
+- Get(organizationId, memoryId): Memory | NotFound
+- FindBySourceWorkId(organizationId, workId): Memory | NotFound
+- Save(organizationId, memory, expectedVersion)
 ```
-The repository must support optimistic concurrency.
-Infrastructure should enforce uniqueness of `workId`.
-The domain model must not depend on database, ORM, transport, or framework-specific types.
+
+Repository rules:
+
+- `organizationId` is mandatory and must equal the Aggregate's immutable Organization;
+- `Add` inserts only and must never become an upsert;
+- `Save` updates only when the stored version equals `expectedVersion`;
+- `Get` returns one Aggregate Root or a scoped not-found result;
+- a missing Aggregate and an Aggregate owned by another Organization are indistinguishable to an unauthorized caller;
+- child entities, ORM rows, query builders, and database connections are never exposed;
+- the Repository does not begin, commit, publish events, or retry the Application transaction; and
+- database errors are translated to stable outcomes such as `DuplicateAggregateId`, `NotFound`, `ConcurrencyConflict`, or `PersistenceFailure`.
+
+The domain model does not depend on database, ORM, transport, or framework-specific types.
+
+`FindBySourceWorkId` is an Aggregate-specific idempotency lookup, not a generic cross-module query. It returns only the Memory Aggregate Root and is always Organization-scoped.
+
+Memory generation first checks the processed-event and generation-operation identities, may call `FindBySourceWorkId`, and then uses `Add`. PostgreSQL uniqueness on `(organizationId, sourceWorkId)` remains the final race-safe guard. A uniqueness conflict is translated to `MemoryAlreadyExistsForWork` and never overwrites the existing Memory.
+
 ---
+
 # Application Service Responsibilities
 ## Generating Memory
 The Application Service consumes `WorkCompleted`, checks idempotency, confirms that no Memory exists, loads permitted source data, invokes Secretary generation outside the domain transaction, validates the result, creates the Aggregate in `Generated`, saves it under unique `workId` protection, and publishes `MemoryGenerated` durably.
