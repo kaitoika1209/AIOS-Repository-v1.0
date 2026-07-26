@@ -1943,51 +1943,42 @@ All business state changes still occur through Aggregate commands.
 
 ---
 
-# Worker Processing Loop
+# Outbox Publication Worker Loop
 
 ```text
 Poll Pending Outbox Records
-
 ↓
-
-Claim Batch
-
+Claim Bounded Batch
 ↓
-
-For Each Record
-
-    Deserialize Event
-
-    Dispatch Event
-
-    Record Result
-
+For Each Claimed Record
+    Deserialize and validate publication contract
+    Publish to configured transport
+    Record publication result
 ↓
-
-Mark Published or Schedule Retry
+Mark Published or schedule publication retry
 ```
+
+This loop owns Outbox publication only. Consumer claim, consumer effects, and processed-event state use the separate consumer lifecycle.
 
 ---
 
-# Safe Record Claiming
+# Safe Outbox Record Claiming
 
-Multiple Worker instances may run concurrently.
-
-They must not process the same Outbox record simultaneously.
+Multiple publisher instances may run concurrently but must not publish the same active claim simultaneously.
 
 Recommended PostgreSQL pattern:
 
-```text
-SELECT ...
+```sql
+SELECT outbox_id
 FROM outbox_messages
 WHERE status = 'Pending'
-  AND next_attempt_at <= NOW()
-ORDER BY created_at
+  AND next_attempt_at <= now()
+ORDER BY recorded_at, outbox_id
 FOR UPDATE SKIP LOCKED
-LIMIT :batchSize
+LIMIT :batch_size;
 ```
 
-Equivalent safe-claim mechanisms are acceptable.
+The same short transaction changes claimed rows to `Claimed`, sets the publisher lease, and increments the publication attempt count. Consumer Workers do not reuse this Outbox status as their processed-event status.
 
 ---
 
@@ -2293,9 +2284,7 @@ A command identifier cannot represent two different intents.
 
 # Event Idempotency
 
-Every asynchronous handler records processed event identity.
-
-Recommended uniqueness:
+Every asynchronous consumer uses the durable identity:
 
 ```text
 consumerName + eventId
@@ -2307,45 +2296,63 @@ Example:
 RecordDecisionOutcomeInWorkHandler + evt-200
 ```
 
+The canonical processed-event statuses are `Processing`, `Processed`, `RetryPending`, `Failed`, `Blocked`, and `Skipped` as defined by `events-and-outbox.md`. Application code must not introduce aliases such as `DeadLettered` or `Abandoned` for generic consumer delivery.
+
 ---
 
-# Processed Event Transaction
+# Consumer Claim and Execution Boundary
 
-The processed-event record must be written in the same transaction as the handler's Aggregate change.
+The Worker first acquires a short, durable `Processing` claim. Claiming validates the consumer registration, Organization scope, ordering key, prior processed-event state, and predecessor state. A real claim increments `attemptCount` and `claimVersion`; duplicate, deferred, or predecessor-blocked delivery does not.
+
+External work executes only after the claim transaction commits. It holds no target Aggregate lock or open database transaction and renews the lease through bounded heartbeat transactions when required.
+
+---
+
+# Processed Event Success Transaction
+
+For a domain-changing handler, the terminal `Processed` transition—not necessarily initial creation of the delivery row—must commit in the same transaction as the Aggregate effect:
 
 ```text
 BEGIN
 
-Check processed event
-
-Load target Aggregate
-
+Lock processed-event row
+Verify Processing status, workerId, claimVersion, and unexpired lease
+Revalidate Organization, System capability, event applicability, and ordering state
+Load target Aggregate with expected version
 Execute Aggregate command
-
 Save Aggregate
-
 Write new Outbox events
-
-Mark event processed
+Persist required audit metadata
+Transition processed event to Processed
+Store processedAt and stable result reference
+Clear claim fields
+Advance ordering state
 
 COMMIT
 ```
 
-This prevents:
+This prevents both state change without a success marker and a success marker without state change. Fencing verification occurs before target mutation; failure returns `LeaseLost` and commits no domain effect.
 
-- state change without deduplication record
-- deduplication record without state change
+---
+
+# Retry and Failure Transactions
+
+A transient failure uses a short fenced transaction to change `Processing -> RetryPending`, calculate `nextAttemptAt`, preserve the completed attempt count, record bounded failure metadata, and clear claim fields.
+
+A permanent failure or retry exhaustion atomically changes `Processing -> Failed`, creates or updates the dead-letter record, applies the registered failure-continuation policy to ordering state, writes required operational events, and clears the claim. Unchanged permanent failures are not reclaimed automatically.
+
+Expired-lease recovery changes the expired `Processing` row to `RetryPending`; recovery itself is not a handler attempt. The next Worker increments the attempt only when it acquires a new claim.
 
 ---
 
 # Duplicate Event Behavior
 
-When an already processed event is received:
-
-- no Aggregate is loaded unless required for verification
-- no command is executed
-- no new event is emitted
-- processing returns success
+- `Processed` returns the stable prior result without executing the handler;
+- `Processing` with a valid lease defers to the current Worker;
+- `RetryPending` waits until `nextAttemptAt`;
+- `Failed` requires authorized recovery;
+- `Blocked` waits without consuming attempts; and
+- `Skipped` returns the audited terminal skip outcome without claiming business success.
 
 Duplicate delivery is expected, not exceptional.
 
@@ -2696,50 +2703,45 @@ A generated Memory remains in Generated state.
 
 # Poison Event Handling
 
-A poison event repeatedly fails despite valid retry attempts.
+A poison consumer delivery reaches `Failed` because a failure is permanent or bounded retry policy is exhausted.
 
-Examples:
+Examples include:
 
-- corrupted payload
-- impossible foreign reference
-- unsupported contract version
-- deterministic handler defect
+- corrupted or incompatible payload;
+- impossible foreign reference;
+- unsupported contract version;
+- deterministic handler defect;
+- permanent Organization or capability mismatch; and
+- ambiguous irreversible external outcome requiring Human recovery.
 
 ---
 
 # Poison Event State
 
-A failed processing record should preserve:
+The processed-event row preserves the current execution result:
 
 ```text
+consumerName
 eventId
-handlerName
 eventType
-payloadReference
+status = Failed
 attemptCount
-firstFailedAt
-lastFailedAt
-lastError
-stackTraceReference
-status
+failedAt
+lastErrorCode
+lastErrorMessage reference
 ```
 
-Sensitive payloads should not be copied into unrestricted logs.
+A separate linked dead-letter record preserves investigation lifecycle, first and last failure times, operator assignment, replay linkage, and resolution. `DeadLettered` is not a processed-event status and the immutable source event is never marked resolved.
+
+Sensitive payloads are referenced through protected storage and are not copied into unrestricted logs.
 
 ---
 
 # Failed Event Recovery
 
-Operators may:
+Operators act through typed, audited recovery commands. They may inspect authorized failure details, correct configuration or associations, deploy a handler fix, run `ValidateOnly`, request replay, skip only when the registered policy permits, and resolve the linked dead-letter record after reconciliation.
 
-- inspect failure details
-- correct infrastructure configuration
-- deploy a handler fix
-- repair invalid associations
-- replay the event
-- mark the event resolved with reason
-
-Recovery actions must be audited.
+Recovery never edits the immutable source event. A retry from `Failed` acquires a new fenced `Processing` claim and records replay identity and reason. A skip transitions the consumer result to `Skipped`; it does not claim that the business effect succeeded.
 
 ---
 
