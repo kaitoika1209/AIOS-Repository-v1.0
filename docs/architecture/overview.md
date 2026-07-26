@@ -422,74 +422,65 @@ The detailed identity, Membership, Principal, and ActorReference rules are defin
 
 ---
 
-# Bounded Context Direction
+# Bounded Context and Module Direction
 
-The Blueprint models distinct business responsibilities through Bounded Contexts.
+AIOS distinguishes semantic domain boundaries from implementation packaging.
 
-The conceptual contexts include:
+| Classification | Blueprint role | MVP |
+|---|---|---|
+| Domain Bounded Context | Owns business language and domain rules | Identity & Organization, Work Management, Decision Management, Organizational Memory |
+| Implementation Module | Groups code and persistence inside the Modular Monolith | Organization and Access, Work and Decision, Organizational Learning |
+| Technical Platform Capability | Provides execution and infrastructure without owning domain language | Transactional Outbox, Worker Runtime, Observability, Persistence adapters |
 
-- Organization,
-- Work Management,
-- Decision Management,
-- Organizational Memory,
-- Knowledge Management,
-- and Capability Management.
+Authorization is an Application and Security capability. Events/Outbox, Workers, replay, reconciliation, telemetry, and database adapters are technical capabilities. They are not Domain Bounded Contexts.
 
-These conceptual boundaries may remain useful even when their initial implementation is deployed together.
-
-The MVP must not implement each Bounded Context as an independently deployed service.
+Future Domain Bounded Contexts are Knowledge Management and Capability Management. Their models remain in the Blueprint, but the MVP creates no empty code modules, tables, handlers, or public interfaces for them.
 
 ---
 
 # Initial Implementation Architecture
 
-The initial implementation is a Modular Monolith.
-
-The expected implementation modules are approximately:
+The initial implementation is one Modular Monolith using one authoritative PostgreSQL database.
 
 ```text
-Organization and Access
-
-Work and Decision
-
-Organizational Learning
+AIOS Modular Monolith
+├── Organization and Access
+│   ├── Human Identity
+│   ├── Organization
+│   ├── Membership
+│   └── Authorization policies and Principal resolution
+├── Work and Decision
+│   ├── Work Management
+│   └── Decision Management
+├── Organizational Learning
+│   └── Organizational Memory
+└── Platform Runtime
+    ├── Transactional Outbox
+    ├── Background Workers
+    ├── Processed events and recovery
+    ├── Projections
+    └── Observability adapters
 ```
 
-These implementation modules may contain finer internal domain boundaries.
+An implementation module may contain more than one Bounded Context. Co-location does not merge their Aggregates, repositories, language, or invariants.
 
-For example:
+Work and Decision therefore remain separate domain boundaries inside the same implementation module. The module may use one explicit Application Service transaction for a coordinated use case, while ordinary cross-context propagation uses durable events and idempotent handlers.
 
-```text
-Work and Decision
-   ├── Work
-   └── Decision
+Organizational Learning contains only Memory in the MVP. Knowledge and Capability are not implemented as placeholder packages.
 
-Organizational Learning
-   ├── Memory
-   ├── Knowledge
-   └── Capability
-```
+Platform Runtime owns technical workflow state but no Human business authority or Domain Aggregate.
 
-Only the MVP portions of these modules are implemented initially.
+The MVP avoids:
 
-This approach preserves domain boundaries without introducing premature distributed-system complexity.
+- independent microservices;
+- separate databases per Bounded Context;
+- network calls between internal modules;
+- an external event broker without a demonstrated need; and
+- generic cross-module repositories.
 
-The MVP should avoid:
+Module boundaries are protected through code structure, owned repositories and migrations, explicit Application interfaces, and tests that reject unauthorized dependencies.
 
-- independent microservices,
-- separate databases per Bounded Context,
-- external event brokers without a demonstrated need,
-- and network-based communication between internal modules.
-
-Module boundaries should be protected through code structure and explicit interfaces.
-
-A later architecture may extract a module only when there is a concrete reason, such as:
-
-- independent scaling,
-- independent deployment,
-- different operational requirements,
-- a stable integration contract,
-- or clear team ownership.
+A module may be extracted later only for a concrete reason such as independent scaling, independent deployment, distinct operational requirements, stable integration contract, or clear team ownership.
 
 ---
 
