@@ -415,37 +415,53 @@ PostgreSQL Repository
 
 ---
 
-# Module Ownership
+# Module and Persistence Ownership
 
-Each module owns its persistence schema and migrations.
-
-Recommended ownership:
+Persistence ownership follows the MVP implementation modules while preserving repository ownership for each Aggregate.
 
 ```text
-Work Module
-    Work tables
+Organization and Access Module
+├── Human Identity tables
+├── authentication-subject tables
+├── Organization tables
+├── Membership and role-assignment tables
+└── authorization-audit tables
 
-Decision Module
-    Decision and revision tables
+Work and Decision Module
+├── Work-owned tables
+└── Decision-owned revision, snapshot, and review tables
 
-Memory Module
-    Memory and review tables
+Organizational Learning Module
+├── Memory-owned revision, snapshot, review, and provenance tables
+└── Memory-generation source and operation tables
 
-Identity Module
-    Human identity and authentication-subject tables
-
-Organization Module
-    Organization tables
-
-Membership Module
-    Membership and role-assignment tables
-
-Authorization Module
-    policy and authorization-audit tables
-
-Events Module
-    Outbox, processed-event, replay, and dead-letter tables
+Platform Runtime
+├── Outbox tables
+├── processed-command and processed-event tables
+├── dead-letter and replay tables
+├── Worker-claim and reconciliation tables
+└── projection infrastructure
 ```
+
+These are implementation and migration ownership boundaries, not a claim that each module is one DDD Bounded Context.
+
+Within `Work and Decision`, `WorkRepository` writes only Work-owned tables and `DecisionRepository` writes only Decision-owned tables.
+
+Within `Organization and Access`, Human Identity, Organization, and Membership remain separate Aggregate boundaries even when one coordinated Application Service transaction is used.
+
+Authorization policies may read the current facts required for a decision. The Authorization capability must not mutate another Aggregate or duplicate its lifecycle rules.
+
+Platform Runtime tables contain technical delivery, recovery, and projection state. They are not Domain Aggregate tables and must not become the source of Human business authority.
+
+Knowledge and Capability have no MVP tables or placeholder schemas.
+
+Cross-module writes occur only through:
+
+- an explicit Application Service transaction;
+- an owning repository invoked by that Application Service; or
+- an idempotent event handler invoking the target module's command interface.
+
+A generic repository or direct table update across module ownership is prohibited.
 
 ---
 
@@ -5453,143 +5469,100 @@ Unique active reconciliation finding
 
 # Part 2 Data Ownership Summary
 
-## Work Module
+The following table names are grouped by MVP implementation module. The nested owner remains responsible for its own Aggregate or technical state.
 
-Owns:
+## Organization and Access Module
 
-```text
-work_items
-
-work_participants
-```
-
----
-
-## Decision Module
-
-Owns:
-
-```text
-decisions
-
-decision_revisions
-
-decision_revision_options
-
-decision_secretary_contributions
-```
-
----
-
-## Memory Module
-
-Owns:
-
-```text
-memories
-
-memory_revisions
-
-memory_source_references
-
-memory_secretary_contributions
-
-memory_generation_attempts
-```
-
----
-
-## Identity Module
-
-Owns:
+### Human Identity ownership
 
 ```text
 human_identities
-
 authentication_subjects
 ```
 
----
-
-## Organization Module
-
-Owns:
+### Organization ownership
 
 ```text
 organizations
 ```
 
----
-
-## Membership Module
-
-Owns:
+### Membership ownership
 
 ```text
 memberships
-
 membership_role_assignments
-
 organization_invitations
 ```
 
----
-
-## Authorization Module
-
-Owns:
+### Authorization and Principal configuration ownership
 
 ```text
 permission_definitions
-
 role_permission_mappings
-
 authorization_policy_versions
-
 authorization_audit_records
-
 system_principals
-
 system_principal_capabilities
-
 secretary_principals
 ```
 
----
+## Work and Decision Module
 
-## Events Module
+### Work Aggregate ownership
 
-Owns:
+```text
+work_items
+work_participants
+```
+
+### Decision Aggregate ownership
+
+```text
+decisions
+decision_revisions
+decision_revision_options
+decision_secretary_contributions
+```
+
+## Organizational Learning Module
+
+### Memory Aggregate and generation provenance ownership
+
+```text
+memories
+memory_revisions
+memory_source_references
+memory_secretary_contributions
+memory_generation_sources
+memory_generation_source_decisions
+memory_generation_attempts
+```
+
+No Knowledge or Capability tables exist in the MVP.
+
+## Platform Runtime
+
+### Event delivery and recovery ownership
 
 ```text
 outbox_messages
-
 processed_events
-
 dead_letter_events
-
 event_replays
-
 reconciliation_findings
 ```
 
----
-
-## Projection Module
-
-May own:
+### Projection ownership
 
 ```text
 decision_review_queue
-
 memory_review_queue
-
 completed_work_projection
-
 organization_member_directory
-
 inactive_assignment_queue
 ```
+
+Projection tables are rebuildable and never become authoritative mutation targets.
 
 ---
 
