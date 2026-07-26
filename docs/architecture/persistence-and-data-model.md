@@ -4641,6 +4641,9 @@ event_sequence
 organization_id
 payload
 headers
+destination
+consumer_set_version
+target_count
 occurred_at
 recorded_at
 correlation_id
@@ -4742,6 +4745,7 @@ processed_at
 failed_at
 skipped_at
 handler_version
+consumer_set_version
 result_reference
 last_error_code
 last_error_message
@@ -4757,6 +4761,7 @@ blocked_by_event_id
 Canonical status values:
 
 ```text
+Pending
 Processing
 Processed
 RetryPending
@@ -4776,6 +4781,13 @@ Required invariants:
 ```text
 attempt_count >= 0
 claim_version >= 0
+
+Pending
+    -> first_received_at is not null
+    -> attempt_count = 0
+    -> locked_by is null
+    -> locked_until is null
+    -> consumer_set_version is not null
 
 Processing
     -> locked_by is not null
@@ -4808,6 +4820,8 @@ Skipped
     -> locked_by is null
     -> locked_until is null
 ```
+
+The normal claim transition `Pending -> Processing` increments `attempt_count` and `claim_version` while setting the Worker lease. An eligible `RetryPending` or unblocked `Blocked` delivery uses the same claim contract.
 
 A transition to `Processed`, `RetryPending`, `Failed`, or `Skipped` uses a fenced update matching `consumer_name`, `event_id`, `status = Processing`, `locked_by`, and `claim_version`. Success also requires a non-expired lease or an atomic lease renewal in the same transaction.
 
@@ -7122,6 +7136,22 @@ The index should align with the Worker claim query.
 
 ---
 
+# Pending Consumer Delivery Index
+
+```sql
+CREATE INDEX ix_processed_events_pending
+ON processed_events (
+    first_received_at,
+    consumer_name,
+    event_id
+)
+WHERE status = 'Pending';
+```
+
+This index is the durable local-consumer work queue. A wake-up notification may reduce latency but is not the delivery guarantee.
+
+---
+
 # Retry Pending Consumer Index
 
 ```sql
@@ -8516,11 +8546,13 @@ The Outbox Publisher role may:
 
 - read eligible Outbox messages
 - claim Outbox messages
+- insert `Pending` processed-event rows only through the atomic local-handoff operation
 - update publication metadata
 - recover expired publication claims
 
 It must not:
 
+- update an existing consumer delivery outcome or execute a handler
 - update event payloads
 - mutate domain Aggregate tables
 - assign Human roles
