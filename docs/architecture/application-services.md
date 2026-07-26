@@ -56,25 +56,34 @@ Those responsibilities belong to other architectural layers.
 
 # Architectural Position
 
-```
-Presentation Layer
+```text
+Presentation Adapter
         │
         ▼
-Application Service
+Owning Module Command or Query Interface
         │
         ▼
-Aggregate
+Owning Application Service
+        │
+        ├────────► Authorization and policy ports
         │
         ▼
-Repository
+Owning Aggregate
         │
         ▼
-Database
+Owning Repository Port
+        ▲
+        │
+Infrastructure Adapter ─────► PostgreSQL
 ```
 
 Application Services sit between incoming requests and the Domain Model.
 
 They coordinate execution without owning business knowledge.
+
+A Background Worker, HTTP controller, CLI adapter, scheduler, or another module is a caller of the owning module's Application interface. It must not use the owning module's Repository directly.
+
+Repository interfaces are internal persistence ports of their owning Aggregate. They are not cross-module integration contracts.
 
 ---
 
@@ -248,31 +257,31 @@ Every state change occurs through Aggregate commands.
 
 # Aggregate Interaction
 
-Application Services are the only layer allowed to coordinate multiple aggregates.
+Application Services are the only layer allowed to coordinate multiple Aggregates, but that permission is not global.
 
-Example
+A normal Application Service may load and save only Aggregates owned by its module. Cross-module callers use the target module's command or query interface.
 
-```
-Decision Aggregate
+The exceptional `RequestBlockingDecision` coordinator may use both Work and Decision Repository ports because those Bounded Contexts are intentionally co-located in the `Work and Decision` MVP module and the initial relationship must commit atomically. This exception must not be generalized.
 
-↓
+For asynchronous interaction:
 
+```text
 DecisionApproved
-
-↓
-
-Application Service
-
-↓
-
-Work Aggregate
-
-↓
-
-RecordDecisionOutcome()
+        │
+        ▼
+Platform Runtime dispatch
+        │
+        ▼
+Work module event-handler interface
+        │
+        ▼
+Work Application Service
+        │
+        ▼
+Work Aggregate.RecordDecisionOutcome()
 ```
 
-Neither aggregate knows the other exists.
+The dispatcher does not load Work and does not receive a `WorkRepository`. Neither Aggregate knows the other exists.
 
 ---
 
@@ -1474,17 +1483,19 @@ Used for:
 - updating read models
 
 ```text
-Receive event
+Platform Runtime receives and validates event envelope
 
-Perform external preparation if needed
+Route to the owning module's event-handler interface
+
+Owning module performs external preparation if required
 
 BEGIN
 
-Check processed event
+Owning module checks processed event
 
-Load target Aggregate
+Owning Application Service loads the target Aggregate through its Repository
 
-Execute command
+Execute Aggregate command
 
 Save Aggregate
 
@@ -1495,11 +1506,15 @@ Mark event processed
 COMMIT
 ```
 
+Platform Runtime owns delivery, claims, retries, and dispatch. The target module owns business interpretation, Aggregate loading, commands, and persistence.
+
+A generic Worker must not inject or invoke `WorkRepository`, `DecisionRepository`, or `MemoryRepository` directly.
+
 ---
 
 # Repository Coordination
 
-Each Application Service depends on repositories through interfaces.
+Repository ports belong to the Aggregate and module whose state they persist.
 
 Example:
 
@@ -1512,7 +1527,35 @@ CompleteWorkService
 - Clock
 ```
 
+`CompleteWorkService` is owned by the Work context inside the `Work and Decision` module. No other module receives `WorkRepository` merely to reuse its data.
+
 Application Services must not depend on database tables directly.
+
+---
+
+## Repository Port Contract
+
+Every authoritative Aggregate Repository must expose Aggregate-specific operations rather than a generic `Repository<T>`.
+
+Minimum contract:
+
+```text
+Get(organizationId, aggregateId)
+
+Save(organizationId, aggregate, expectedVersion)
+```
+
+The contract must guarantee:
+
+- `organizationId` is mandatory on every authoritative load and save;
+- a missing Aggregate is indistinguishable from an Organization-scope mismatch to an unauthorized caller;
+- `expectedVersion` is checked atomically;
+- child state is persisted only through its Aggregate Root;
+- emitted events are not published by the Repository;
+- the Repository does not begin, commit, or retry the Application transaction; and
+- infrastructure exceptions are translated into stable persistence outcomes.
+
+Repository methods must not return mutable child entities, ORM entities, unrestricted query builders, or database connections.
 
 ---
 
@@ -1520,13 +1563,15 @@ Application Services must not depend on database tables directly.
 
 An Application Service must:
 
-- load Aggregate Roots only
-- use Organization-scoped queries
-- include expected version where applicable
-- treat missing aggregates explicitly
-- avoid lazy-loading hidden mutable state
+- load Aggregate Roots only;
+- call only Repository ports owned by its module, except the documented `RequestBlockingDecision` coordinator;
+- use Organization-scoped queries;
+- pass expected version on commands where the caller supplies one;
+- treat missing Aggregates explicitly;
+- avoid lazy-loading hidden mutable state; and
+- obtain cross-module read data through query ports, immutable snapshots, or event data rather than another module's Repository.
 
-All state needed to enforce aggregate invariants must be available when the command executes.
+All state needed to enforce Aggregate invariants must be available when the command executes.
 
 ---
 
@@ -1534,11 +1579,22 @@ All state needed to enforce aggregate invariants must be available when the comm
 
 An Application Service must:
 
-- save every mutated Aggregate
-- persist emitted events in the same transaction
-- verify optimistic concurrency
-- clear or acknowledge collected events only after successful persistence
-- avoid partial commits
+- save every mutated Aggregate through its owning Repository;
+- persist emitted events in the same transaction;
+- verify optimistic concurrency;
+- clear or acknowledge collected events only after successful persistence;
+- avoid partial commits; and
+- never save an Aggregate received from another module as a DTO or shared ORM object.
+
+---
+
+## Transaction Context
+
+The Application Service owns the transaction boundary.
+
+Repositories participate in the current explicit transaction context but cannot commit independently. A generic Unit of Work must not expose all module Repositories as a service locator.
+
+The coordinated `RequestBlockingDecision` use case uses one transaction context for Work state, Decision state, both event sets, and command idempotency. All other cross-context propagation is asynchronous unless another exception is documented by ADR.
 
 ---
 
@@ -1595,26 +1651,40 @@ Domain exceptions must be translated into stable application-level results.
 
 # Cross-Aggregate Reference Resolution
 
-Event handlers often need to resolve a related Aggregate identifier.
+An integration event should carry the stable identifiers required to route the receiving use case whenever those identifiers were known at event creation.
 
 Example:
 
 ```text
-DecisionApproved
-      │
-      ▼
-Find Work linked to decisionId
+DecisionApproved Domain Event
+        │ translation
+        ▼
+DecisionOutcomeOccurred Integration Event
+    organizationId
+    decisionId
+    workId
+    outcome
+    decisionVersion
+        │
+        ▼
+Work module event handler
+        │
+        ▼
+Load Work by organizationId and workId
 ```
 
-The relationship may be resolved through:
+If the MVP publishes the Domain Event contract directly, that versioned contract must provide the same routing identifiers and must not expose internal Aggregate objects.
 
-- a Work repository query by blocking Decision identifier
-- an application-owned association table
-- event metadata established during coordination
+If an older event contract lacks `workId`, the Work module may resolve it through a Work-owned lookup or projection keyed by `decisionId`.
 
-Resolution logic belongs to the Application or Infrastructure Layer.
+The following are prohibited:
 
-It does not belong inside the Decision Aggregate.
+- a Platform Runtime component querying a Work or Decision Repository;
+- an unowned "application association table";
+- a cross-module join used as an authoritative mutation path; and
+- exposing another Organization's resource existence through lookup errors.
+
+Resolution belongs to the receiving module's Application Layer. Storage details belong to that module's Infrastructure Layer. Neither responsibility belongs inside the source Aggregate or the generic dispatcher.
 
 ---
 
@@ -3483,30 +3553,42 @@ Configuration values must not alter domain behavior.
 A recommended package structure is:
 
 ```text
-application/
+modules/
 
-    work/
-        CreateWorkService
-        StartWorkService
-        CompleteWorkService
+    organization-access/
+        application/
+        domain/
+        infrastructure/
 
-    decision/
-        CreateDecisionService
-        SubmitDecisionService
-        ApproveDecisionService
-        RejectDecisionService
+    work-decision/
+        work/
+            application/
+            domain/
+            infrastructure/
+        decision/
+            application/
+            domain/
+            infrastructure/
+        coordination/
+            RequestBlockingDecisionService
 
-    memory/
-        GenerateMemoryHandler
-        ApproveMemoryService
+    organizational-learning/
+        memory/
+            application/
+            domain/
+            infrastructure/
 
-    shared/
-        TransactionManager
-        AuthorizationService
-        EventDispatcher
-        OutboxWriter
-        IdempotencyStore
+platform-runtime/
+    outbox/
+    workers/
+    dispatch/
+    recovery/
+    observability/
 ```
+
+Platform Runtime may depend on stable module event-handler interfaces. It must not depend on module Repository implementations.
+
+Shared code is limited to technical primitives and stable cross-cutting contracts such as transaction context, clocks, identifiers, event envelopes, and authorization interfaces. Domain terminology and business policies must not be moved into a generic shared package.
 
 The exact implementation may differ.
 
@@ -3516,31 +3598,30 @@ Responsibilities should remain equivalent.
 
 # Dependency Direction
 
-Dependencies should follow:
+Dependencies point inward toward policies, not downward toward infrastructure.
 
 ```text
-Presentation
+Presentation Adapter ─────► Application Interface
+Platform Runtime Adapter ─► Application Event-Handler Interface
 
-↓
+Application ───────────────► Domain
 
-Application
-
-↓
-
-Domain
-
-↓
-
-Infrastructure
+Infrastructure Adapter ───► Application Port
+Infrastructure Adapter ───► Domain types required by that port
 ```
+
+The Domain Layer has no dependency on Application, Presentation, Platform Runtime, or Infrastructure.
+
+The Application Layer defines use cases and outbound ports. Infrastructure implements those ports. Dependency injection connects adapters at composition time.
 
 The Domain Layer must never depend on:
 
-- HTTP
-- databases
-- queues
-- logging
-- AI SDKs
+- HTTP;
+- databases;
+- queues;
+- logging;
+- AI SDKs; or
+- Worker and Outbox types.
 
 ---
 
