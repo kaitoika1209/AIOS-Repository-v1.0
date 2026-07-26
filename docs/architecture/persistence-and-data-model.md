@@ -455,13 +455,16 @@ Platform Runtime tables contain technical delivery, recovery, and projection sta
 
 Knowledge and Capability have no MVP tables or placeholder schemas.
 
-Cross-module writes occur only through:
+Cross-context mutations occur only through:
 
-- an explicit Application Service transaction;
-- an owning repository invoked by that Application Service; or
-- an idempotent event handler invoking the target module's command interface.
+- the owning module's Application command interface; or
+- an idempotent event handler invoking the target module's Application command interface.
 
-A generic repository or direct table update across module ownership is prohibited.
+An Application Service may coordinate multiple repositories only when those repositories are owned by the same implementation module and the use-case transaction is explicitly documented. The MVP `RequestBlockingDecision` coordinator is the approved Work/Decision case. Atomic coordination across implementation module boundaries is prohibited unless an accepted ADR documents the exact invariant, participating repositories, failure analysis, and extraction cost.
+
+Transactional Outbox, processed-operation, required audit, and reconciliation records may participate through narrow Platform Runtime ports in the owning Application transaction. This does not authorize Platform Runtime to mutate Domain Aggregate tables or decide Human business outcomes.
+
+A generic repository, direct table update across module ownership, or global Unit of Work exposing multiple modules is prohibited.
 
 ---
 
