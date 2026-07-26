@@ -661,14 +661,14 @@ Cross-context reads use explicit query ports or Integration Event data, not anot
 
 # Application Service Responsibilities
 ## Creating and Updating Work
-Authenticate the Human Member, evaluate Organization permission, validate referenced Members, load or create Work, invoke the Aggregate command, save with the expected version, and publish events durably.
+For creation, authenticate the Human Member, evaluate Organization permission, validate referenced Members, construct Work, call `WorkRepository.Add(organizationId, work)`, and persist `WorkCreated`, command idempotency, and required audit metadata in the same Application transaction. For mutation, load through `Get`, invoke the Aggregate command, call `Save` with the expected version, and persist emitted events durably in that transaction.
 ## Requesting a Blocking Decision
-Coordinate Decision creation or submission, confirm that no unresolved blocking Decision exists, invoke `RequestBlockingDecision`, and save both outcomes reliably. When one atomic transaction is unavailable, use durable events, idempotency, and visible recovery.
+The MVP `RequestBlockingDecision` coordinator loads Work, creates Decision, verifies Organization scope and the unresolved-blocking-Decision rule, invokes both Aggregates, calls `WorkRepository.Save` and `DecisionRepository.Add`, and persists both event sets plus command idempotency in one PostgreSQL transaction. Atomicity is required while Work and Decision are co-located in one module and database; a future service split requires an ADR defining durable coordination, compensation, idempotency, and visible recovery before this guarantee may change.
 ## Applying a Decision Outcome
-Consume the authoritative Decision event, check idempotency, load Work, verify the matching blocking `decisionId`, invoke `RecordDecisionOutcome`, save with the expected version, and publish the resulting Work event.
+Consume `Integration / DecisionOutcomeOccurred / 1`, validate its Organization, Work, and Decision identifiers, check processed-event idempotency, load Work, verify the matching blocking `decisionId`, invoke `RecordDecisionOutcome`, and atomically save with the expected version, persist the resulting Work event, and record the processed event.
 Decision resolution never invokes `CompleteWork`.
 ## Completing Work
-Authenticate a Human Member, evaluate completion permission, load Work, invoke `CompleteWork`, and save Work plus `WorkCompleted` in one transaction through an Outbox. Downstream Memory generation finishes independently.
+Authenticate a Human Member, evaluate completion permission, load Work, invoke `CompleteWork`, and let the Application transaction atomically save Work, append `WorkCompleted` to the Outbox, and record command idempotency and required audit evidence. Downstream Memory generation finishes independently.
 # Concurrency and Idempotency
 Use optimistic concurrency through:
 ```text
@@ -697,7 +697,7 @@ AggregateVersion
 ```
 ---
 # Failure Semantics
-- A failed Work transaction commits neither state nor Domain Events.
+- A failed Work transaction commits neither Work state, Outbox records, processed-command or processed-event records, nor required transactional audit evidence; uncommitted in-memory Domain Events are discarded.
 - Failed Decision-to-Work coordination leaves Decision resolved and retries the Work update idempotently.
 - Failed Memory generation leaves Work `Completed`.
 - Failed projections or notifications do not reverse committed Work state.
