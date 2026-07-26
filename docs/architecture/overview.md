@@ -953,7 +953,7 @@ Examples:
 - Decision supersession behavior,
 - advanced audit requirements,
 - sharing grants,
-- retention policies,
+- jurisdiction-specific retention durations and legal bases (source-snapshot semantics are fixed by ADR-0012),
 - and operational recovery tooling.
 
 ## Future Exploration
@@ -980,7 +980,7 @@ ADR identifiers are assigned only when a decision record is created.
 
 Accepted identifiers are immutable, never reused, and never renumbered. Superseded ADRs remain in the register with their original identifiers and changed status.
 
-Future decisions MUST NOT reserve numeric identifiers in prose. At the time this Blueprint version was reviewed, the accepted sequence ends at ADR-0011 and the next unassigned identifier is ADR-0012. Concurrent ADR creation must recheck the register before assigning that identifier.
+Future decisions MUST NOT reserve numeric identifiers in prose. At the time this Blueprint version was reviewed, the accepted sequence ends at ADR-0012 and the next unassigned identifier is ADR-0013. Concurrent ADR creation must recheck the register before assigning that identifier.
 
 Potential later decisions include:
 
