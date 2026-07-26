@@ -1188,46 +1188,38 @@ Human later invokes CompleteWork
 
 # Workflow 12: Start Memory Generation
 
-Memory generation begins asynchronously after Work completion.
+Memory generation begins asynchronously after Work completion and is classified as `ExternalComputation`, not `ExternalBusinessEffect`.
 
 ```text
 WorkCompleted
       │
       ▼
-Outbox Publisher
+Memory Generation Consumer Claim
       │
       ▼
-Memory Generation Handler
-      │
-      │ Check existing Memory
-      │
-      │ Gather source material
-      │
-      │ Invoke generation service
-      ▼
-Memory Aggregate
-      │
-      │ CreateGeneratedMemory
-      ▼
-MemoryGenerated
+Committed Source Snapshot + Generation Operation
       │
       ▼
-Save Memory + Outbox + Commit
+Fenced Generation Attempt
+      │
+      ▼
+AI Provider Call Outside Transaction
+      │
+      ▼
+Validate Candidate
+      │
+      ▼
+CreateGeneratedMemory
+      │
+      ▼
+Memory + MemoryGenerated + Processed Event + Generation Result
 ```
 
 ---
 
 ## Memory Generation Is Asynchronous
 
-The Complete Work transaction does not wait for:
-
-- AI generation
-- document synthesis
-- source retrieval
-- Memory persistence
-- review notification
-
-This keeps Work completion fast and reliable.
+The Complete Work transaction does not wait for AI generation, document synthesis, source retrieval, Memory persistence, or review notification. Work remains Completed regardless of provider availability.
 
 ---
 
@@ -1235,58 +1227,108 @@ This keeps Work completion fast and reliable.
 
 The handler verifies:
 
-- WorkCompleted is authentic and committed
-- the Work belongs to the event Organization
-- no Memory already exists for that Work
-- required Work source data is available
-- the event has not already been processed successfully
+- `WorkCompleted` is authentic and committed;
+- the Work and every source belong to the event Organization;
+- no Memory already exists for that Work;
+- the exact immutable source snapshot exists or can be created;
+- the stable generation operation matches Work, event, policy, source hash, and provider-input hash; and
+- the consumer event has not already been processed successfully.
+
+---
+
+## Source and Operation Transaction
+
+```text
+BEGIN
+Validate WorkCompleted envelope, Organization scope, and generation identity
+Create or reuse the immutable source snapshot
+Create or reuse one memory_generation_operation
+Verify source hash, policy version, and provider-input hash
+COMMIT
+```
+
+The operation is globally stable for `organizationId + workId + generationPolicyVersion`. A conflicting fingerprint is terminal for automatic processing.
+
+---
+
+## Generation Claim Transaction
+
+A real provider attempt uses a short fenced transaction:
+
+```text
+Lock generation operation
+Require Pending or due RetryPending
+Set status = Generating
+Increment attemptCount and claimVersion
+Set lockedBy, lockedUntil, lastAttemptAt using database time
+COMMIT
+```
+
+The AI provider call begins only after this transaction. Long calls renew the generation lease without changing business state or incrementing the attempt count.
+
+---
+
+## Provider Call and Candidate Rule
+
+The provider receives only the committed source snapshot. No PostgreSQL transaction remains open.
+
+The provider response is untrusted candidate data. It has no domain authority and does not mean generation succeeded until the final local transaction validates the candidate and creates Memory.
+
+A stale response whose `lockedBy`, `claimVersion`, or `lockedUntil` no longer matches is discarded. It cannot create or overwrite Memory.
 
 ---
 
 ## Memory Creation Transaction
 
-Memory generation is one durable use case implemented as two short transactions separated by the external AI call.
-
 ```text
 BEGIN
-
-Validate WorkCompleted envelope, Organization scope, and generation identity
-Create or reuse the immutable source snapshot
-Create or reuse the stable generation operation
-Persist source hash, policy version, and attempt state
-
-COMMIT
-
-Call the AI provider using only the committed source snapshot
-
-BEGIN
-
-Recheck generation operation and source-snapshot identity
-Check processed-event state
+Verify generation status = Generating and generation fencing
+Verify processed-event consumer fencing
+Recheck source-snapshot identity and provider-input hash
 Confirm no Memory exists for organizationId + sourceWorkId
 Validate generated candidate
-Create Memory Aggregate
+Create Memory Aggregate in Generated
 Add Memory
 Write MemoryGenerated to Outbox
-Record processed event, generation result, and required audit evidence
-
+Set generation operation = Generated
+Set processed event = Processed with stable result reference
+Record required audit evidence
 COMMIT
 ```
 
-No database transaction remains open during the provider call. A retry reuses the committed snapshot and generation operation. The database uniqueness constraint is the final race guard; a duplicate conflict resolves to the existing Memory and never becomes an overwrite.
+A uniqueness conflict loads the existing Organization-scoped Memory, verifies the same Work and generation identity, and records prior success without overwriting it.
+
+---
+
+## Generation Timeout and Retry
+
+A timeout with no usable candidate does not create unknown external business state because the provider performs computation only.
+
+While retry budget remains, a fenced transaction changes:
+
+```text
+Generating -> RetryPending
+```
+
+It stores `nextAttemptAt`, bounded error code, and clears the generation claim. Retry reuses the exact source snapshot, policy version, provider-input hash, and generation operation.
+
+When retry policy is exhausted, `Generating -> Failed`. A Human-authorized typed retry may later return the same operation to `RetryPending`; it must not create another logical operation.
+
+Provider duplicate-call cost and latency are recorded operationally. They never justify duplicate Memory, accepting a stale response, or bypassing Human review.
+
+---
+
+## Generation Lease Recovery
+
+Expired `Generating` claims are fenced by `claimVersion`. Recovery changes them to `RetryPending`, preserves `attemptCount`, schedules `nextAttemptAt`, records `LeaseExpired`, and clears claim fields.
+
+Recovery itself is not a provider attempt and cannot mark the processed event successful.
 
 ---
 
 ## Generation Failure
 
-If generation fails before persistence:
-
-- no Memory is created
-- Work remains Completed
-- the event remains retryable
-- failure details are recorded operationally
-
-Work completion is never rolled back.
+Generation failure creates no partial Memory Aggregate and does not reopen Work. The committed source snapshot and generation operation remain as durable recovery evidence.
 
 ---
 
@@ -2593,92 +2635,73 @@ Therefore every retry must first check:
 
 ---
 
-# Memory Generation Retry
+# Memory Generation Operation
 
-Memory generation requires special handling because AI processing may be expensive.
+The Memory generation consumer uses one stable `memory_generation_operation`, not one mutable row per provider retry.
 
-The handler should use a stable generation identity.
-
-Example:
+Canonical statuses are:
 
 ```text
-generationId = workId + generationPolicyVersion
+Pending
+Generating
+RetryPending
+Generated
+Failed
+Abandoned
 ```
 
-Before generating or persisting, the handler checks whether generation already succeeded.
+`Generated` and `Abandoned` are terminal. `Failed` requires an authorized typed retry to become `RetryPending`.
 
----
+The one-Memory-per-Work guarantee is reinforced by:
 
-# One Memory per Work
-
-The Memory subsystem guarantees:
-
-```text
-Work 1 --- 0..1 Active Memory
-```
-
-The handler must not create multiple active Memories for the same Work.
-
-Recommended safeguards:
-
-- application-level existence check
-- database uniqueness constraint
-- deterministic generation identity
-- processed event record
-
----
-
-# Generation Attempt Record
-
-A Memory generation attempt may record:
-
-```text
-generationAttemptId
-workId
-sourceEventId
-policyVersion
-status
-attemptCount
-startedAt
-completedAt
-lastError
-```
-
-This is operational metadata.
-
-It does not replace the Memory Aggregate.
+- the full unique generation-operation identity;
+- processed-event identity;
+- Memory uniqueness on `organizationId + sourceWorkId`;
+- source and provider-input hashes; and
+- fenced finalization.
 
 ---
 
 # External AI Call Boundary
 
-External AI generation must occur outside a long-running database transaction.
+Memory generation is `ExternalComputation`. Correctness depends on local fencing and final PostgreSQL commit, not on treating a provider request as an external business effect.
 
-Correct pattern:
+Provider idempotency may reduce duplicate billable calls when supported, but it is not the domain idempotency boundary. The stable generation operation, source snapshot, and Memory uniqueness remain authoritative.
+
+---
+
+# External Business Effect Execution Pattern
+
+`PostgreSQLLocal` consumers use the ordinary atomic consumer transaction. A consumer registered as `ExternalBusinessEffect` uses a different Application Service pattern.
 
 ```text
-Load required immutable source data
+BEGIN
+Create or reuse external_effect_operation = Prepared
+Verify logical effect key and request fingerprint
+COMMIT
 
-Commit or release read resources
+BEGIN
+Acquire fenced effect claim
+Set Prepared or ConfirmedAbsent -> InFlight
+COMMIT
 
-Invoke AI generation
+Call provider outside transaction using stable provider idempotency key
+or durable provider operation identity
 
-Validate generated content
-
-BEGIN short persistence transaction
-
-Verify no Memory exists
-
-Create Memory Aggregate
-
-Save Memory
-
-Write Outbox event
-
-Mark source event processed
-
+BEGIN
+Verify effect claim and provider evidence
+Set effect operation outcome
+Finalize processed event, dead letter, ordering state, Outbox, and audit
 COMMIT
 ```
+
+Timeout, acknowledgement loss, lease loss after send, or local commit failure after provider acknowledgement becomes `OutcomeUnknown` unless authoritative provider evidence proves otherwise.
+
+Ordinary retry does not claim or resend `OutcomeUnknown`. The Operations Application Service must query the provider, repeat the same provider-enforced idempotency key within its verified retention window, or execute approved compensation.
+
+A provider effect that is neither idempotent nor queryable cannot be enabled as an automatic MVP consumer. Application-level “already sent” checks cannot close the crash window after the external effect and before local commit.
+
+Compensation is a separate typed operation and ledger row. It never deletes or rewrites the original effect history.
 
 ---
 
@@ -2993,8 +3016,11 @@ Result:
 
 - Work remains Completed
 - no incomplete Memory is created
-- generation attempt is retried
-- operational metrics record failure
+- the same generation operation changes to `RetryPending` when retry budget remains
+- source snapshot, policy version, and provider-input hash are reused
+- a late response from a stale generation claim is discarded
+- retry exhaustion changes the operation to `Failed`
+- provider duplicate-call cost and timeout metrics are recorded
 
 ---
 
