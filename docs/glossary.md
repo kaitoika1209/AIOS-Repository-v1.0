@@ -139,7 +139,25 @@ The primary advisory AI interface within AIOS.
 
 The Secretary is an AI Principal assigned to one Organization. It helps Human Members organize Work, prioritize activity, and coordinate future AI Employees.
 
-The Secretary is not a Member and cannot perform Human-only authoritative actions.
+The Secretary is not a Member and cannot perform Human-only authoritative actions. It is not a Bounded Context, Aggregate, or domain-owning service.
+
+---
+
+## Secretary Runtime
+
+A non-owning Application/Infrastructure adapter that resolves an Organization-scoped Secretary Principal and invokes context-owned AI Assistance Application Ports. It has no direct Repository, Aggregate, database, unrestricted query, or generic command-dispatch access.
+
+---
+
+## AI Assistance Application Port
+
+A narrow, typed interface owned by one Bounded Context for allowlisted advisory AI operations. It defines bounded inputs, validation, provenance, and failure outcomes and excludes Human-only and System-only commands.
+
+---
+
+## Assistance Operation
+
+A versioned authorization identifier for one advisory operation exposed by an AI Assistance Application Port. It is not the future Capability domain concept.
 
 ---
 
