@@ -2,11 +2,15 @@
 
 > **Document scope:** Complete AIOS Blueprint  
 > **MVP implementation boundary:** Human-approved Memory  
-> **Future Blueprint concepts:** Evidence, Knowledge, Capability, AI Employees, External Knowledge Sources, and Semantic Search
+> **Scope classification:** Mixed — MVP Normative concepts and Future Hypotheses  
+> **Future Hypotheses:** Evidence, Knowledge, Capability, AI Employees, External Knowledge Sources, and Semantic Search  
+> **Implementation authority:** Future sections have none until promoted under ADR-0010
 
 The conceptual learning cycle in this document describes the long-term target domain. The MVP implements Organization, Human Membership, Secretary assistance, Work, Decision, and Human-reviewed Memory, and stops at Approved Memory.
 
-The presence of a future concept in this document is not authorization to implement it in the MVP.
+The presence of a future concept in this document is not authorization to implement it in the MVP. Normative wording inside a Future Hypothesis describes a condition for later design approval, not a current code, schema, event, interface, or deployment obligation.
+
+No placeholder implementation is required for future concepts. Promotion requires an accepted implementation ADR and an update to the authoritative release-scope document as defined by [ADR-0010](../adr/0010-classify-blueprint-scope-and-implementation-authority.md).
 
 ---
 
