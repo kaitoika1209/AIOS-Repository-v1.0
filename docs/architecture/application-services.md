@@ -761,7 +761,7 @@ Human Member
       │
       │ Request Secretary assistance
       ▼
-Secretary Application Service
+Secretary Runtime Adapter
       │
       │ Invoke context-owned DecisionAiAssistancePort
       ▼
@@ -793,7 +793,7 @@ The Application Service must never translate Secretary output directly into:
 
 Secretary output is advisory input only.
 
-The `Secretary Application Service` label represents a non-owning Runtime adapter. It does not contain Decision rules and receives no Decision Repository, Aggregate, database, generic command bus, or unrestricted query access.
+The `Secretary Runtime Adapter` is non-owning. It does not contain Decision rules and receives no Decision Repository, Aggregate, database, generic command bus, or unrestricted query access.
 
 Each context owns a narrow AI Assistance Application Port. The port exposes only typed advisory operations; Human-only and System-only commands are absent from the interface. Invocation requires an Organization-scoped, versioned assistance grant and an initiating Human command or separately permitted System workflow.
 
