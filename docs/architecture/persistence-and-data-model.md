@@ -1583,6 +1583,16 @@ completion_gate_type
 
 completion_gate_decision_id
 
+completion_gate_revision_number
+
+completion_gate_submitted_snapshot_id
+
+blocking_decision_id
+
+blocking_decision_revision_number
+
+blocking_decision_submitted_snapshot_id
+
 completion_gate_outcome
 ```
 
@@ -1597,11 +1607,11 @@ Supported conceptual states:
 ```text
 NotRequired
 
-Pending(decisionId)
+Pending(decisionId, revisionNumber, submittedSnapshotId)
 
-Satisfied(decisionId)
+Satisfied(decisionId, revisionNumber, submittedSnapshotId)
 
-Unsatisfied(decisionId)
+Unsatisfied(decisionId, revisionNumber, submittedSnapshotId)
 ```
 
 Database constraints must prevent invalid field combinations.
@@ -1619,17 +1629,17 @@ NotRequired
 
 ```text
 Pending
-    -> decision_id must be non-null
+    -> gate reference must be complete; while WaitingForDecision the active reference is complete and identical, while Cancelled the active reference is null
 ```
 
 ```text
 Satisfied
-    -> decision_id must be non-null
+    -> gate reference must be complete and active blocking reference must be null
 ```
 
 ```text
 Unsatisfied
-    -> decision_id must be non-null
+    -> gate reference must be complete and active blocking reference must be null
 ```
 
 ---
@@ -2153,7 +2163,12 @@ Conceptual fields:
 
 ```text
 completion_gate_type
+completion_gate_decision_id
+completion_gate_revision_number
+completion_gate_submitted_snapshot_id
 blocking_decision_id
+blocking_decision_revision_number
+blocking_decision_submitted_snapshot_id
 decision_outcome
 ```
 
@@ -2187,25 +2202,57 @@ ADD CONSTRAINT ck_work_items_completion_gate
 CHECK (
     (
         completion_gate_type = 'NotRequired'
+        AND completion_gate_decision_id IS NULL
+        AND completion_gate_revision_number IS NULL
+        AND completion_gate_submitted_snapshot_id IS NULL
         AND blocking_decision_id IS NULL
+        AND blocking_decision_revision_number IS NULL
+        AND blocking_decision_submitted_snapshot_id IS NULL
         AND decision_outcome IS NULL
     )
     OR
     (
         completion_gate_type = 'Pending'
-        AND blocking_decision_id IS NOT NULL
+        AND completion_gate_decision_id IS NOT NULL
+        AND completion_gate_revision_number IS NOT NULL
+        AND completion_gate_submitted_snapshot_id IS NOT NULL
+        AND (
+            (
+                status = 'WaitingForDecision'
+                AND blocking_decision_id = completion_gate_decision_id
+                AND blocking_decision_revision_number = completion_gate_revision_number
+                AND blocking_decision_submitted_snapshot_id = completion_gate_submitted_snapshot_id
+            )
+            OR
+            (
+                status = 'Cancelled'
+                AND blocking_decision_id IS NULL
+                AND blocking_decision_revision_number IS NULL
+                AND blocking_decision_submitted_snapshot_id IS NULL
+            )
+        )
         AND decision_outcome IS NULL
     )
     OR
     (
         completion_gate_type = 'Satisfied'
-        AND blocking_decision_id IS NOT NULL
+        AND completion_gate_decision_id IS NOT NULL
+        AND completion_gate_revision_number IS NOT NULL
+        AND completion_gate_submitted_snapshot_id IS NOT NULL
+        AND blocking_decision_id IS NULL
+        AND blocking_decision_revision_number IS NULL
+        AND blocking_decision_submitted_snapshot_id IS NULL
         AND decision_outcome = 'Approved'
     )
     OR
     (
         completion_gate_type = 'Unsatisfied'
-        AND blocking_decision_id IS NOT NULL
+        AND completion_gate_decision_id IS NOT NULL
+        AND completion_gate_revision_number IS NOT NULL
+        AND completion_gate_submitted_snapshot_id IS NOT NULL
+        AND blocking_decision_id IS NULL
+        AND blocking_decision_revision_number IS NULL
+        AND blocking_decision_submitted_snapshot_id IS NULL
         AND decision_outcome IN (
             'Rejected',
             'Withdrawn'
@@ -2217,6 +2264,8 @@ CHECK (
 The Work Aggregate remains responsible for deciding which Decision outcomes produce each gate state.
 
 The database prevents structurally impossible combinations.
+
+An additional status constraint must require `WaitingForDecision` to use a Pending gate and matching active reference, and must prohibit an active blocking reference while status is `InProgress`. Terminal Work may preserve its last Completion Gate snapshot, but has no active blocking reference.
 
 ---
 
@@ -2391,12 +2440,18 @@ This prevents assigning a Member from another Organization.
 
 # Work Decision Association
 
-The blocking Decision association should be immutable after establishment except through explicit Work Aggregate behavior.
+The active blocking Decision association should be immutable after establishment except through explicit Work Aggregate behavior. It is cleared when the outcome is recorded or Work is cancelled; the resolved reference remains in Completion Gate and outcome history fields.
 
 Recommended fields:
 
 ```text
 blocking_decision_id
+blocking_decision_revision_number
+blocking_decision_submitted_snapshot_id
+
+completion_gate_decision_id
+completion_gate_revision_number
+completion_gate_submitted_snapshot_id
 ```
 
 Recommended composite foreign key:
@@ -2419,6 +2474,8 @@ DEFERRABLE INITIALLY DEFERRED
 ```
 
 when repository insertion order requires it.
+
+Both the active blocking reference and Completion Gate evidence must also reference the immutable submitted Decision revision. In the MVP physical model, `submittedSnapshotId` is the `decision_revision_id` of a revision once it becomes `Submitted` and immutable. Composite constraints or repository validation must prove Organization, Decision, revision number, and submitted-snapshot identity agree. A separate submitted-snapshot table may be introduced later without changing this domain contract.
 
 ---
 
@@ -2473,7 +2530,12 @@ CREATE TABLE work_items (
     description                  text NULL,
     status                       text NOT NULL,
     completion_gate_type         text NOT NULL,
+    completion_gate_decision_id  uuid NULL,
+    completion_gate_revision_number integer NULL,
+    completion_gate_submitted_snapshot_id uuid NULL,
     blocking_decision_id         uuid NULL,
+    blocking_decision_revision_number integer NULL,
+    blocking_decision_submitted_snapshot_id uuid NULL,
     decision_outcome             text NULL,
 
     created_by_identity_id       uuid NOT NULL,
@@ -2528,6 +2590,7 @@ The Decision Aggregate owns:
 - Decision identity
 - Organization scope
 - related Work reference
+- blocking designation
 - lifecycle status
 - active revision
 - immutable submitted revisions
@@ -2553,6 +2616,7 @@ decisions
 - decision_id
 - organization_id
 - related_work_id
+- is_blocking
 - status
 - current_revision_id
 - current_revision_number
@@ -2590,6 +2654,8 @@ Rejected
 
 Withdrawn
 ```
+
+`is_blocking` is selected while the Decision is Draft and is immutable once submitted. Only an `InReview` Decision with `is_blocking = true` participates in the Work blocking invariant.
 
 Recommended constraint:
 
@@ -2989,6 +3055,20 @@ ON decisions (
 WHERE status = 'InReview';
 ```
 
+The MVP must also prevent two submitted blocking Decisions for one Work:
+
+```sql
+CREATE UNIQUE INDEX uq_decisions_one_in_review_blocking_per_work
+ON decisions (
+    organization_id,
+    related_work_id
+)
+WHERE status = 'InReview'
+  AND is_blocking = TRUE;
+```
+
+This constraint closes the race between concurrent `RequestBlockingDecision` commands. The Work expected-version check still protects its local state transition.
+
 ---
 
 # Decision Root Conceptual DDL
@@ -2998,6 +3078,7 @@ CREATE TABLE decisions (
     decision_id                  uuid PRIMARY KEY,
     organization_id              uuid NOT NULL,
     related_work_id              uuid NOT NULL,
+    is_blocking                  boolean NOT NULL,
     status                        text NOT NULL,
 
     current_revision_id           uuid NULL,
@@ -6385,6 +6466,8 @@ WorkDecisionRequested Event
 
 DecisionCreated Event
 
+DecisionSubmitted Event
+
 Processed Command
 
 Required Authorization Audit
@@ -6393,7 +6476,8 @@ Required Authorization Audit
 The transaction establishes:
 
 - Work references the blocking Decision
-- Decision exists
+- Decision exists as an immutable submitted revision in `InReview`
+- Work Pending gate and Decision submitted revision have the same Decision, revision, and submitted-snapshot identifiers
 - both resources belong to the same Organization
 
 ---
