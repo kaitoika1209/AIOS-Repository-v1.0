@@ -90,9 +90,13 @@ A memory records what happened, why it happened, and what was learned.
 
 ## Knowledge
 
-Validated organizational experience that can be reused across future work.
+> **Blueprint status:** Future — outside the MVP.
 
-Knowledge is created from reviewed memories.
+Reusable organizational guidance that is created separately from historical Memory and explicitly published through Human-authorized review.
+
+Knowledge must be supported by traceable Evidence. In the initial future model, every publishable Knowledge revision references at least one Approved Memory as Evidence.
+
+A Generated, InReview, Rejected, or Approved Memory does not automatically become Knowledge. Memory approval establishes trustworthy history; it does not establish reusable organizational guidance.
 
 ---
 
@@ -106,7 +110,9 @@ Examples include review, approval, and publishing.
 
 ## Capability
 
-An organizational ability.
+> **Blueprint status:** Future — outside the MVP.
+
+An organizational ability supported by reusable Knowledge and observed performance.
 
 Examples:
 
@@ -115,7 +121,7 @@ Examples:
 - Customer Support
 - Software Development
 
-Capabilities grow as organizations accumulate experience.
+Capability must not be inferred from one unreviewed AI output or from one historical Memory alone.
 
 ---
 
@@ -170,7 +176,11 @@ It combines memories, knowledge, and capabilities to improve future work.
 
 ## Evidence
 
-One or more Approved Memories that provide traceable support for a Knowledge record.
+> **Blueprint status:** Future — outside the MVP.
+
+A traceable reference used to support, limit, or contradict a Knowledge revision.
+
+In the initial future model, Evidence includes one or more Approved Memories and every publishable Knowledge revision references at least one Approved Memory.
 
 Evidence represents the organizational experiences upon which a piece of Knowledge is based.
 
