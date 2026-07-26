@@ -1,10 +1,22 @@
 # Knowledge State Machine
 
+> **Document status:** Future Blueprint  
+> **MVP status:** Out of scope  
+> **Target roadmap phase:** Phase 4 — Organizational Intelligence
+
+This State Machine specifies a future lifecycle boundary. The MVP defines no Knowledge command, state, event, persistence table, background handler, or user interface.
+
+Approved Memory remains historical truth and does not enter this State Machine automatically.
+
+---
+
 ## Purpose
 
-The Knowledge State Machine defines the lifecycle of organizational Knowledge.
+The Knowledge State Machine defines the intended future lifecycle of organizational Knowledge.
 
 Unlike Memory, which records historical facts, Knowledge represents reusable organizational understanding that evolves over time.
+
+Before this State Machine is implemented, the Knowledge Aggregate, authorization policy, Evidence eligibility, persistence model, and implementation ADRs must be reviewed together.
 
 The purpose of this state machine is to ensure that organizational Knowledge:
 
