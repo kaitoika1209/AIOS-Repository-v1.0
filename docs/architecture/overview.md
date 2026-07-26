@@ -550,6 +550,7 @@ ADR identifiers are unique and immutable after adoption. A superseded ADR retain
 | [ADR-0001](../adr/0001-adopt-domain-driven-design.md) | Adopt Domain-Driven Design | Accepted |
 | [ADR-0002](../adr/0002-memory-vs-knowledge.md) | Separate Memory and Knowledge | Accepted |
 | [ADR-0003](../adr/0003-select-mvp-observability-stack.md) | Select the MVP Observability and Operations Stack | Accepted |
+| [ADR-0004](../adr/0004-separate-external-computation-and-business-effects.md) | Separate External Computation from External Business Effects | Accepted |
 
 Location:
 
@@ -948,37 +949,28 @@ Every unresolved item that blocks implementation should have:
 
 ---
 
-# Architecture Decision Records
+# ADR Numbering and Adoption
 
-The ADR set should use unique, stable numbering.
+ADR identifiers are assigned only when a decision record is created.
 
-The intended sequence is:
+Accepted identifiers are immutable, never reused, and never renumbered. Superseded ADRs remain in the register with their original identifiers and changed status.
 
-```text
-ADR-0001 — Adoption of Domain-Driven Design
+Future decisions MUST NOT reserve numeric identifiers in prose. At the time this Blueprint version was reviewed, the accepted sequence ends at ADR-0004 and the next unassigned identifier is ADR-0005. Concurrent ADR creation must recheck the register before assigning that identifier.
 
-ADR-0002 — Separation of Memory and Knowledge
+Potential later decisions include:
 
-ADR-0003 — Modular Monolith for the Initial Implementation
+- Modular Monolith implementation boundaries;
+- Transactional Outbox and event-delivery implementation;
+- Work and Decision consistency;
+- Actor Model implementation;
+- Memory correction and versioning;
+- Evidence modeling;
+- Organization ownership and sharing;
+- event contract versioning;
+- model-provider selection; and
+- AI provenance.
 
-ADR-0004 — Transactional Outbox and Event Delivery
-
-ADR-0005 — Work and Decision Consistency
-
-ADR-0006 — Actor Model
-```
-
-Additional ADRs should be added when their decisions become necessary.
-
-Possible later ADRs include:
-
-- Memory correction and versioning,
-- Evidence modeling,
-- Organization ownership and sharing,
-- external Evidence Sources,
-- and AI provenance.
-
-An ADR number must identify exactly one architectural decision.
+This list is a decision backlog, not a numbering reservation. An ADR number identifies exactly one accepted, proposed, rejected, deprecated, or superseded decision record.
 
 ---
 
