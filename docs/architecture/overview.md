@@ -553,6 +553,7 @@ ADR identifiers are unique and immutable after adoption. A superseded ADR retain
 | [ADR-0004](../adr/0004-separate-external-computation-and-business-effects.md) | Separate External Computation from External Business Effects | Accepted |
 | [ADR-0005](../adr/0005-adopt-boundary-enforced-modular-monolith.md) | Adopt a Boundary-Enforced Modular Monolith for the MVP | Accepted |
 | [ADR-0006](../adr/0006-use-postgresql-transactional-outbox.md) | Use a PostgreSQL Transactional Outbox with Durable Local Consumer Handoff | Accepted |
+| [ADR-0007](../adr/0007-coordinate-work-and-blocking-decisions.md) | Coordinate Work and Blocking Decisions with Atomic Activation and Asynchronous Outcomes | Accepted |
 
 Location:
 
@@ -658,7 +659,7 @@ In particular:
 - Work completion remains an explicit human-authorized action.
 - Work completion triggers Memory generation through reliable asynchronous processing.
 
-The detailed Work and Decision State Machines will define the exact MVP transition.
+ADR-0007 and the detailed Work and Decision State Machines define the exact MVP coordination: blocking submission and Work waiting activate atomically, outcomes propagate asynchronously, and only a later explicit Human command completes Work.
 
 ---
 
@@ -957,11 +958,10 @@ ADR identifiers are assigned only when a decision record is created.
 
 Accepted identifiers are immutable, never reused, and never renumbered. Superseded ADRs remain in the register with their original identifiers and changed status.
 
-Future decisions MUST NOT reserve numeric identifiers in prose. At the time this Blueprint version was reviewed, the accepted sequence ends at ADR-0006 and the next unassigned identifier is ADR-0007. Concurrent ADR creation must recheck the register before assigning that identifier.
+Future decisions MUST NOT reserve numeric identifiers in prose. At the time this Blueprint version was reviewed, the accepted sequence ends at ADR-0007 and the next unassigned identifier is ADR-0008. Concurrent ADR creation must recheck the register before assigning that identifier.
 
 Potential later decisions include:
 
-- Work and Decision consistency;
 - Actor Model implementation;
 - Memory correction and versioning;
 - Evidence modeling;
