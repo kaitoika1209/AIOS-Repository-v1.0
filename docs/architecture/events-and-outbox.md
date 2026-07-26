@@ -3585,44 +3585,30 @@ Consumers must not receive unrelated authority.
 A standard consumer follows:
 
 ```text
-Receive Event
-
+Receive committed event
 ↓
-
-Validate Envelope
-
+Validate envelope and registered contract
 ↓
-
-Validate Event Contract
-
+Resolve narrow System Principal and Organization scope
 ↓
-
-Resolve System Principal
-
+Derive trusted ordering key and source sequence
 ↓
-
-Verify Organization Scope
-
+Acquire Processing claim or return duplicate/deferred/blocked result
 ↓
-
-Check Handler Idempotency
-
+Execute handler preparation outside the claim transaction
 ↓
-
-Execute Handler Logic
-
+Open short final transaction
 ↓
-
-Persist Effects and Processed Record
-
+Verify fencing before target mutation
 ↓
-
+Persist effects, Outbox records, audit, Processed transition, and ordering state
+↓
 Commit
-
 ↓
-
-Acknowledge Success
+Acknowledge successful consumer processing
 ```
+
+Invalid envelopes, unsupported contracts, Organization mismatches, and prohibited capabilities fail before domain mutation. Their failure and ordering consequences are persisted according to the registered consumer policy.
 
 ---
 
@@ -3630,17 +3616,17 @@ Acknowledge Success
 
 Before processing, the consumer validates:
 
-- eventId exists
-- eventType is registered
-- schemaVersion is supported
-- eventCategory is supported
-- aggregateType is valid
-- aggregateId is valid
-- aggregateVersion is positive
-- occurredAt is valid
-- correlationId exists
-- Organization scope is valid
-- payload matches the registered contract
+- eventId exists;
+- eventType is registered;
+- schemaVersion is supported;
+- eventCategory is supported;
+- aggregateType and aggregateId are valid;
+- aggregateVersion is positive;
+- occurredAt is valid;
+- correlationId exists;
+- Organization scope is valid;
+- payload matches the registered contract; and
+- trusted ordering inputs can be derived where required.
 
 Invalid envelopes must not reach domain mutation logic.
 
@@ -3648,27 +3634,7 @@ Invalid envelopes must not reach domain mutation logic.
 
 # Contract Validation
 
-Contract validation checks:
-
-```text
-Required fields
-
-Field types
-
-Identifier structure
-
-Enum values
-
-Payload size
-
-Actor requirements
-
-Organization requirements
-
-Semantic prerequisites
-```
-
-A structurally valid JSON payload is not necessarily a valid event contract.
+Contract validation checks required fields, field types, identifier structure, enum values, payload size, actor requirements, Organization requirements, semantic prerequisites, registered retry policy, and ordering policy. Structurally valid JSON is not necessarily a valid event contract.
 
 ---
 
@@ -3727,65 +3693,49 @@ One Organization failure must not silently block all others indefinitely.
 
 # Handler Transaction Boundary
 
-Domain-changing handlers use a short database transaction.
+Domain-changing handlers use the canonical consumer claim and fencing contract. The final transaction is short and begins only after any external preparation finishes.
 
 ```text
 BEGIN
 
-Check processed event
-
-Authorize System capability
-
-Load target Aggregate
-
+Lock processed-event row
+Verify Processing + workerId + claimVersion + unexpired lease
+Authorize System capability and Organization scope
+Revalidate event applicability and ordering state
+Load target Aggregate with expected version
 Execute Aggregate command
-
 Save Aggregate
-
 Write new Outbox events
-
-Record processed event
+Persist required audit
+Transition processed event to Processed
+Advance ordering state
 
 COMMIT
 ```
 
-External calls must not occur inside this transaction unless they are short, local, and transactionally safe.
+No external call occurs inside this final transaction. If fencing fails, no target mutation occurs.
 
 ---
 
 # External Preparation Boundary
 
-When the handler requires external preparation:
+When a handler requires external preparation:
 
 ```text
-Load immutable source data
-
+Acquire fenced Processing claim and commit
 ↓
-
+Create or reuse durable immutable input snapshot when required
+↓
 Call external service outside transaction
-
 ↓
-
+Renew lease in bounded heartbeat transactions when required
+↓
 Validate result
-
 ↓
-
-BEGIN short persistence transaction
-
-↓
-
-Recheck idempotency and target state
-
-↓
-
-Persist result
-
-↓
-
-COMMIT
+Execute the short fenced final transaction
 ```
 
-Memory generation follows this pattern.
+Memory generation follows this pattern. Losing the lease invalidates the Worker result until it acquires a new authorized claim; a stale result is never persisted merely because the external call completed.
 
 ---
 
@@ -3844,121 +3794,245 @@ alone cannot represent completion for all consumers.
 
 # Processed Event Store
 
-Recommended processed-event record:
+`processed_events` is the durable per-consumer delivery and execution record. It is not the immutable source event history.
+
+The identity is:
 
 ```text
-ProcessedEvent
-- consumerName
-- eventId
-- eventType
-- schemaVersion
-- organizationId
-- aggregateType
-- aggregateId
-- aggregateVersion
-- correlationId
-- status
-- firstReceivedAt
-- processingStartedAt
-- processedAt
-- attemptCount
-- handlerVersion
-- resultReference
-- lastErrorCode
-- lastErrorMessage
+consumerName + eventId
 ```
+
+Required conceptual fields:
+
+```text
+consumerName
+eventId
+eventType
+schemaVersion
+organizationId
+aggregateType
+aggregateId
+aggregateVersion
+correlationId
+status
+attemptCount
+firstReceivedAt
+processingStartedAt
+lastAttemptAt
+nextAttemptAt
+processedAt
+failedAt
+skippedAt
+handlerVersion
+resultReference
+lastErrorCode
+lastErrorMessage
+lockedBy
+lockedUntil
+claimVersion
+orderingKeyType
+orderingKey
+sourceSequence
+blockedByEventId
+```
+
+Organization-owned deliveries derive Organization scope, ordering key, and source sequence from the validated envelope or a versioned trusted payload field. Caller-selected values are prohibited.
 
 ---
 
-# Processed Event Status
-
-Recommended statuses:
+# Canonical Processed-Event Status Model
 
 ```text
 Processing
-
 Processed
-
 RetryPending
-
 Failed
-
 Blocked
-
 Skipped
 ```
 
-A minimal implementation may use separate processing and failure tables.
-
-Equivalent semantics must remain available.
+These names are canonical across Events, Persistence, Application Services, and Operations. `DeadLettered` is not a processed-event status; dead-letter information is a separate record linked to a `Failed` delivery. `Abandoned` belongs to a specific operational job such as Memory generation, not to generic consumer delivery.
 
 ---
 
-# Processed Status
+# Processed-Event State Machine
 
 ```text
-Processed
+NoRecord ───────────────► Processing
+   │                         │
+   │ blocked predecessor     ├────────► Processed
+   ▼                         ├────────► RetryPending ──► Processing
+Blocked ───────────────────► Processing
+                             └────────► Failed
+
+Failed ──authorized retry/replay──► Processing
+Failed ──authorized skip──────────► Skipped
 ```
 
-means the consumer effect committed successfully.
-
-Future duplicate delivery returns success without repeating the effect.
+`Processed` and `Skipped` are terminal for ordinary delivery. A transition out of `Failed` requires an audited recovery command and replay record. `Blocked` means the delivery has not executed because an earlier non-terminal delivery prevents claim under the registered ordering policy.
 
 ---
 
-# Processing Status
+# Status Invariants
 
-```text
-Processing
-```
-
-means one Worker has claimed consumer processing.
-
-Processing claims must expire or be recoverable after a crash.
-
----
-
-# Retry Pending Status
-
-```text
-RetryPending
-```
-
-means processing failed transiently and is scheduled for another attempt.
+- `Processing` requires `lockedBy`, `lockedUntil`, `processingStartedAt`, and a positive `claimVersion`;
+- `RetryPending` requires `nextAttemptAt`, cleared claim fields, and retryable failure metadata;
+- `Processed` requires `processedAt`, cleared claim fields, and a stable `resultReference` when a prior result must be returned;
+- `Failed` requires `failedAt`, cleared claim fields, failure classification, and a linked dead-letter record when operator investigation is required;
+- `Blocked` requires `blockedByEventId` or equivalent durable ordering-state evidence, cleared claim fields, and no attempt increment;
+- `Skipped` requires `skippedAt`, cleared claim fields, an authorized operator, reason, ordering-impact decision, and replay or recovery linkage where required; and
+- ordinary code cannot overwrite a terminal `Processed` or `Skipped` record.
 
 ---
 
-# Failed Status
+# Attempt Count Semantics
 
-```text
-Failed
-```
+`attemptCount` increments exactly once when a Worker successfully acquires a `Processing` claim and begins a real handler attempt.
 
-means automatic retries have stopped.
+The following do not increment it:
 
-Operator or deployment intervention is required.
+- duplicate delivery of `Processed`;
+- delivery deferred behind another valid `Processing` lease;
+- `Blocked` delivery waiting for a predecessor;
+- lease-recovery bookkeeping itself; or
+- `ValidateOnly` replay.
 
----
-
-# Blocked Status
-
-```text
-Blocked
-```
-
-means an earlier non-terminal delivery prevents this event from being claimed under the registered ordering policy. A blocked delivery does not consume retry attempts and is not itself a poison event.
+Reclaiming an expired attempt increments `attemptCount` only when the next Worker acquires the new claim.
 
 ---
 
-# Skipped Status
+# Consumer Claim Transaction
+
+Consumer claiming uses a short PostgreSQL transaction:
 
 ```text
-Skipped
+BEGIN
+
+Validate envelope, registration, schema, Organization scope, and System capability
+Derive trusted ordering key and source sequence
+Insert or lock processed_events by consumerName + eventId
+
+If status = Processed:
+    return prior success without executing
+
+If status = Processing and lease is valid:
+    defer without changing attemptCount
+
+Check registered ordering policy and durable ordering state
+
+If an earlier non-terminal delivery blocks this key:
+    set or preserve Blocked
+    record blockedByEventId
+    do not increment attemptCount
+    COMMIT
+
+Otherwise:
+    set status = Processing
+    increment attemptCount
+    increment claimVersion
+    set lockedBy and lockedUntil using database time
+    set processingStartedAt and lastAttemptAt
+    clear nextAttemptAt
+
+COMMIT
 ```
 
-means an authorized operator explicitly chose not to apply the event for that consumer.
+Claiming never holds a target Aggregate lock or an external dependency call.
 
-Skipping is exceptional and auditable.
+---
+
+# Consumer Fencing Contract
+
+A Worker may commit a consumer outcome only after the final transaction locks the processed-event row and verifies all of:
+
+```text
+status = Processing
+lockedBy = currentWorkerId
+claimVersion = acquiredClaimVersion
+lockedUntil > databaseNow
+```
+
+The final transaction performs this verification before mutating the target Aggregate. If any predicate fails, the outcome is `LeaseLost`; the stale Worker discards its result and commits no Aggregate, Outbox, audit, dead-letter, or processed-event change.
+
+A long-running handler renews its lease in bounded heartbeat transactions. Lease renewal matches `lockedBy` and `claimVersion`; it never changes business state or increments `attemptCount`.
+
+---
+
+# Transactional Consumer Success
+
+For a domain-changing consumer, one final transaction performs:
+
+```text
+BEGIN
+
+Lock processed-event row and verify fencing contract
+Revalidate Organization scope, System capability, event applicability, and ordering state
+Load target Aggregate with expected version
+Execute Aggregate command
+Save Aggregate
+Append new Outbox records
+Persist required audit metadata
+Set processed-event status = Processed
+Set processedAt and resultReference
+Clear claim and transient error fields
+Advance durable ordering state
+
+COMMIT
+```
+
+Target Aggregate state, Aggregate version, follow-up Outbox events, the `Processed` transition, required audit metadata, and ordering-state advancement commit atomically.
+
+---
+
+# Consumer Retry Transition
+
+After a transient failure, a short fenced transaction performs:
+
+```text
+Processing -> RetryPending
+nextAttemptAt = databaseNow + registered backoff
+preserve attemptCount
+record bounded error category and code
+clear claim fields
+```
+
+The next attempt must reacquire `Processing` and revalidate current target state. It must not reuse a stale Aggregate or stale authorization decision.
+
+---
+
+# Consumer Permanent-Failure Transition
+
+After a permanent failure or retry exhaustion, one fenced transaction atomically:
+
+- changes `Processing -> Failed`;
+- records `failedAt`, failure category, and bounded error metadata;
+- creates or updates the linked dead-letter record;
+- applies the registered failure-continuation policy to durable ordering state;
+- creates any required operational or reconciliation Outbox record; and
+- clears claim fields.
+
+An unchanged permanent failure is not automatically reclaimed.
+
+---
+
+# Consumer Lease Recovery
+
+Recovery finds `Processing` rows whose `lockedUntil` has expired. In one short transaction it verifies the expired `claimVersion`, changes the row to `RetryPending`, calculates `nextAttemptAt`, preserves `attemptCount`, records `LeaseExpired`, and clears claim fields.
+
+Recovery does not mutate a target Aggregate and does not itself count as a handler attempt. If a newer claim exists, recovery is a no-op.
+
+---
+
+# Duplicate Delivery Rules
+
+- `Processed` returns prior success without repeating effects;
+- `Processing` with a valid lease defers to the current Worker;
+- `RetryPending` waits until `nextAttemptAt`; early delivery does not execute;
+- `Failed` remains failed until an authorized recovery command acts;
+- `Blocked` remains unclaimed until the predecessor and ordering state permit execution; and
+- `Skipped` acknowledges the consumer terminal decision without claiming that the business effect succeeded.
+
+Duplicate delivery is expected and must not create an error alert by itself.
 
 ---
 
@@ -3978,104 +4052,35 @@ CREATE TABLE processed_events (
     aggregate_version      bigint NOT NULL,
     correlation_id         uuid NOT NULL,
     status                 text NOT NULL,
+    attempt_count          integer NOT NULL DEFAULT 0,
     first_received_at      timestamptz NOT NULL,
     processing_started_at  timestamptz NULL,
+    last_attempt_at        timestamptz NULL,
+    next_attempt_at        timestamptz NULL,
     processed_at           timestamptz NULL,
-    attempt_count          integer NOT NULL DEFAULT 0,
+    failed_at              timestamptz NULL,
+    skipped_at             timestamptz NULL,
     handler_version        integer NULL,
     result_reference       jsonb NULL,
     last_error_code        text NULL,
     last_error_message     text NULL,
+    locked_by              text NULL,
+    locked_until           timestamptz NULL,
+    claim_version          bigint NOT NULL DEFAULT 0,
+    ordering_key_type      text NULL,
+    ordering_key           text NULL,
+    source_sequence        bigint NULL,
+    blocked_by_event_id    uuid NULL,
 
-    PRIMARY KEY (
-        consumer_name,
-        event_id
-    )
+    PRIMARY KEY (consumer_name, event_id),
+    CHECK (attempt_count >= 0),
+    CHECK (claim_version >= 0)
 );
 ```
 
----
-
-# Atomic Consumer Effect
-
-For domain-changing consumers, the following must commit atomically:
-
-```text
-Target Aggregate state
-
-Target Aggregate version
-
-New Outbox events
-
-Processed event record
-
-Required audit metadata
-```
+Database constraints or equivalent adapter validation enforce the status invariants. Error messages contain bounded metadata or protected references, not unrestricted event payloads.
 
 ---
-
-# Duplicate Delivery Flow
-
-```text
-Receive Event
-
-↓
-
-Find:
-consumerName + eventId
-
-↓
-
-Status = Processed
-
-↓
-
-Return Success
-
-↓
-
-Do Not Execute Handler Again
-```
-
-Duplicate delivery is an expected condition.
-
-It should not produce an error alert.
-
----
-
-# Duplicate While Processing
-
-When another Worker is already processing the same event:
-
-```text
-Status = Processing
-```
-
-The second Worker should:
-
-- avoid concurrent execution
-- defer processing
-- retry after the processing lease expires
-- avoid reporting a permanent failure
-
----
-
-# Processing Lease
-
-A processing claim may contain:
-
-```text
-lockedBy
-
-lockedUntil
-
-claimVersion
-```
-
-The same lease principles used by the Outbox publisher apply to consumers.
-
----
-
 # Business-Level Idempotency
 
 Technical processed-event storage is necessary but not sufficient.
@@ -5125,7 +5130,7 @@ Recovering
 
 The ordering-state update, processed-event transition, dead-letter creation, and required recovery Outbox record MUST commit atomically when one failed attempt changes the key to `Blocked`.
 
-Later deliveries waiting behind the poison event are marked or projected as `BlockedByPredecessor`. They do not consume retry attempts and are not themselves dead-lettered merely because the predecessor failed.
+Later deliveries waiting behind the poison event use processed-event status `Blocked` with reason code `BlockedByPredecessor`, or an equivalent projection when no delivery row has been materialized. `BlockedByPredecessor` is not a separate canonical status. These deliveries do not consume retry attempts and are not themselves dead-lettered merely because the predecessor failed.
 
 ---
 
