@@ -169,6 +169,8 @@ MemorySubmittedSnapshot
 - draftCycle: DraftCycle
 - content: MemoryContent
 - sourceReferences: MemorySourceReferences
+- sourceSnapshotId: MemorySourceSnapshotId
+- sourceSnapshotHash: ContentHash
 - submittedBy: HumanMemberId
 - submittedAt: Timestamp
 - contentHash: ContentHash
@@ -176,7 +178,8 @@ MemorySubmittedSnapshot
 Rules:
 - created only by `SubmitMemoryForReview`;
 - immutable after creation;
-- associated with exactly one draft cycle; and
+- associated with exactly one draft cycle;
+- binds the reviewed content to the exact immutable generation source snapshot by identifier and hash; and
 - receives at most one authoritative outcome.
 ## MemoryEditRecord
 An attributable draft change.
@@ -277,8 +280,8 @@ Rules:
 MemorySourceReferences
 - workId: WorkId
 - workCompletionTimestamp: Timestamp
-- workSnapshotReference: SourceSnapshotReference
-- decisionReferences: DecisionReference[]
+- sourceSnapshot: MemorySourceSnapshotReference
+- decisionReferences: DecisionSnapshotReference[]
 - participantReferences: ParticipantReference[]
 - sourceArtifactReferences: SourceArtifactReference[]
 ```
@@ -287,10 +290,46 @@ Rules:
 - referenced objects must belong to the same Organization;
 - references in an Approved snapshot are immutable; and
 - references do not transfer ownership of external Aggregates.
+## MemorySourceSnapshotReference
+
+```text
+MemorySourceSnapshotReference
+- sourceSnapshotId: MemorySourceSnapshotId
+- organizationId: OrganizationId
+- workId: WorkId
+- workAggregateVersion: AggregateVersion
+- workContentRevisionId: WorkContentRevisionId
+- workCompletedEventId: EventId
+- decisionSnapshots: DecisionSnapshotReference[]
+- sourceSchemaVersion: SchemaVersion
+- sourceSnapshotHash: ContentHash
+- capturedAt: Timestamp
+```
+
+A Memory source snapshot identifies the exact immutable source document used to generate the draft. It is created and committed before any external AI-provider call.
+
+Each Decision reference identifies an immutable submitted or resolved Decision snapshot by Decision identity, revision or submitted-snapshot identity, and content hash. A mutable Decision draft is not a valid generation source.
+
+The source snapshot contains the minimum normalized Work completion facts and immutable revision references required to reproduce what the generator and Human reviewer saw. It must not be rebuilt later from current mutable read models.
+
+Rules:
+
+- the source snapshot belongs to the same Organization and Work as the Memory;
+- the identifier, schema version, source versions, and hash never change;
+- the stored hash is calculated from the canonical serialized source snapshot;
+- provider input transformation records its own input hash and prompt or policy version;
+- a retry for the same generation operation reuses the same source snapshot;
+- a replacement source snapshot requires a new explicit generation operation before a Memory exists;
+- the snapshot is retained at least as long as the generated or Approved Memory; and
+- Organization isolation, encryption, retention, deletion, and legal-hold rules apply because the snapshot is domain provenance, not telemetry.
+
 ## MemoryGenerationProvenance
 ```text
 MemoryGenerationProvenance
 - generationRequestId: GenerationRequestId
+- sourceSnapshotId: MemorySourceSnapshotId
+- sourceSnapshotHash: ContentHash
+- providerInputHash: ContentHash
 - secretaryId: SecretaryId
 - modelProvider: ModelProvider?
 - modelVersion: ModelVersion
@@ -357,14 +396,16 @@ Application-level preconditions include:
 - a valid completed Work;
 - matching Organization;
 - no existing Memory for the Work;
-- valid source references; and
-- validated generation output.
+- a persisted immutable source snapshot created before the provider call;
+- source snapshot Organization, Work identity, version, and hash match the request;
+- valid immutable source references; and
+- validated generation output whose provider-input hash is recorded.
 Aggregate effects:
 - state becomes `Generated`;
 - draft cycle starts at `1`;
 - current draft is created;
-- generation provenance is recorded;
-- source references are recorded;
+- generation provenance, including source snapshot and provider-input hashes, is recorded;
+- the exact immutable source snapshot reference and source references are recorded;
 - initial Secretary contribution is recorded; and
 - `MemoryGenerated` is emitted.
 The Aggregate does not load or modify Work.
