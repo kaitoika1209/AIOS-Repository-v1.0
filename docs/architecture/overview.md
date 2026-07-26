@@ -392,38 +392,33 @@ It assists through explicit application use cases and ports.
 
 ---
 
-# Actor Direction
+# Principal and Actor Direction
 
-The Blueprint uses `Actor` as the general term for an identity that performs or initiates an action.
+The Blueprint uses `Principal` for the authenticated or trusted execution identity that requests or performs an action.
 
-The intended actor categories are:
+The canonical principal categories are:
 
 ```text
-Actor
-   ├── HumanMember
-   ├── AIPrincipal
+Principal
+   ├── Human Member
+   ├── AI Principal
    │      └── Secretary
-   └── SystemPrincipal
+   └── System Principal
 ```
 
-`Member` is reserved for a human member of an Organization.
+`Member` is reserved for a Human participant with an Organization Membership.
 
-An AI participant is not a Member.
+An AI Principal or System Principal is not a Member, does not hold Human Membership or Human roles, and cannot exercise Human-only authority.
 
-Future AI Employees should be modeled as AI Principals rather than being added to the human Member model.
+`ActorReference` is the identity recorded in domain history for attribution. It is derived from the authenticated Principal after authorization and does not grant authority by itself.
 
-The detailed Actor model will be defined separately and applied consistently across:
+Future AI Employees are AI Principals rather than Human Members.
 
-- the Glossary,
-- the Domain Model,
-- Authorization,
-- Aggregates,
-- State Machines,
-- and Domain Events.
+The detailed identity, Membership, Principal, and ActorReference rules are defined in:
 
-Until that migration is complete, existing documents may still contain legacy terminology.
-
-The Actor model document is authoritative once adopted.
+- `docs/glossary.md`,
+- `docs/architecture/identity-and-organization.md`,
+- and `docs/architecture/authorization.md`.
 
 ---
 
@@ -555,7 +550,15 @@ docs/architecture/state-machines/
 
 ## Architecture Decision Records
 
-Record significant architectural decisions, alternatives, and consequences.
+Architecture Decision Records capture accepted or superseded architectural decisions, alternatives, and consequences.
+
+ADR identifiers are unique and immutable after adoption. A superseded ADR retains its identifier and status; identifiers are never reused.
+
+| ADR | Decision | Status |
+|---|---|---|
+| [ADR-0001](../adr/0001-adopt-domain-driven-design.md) | Adopt Domain-Driven Design | Accepted |
+| [ADR-0002](../adr/0002-memory-vs-knowledge.md) | Separate Memory and Knowledge | Accepted |
+| [ADR-0003](../adr/0003-select-mvp-observability-stack.md) | Select the MVP Observability and Operations Stack | Accepted |
 
 Location:
 
@@ -1082,19 +1085,22 @@ These implementation decisions should be recorded in ADRs rather than expanded i
 
 ---
 
-# Current Revision Priorities
+# Implementation Readiness Status
 
-Before MVP implementation begins, the following items must be made consistent across the Blueprint:
+The following cross-document consistency items identified during the pre-implementation review are resolved in the current Blueprint:
 
-1. Work and Decision State Machines
-2. Editable generated Memory and immutable Approved Memory
-3. Aggregate invariants versus external consistency checks
-4. Actor terminology
-5. Event delivery and failure handling
-6. Unique ADR numbering
-7. MVP Memory review scope
+- Work completion is explicit and remains separate from Decision approval.
+- Generated and InReview Memory may be corrected; Approved Memory is immutable.
+- Local Aggregate invariants are separated from external consistency checks.
+- Principal, Human Member, AI Principal, System Principal, and ActorReference terminology is defined.
+- Required asynchronous processing uses the Transactional Outbox, idempotent handlers, visible failure state, retry, and recovery rules.
+- ADR identifiers are unique and governed by an immutable numbering rule.
+- Human Memory review is included in the MVP.
+- Knowledge, Evidence, and Capability are explicitly outside the MVP.
 
-Knowledge, Evidence, Capability, external Knowledge Sources, and advanced governance may remain as future architecture until their implementation phase approaches.
+This status records document consistency only. It does not waive unresolved architecture-review findings, production-readiness gates, security review, or implementation validation.
+
+Knowledge, Evidence, Capability, external Knowledge Sources, and advanced governance remain future architecture until their implementation phase approaches.
 
 ---
 
