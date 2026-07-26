@@ -217,13 +217,13 @@ InProgress → WaitingForDecision
 ### Preconditions
 - The actor is an authorized Human Member.
 - No unresolved blocking Decision already exists.
-- A valid `decisionId` has been assigned by the coordinated Decision use case.
+- The coordinated Decision use case has submitted the blocking Decision revision and produced a valid `decisionId`, `revisionNumber`, and `submittedSnapshotId`.
 - The Decision belongs to the same Organization.
 - The Decision is related to this Work.
-- The Decision is unresolved.
+- The Decision is `InReview`; a Draft Decision never blocks Work.
 ### Effects
-- Store `blockingDecisionId`.
-- Set the completion gate to `Pending`.
+- Store the active blocking reference (`decisionId`, `revisionNumber`, and `submittedSnapshotId`).
+- Set the completion gate to `Pending` with the same reference.
 - Record the requesting actor.
 - Emit `WorkDecisionRequested`.
 The Application Layer coordinates creation or selection of the related Decision.
@@ -239,7 +239,7 @@ WaitingForDecision → InProgress
 - `Rejected`
 - `Withdrawn`
 ### Preconditions
-- The supplied `decisionId` matches the current `blockingDecisionId`.
+- The supplied `decisionId`, `revisionNumber`, and `submittedSnapshotId` match the active blocking reference.
 - The completion gate is `Pending`.
 - The outcome comes from an authoritative Decision event.
 - The Decision belongs to the same Organization.
@@ -254,7 +254,8 @@ For `Rejected` or `Withdrawn`:
 - mark the completion gate `Unsatisfied`; and
 - return the Work to `InProgress`.
 In all cases:
-- preserve the Decision reference;
+- preserve the resolved Decision revision reference in the Completion Gate and outcome history;
+- clear the active blocking reference;
 - record the originating human actor from the Decision event;
 - record the technical processing principal separately where applicable; and
 - emit `WorkDecisionOutcomeRecorded`.
@@ -300,6 +301,7 @@ WaitingForDecision → Cancelled
 - Set `cancelledBy`.
 - Preserve the cancellation reason.
 - Preserve any related Decision history.
+- Clear the active blocking reference while preserving the last gate snapshot for audit.
 - Emit `WorkCancelled`.
 Cancelling a Work does not cancel or withdraw a related Decision automatically.
 The Application Layer must coordinate any separate Decision action explicitly.
@@ -322,14 +324,14 @@ The Work Aggregate maintains a local completion-gate snapshot sufficient to prot
 Possible values are:
 ```text
 NotRequired
-Pending(decisionId)
-Satisfied(decisionId, approvedAt, approvedBy)
-Unsatisfied(decisionId, outcome, resolvedAt, resolvedBy)
+Pending(decisionId, revisionNumber, submittedSnapshotId)
+Satisfied(decisionId, revisionNumber, submittedSnapshotId, approvedAt, approvedBy)
+Unsatisfied(decisionId, revisionNumber, submittedSnapshotId, outcome, resolvedAt, resolvedBy)
 ```
 The completion gate is not the source of truth for the Decision.
 The Decision Aggregate remains authoritative for Decision content, review history, and resolution.
 The Work snapshot exists only to enforce Work-local transition rules without querying another Aggregate from inside the Work Aggregate.
-The Application Layer updates the snapshot from authoritative Decision events.
+The Application Layer updates the snapshot from authoritative Decision events and must match the complete submitted-revision reference, not `decisionId` alone.
 ---
 # Relationship to Decision
 A Work may have multiple related Decisions over time.
@@ -365,9 +367,11 @@ Work: InProgress
 Completion gate: Unsatisfied
 ```
 The Work must then:
-- request another blocking Decision; or
+- submit a new blocking revision through the coordinated `RequestBlockingDecision` use case, or request a different blocking Decision; or
 - be cancelled.
 It cannot be completed while the required approval remains unsatisfied.
+
+A new revision may reuse the same `decisionId`, but its `revisionNumber` and `submittedSnapshotId` form a new blocking reference. An outcome from an earlier revision cannot update that gate.
 ---
 # Relationship to Memory
 Successful Work completion starts the Memory generation process.
