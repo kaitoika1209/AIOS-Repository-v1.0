@@ -1,5 +1,15 @@
 # Domain Model
 
+> **Document scope:** Complete AIOS Blueprint  
+> **MVP implementation boundary:** Human-approved Memory  
+> **Future Blueprint concepts:** Evidence, Knowledge, Capability, AI Employees, External Knowledge Sources, and Semantic Search
+
+The conceptual learning cycle in this document describes the long-term target domain. The MVP implements Organization, Human Membership, Secretary assistance, Work, Decision, and Human-reviewed Memory, and stops at Approved Memory.
+
+The presence of a future concept in this document is not authorization to implement it in the MVP.
+
+---
+
 ## Purpose
 
 This document defines the conceptual domain model of AIOS.
@@ -185,9 +195,11 @@ Memory is not reusable Knowledge.
 
 ---
 
-## Evidence
+## Evidence (Future — Outside MVP)
 
 Represents traceable support for Knowledge.
+
+Evidence is not an MVP domain object. It is introduced with future Knowledge promotion after the MVP can produce Approved Memory.
 
 Evidence links:
 
@@ -204,9 +216,11 @@ Knowledge always remains connected to organizational history.
 
 ---
 
-## Knowledge
+## Knowledge (Future — Outside MVP)
 
 Represents reusable organizational understanding.
+
+Knowledge is created separately through explicit Human-authorized promotion and publication. Approved Memory may provide Evidence, but no Memory state transition creates Knowledge automatically.
 
 Examples:
 
@@ -223,9 +237,11 @@ Knowledge always references Evidence.
 
 ---
 
-## Capability
+## Capability (Future — Outside MVP)
 
 Represents organizational competence.
+
+Capability is introduced only after reusable Knowledge and measurable organizational performance exist.
 
 Capabilities are strengthened through accumulated Knowledge.
 
