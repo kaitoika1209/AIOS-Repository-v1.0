@@ -1310,7 +1310,7 @@ Memory Aggregate
       │
       │ EditGeneratedMemory
       ▼
-MemoryEdited
+MemoryDraftEdited
       │
       ▼
 Save + Outbox + Commit
@@ -1651,40 +1651,45 @@ Domain exceptions must be translated into stable application-level results.
 
 # Cross-Aggregate Reference Resolution
 
-An integration event should carry the stable identifiers required to route the receiving use case whenever those identifiers were known at event creation.
+The producing module must create a consumer-ready Integration Event whenever the routing identifier is part of the coordinated domain relationship.
 
-Example:
+For Decision outcomes:
 
 ```text
-DecisionApproved Domain Event
-        │ translation
+DecisionApproved | DecisionRejected | DecisionWithdrawn
+        │ Domain Event mapping inside Work and Decision module
         ▼
-DecisionOutcomeOccurred Integration Event
+Integration / DecisionOutcomeOccurred / 1
     organizationId
-    decisionId
     workId
+    decisionId
+    decisionAggregateVersion
+    revisionNumber
+    submittedSnapshotId
     outcome
-    decisionVersion
+    resolvedByHumanActorReference
+    sourceDomainEventId
         │
         ▼
-Work module event handler
+Work module event-handler interface
         │
         ▼
 Load Work by organizationId and workId
 ```
 
-If the MVP publishes the Domain Event contract directly, that versioned contract must provide the same routing identifiers and must not expose internal Aggregate objects.
+The Decision Aggregate stores immutable `relatedWorkId` for routing and audit while Work remains authoritative for its Completion Gate. The mapper copies that identifier into the Integration Event and persists the message atomically with the Decision transaction.
 
-If an older event contract lacks `workId`, the Work module may resolve it through a Work-owned lookup or projection keyed by `decisionId`.
+Cross-context consumers do not subscribe directly to Decision outcome Domain Events.
 
 The following are prohibited:
 
 - a Platform Runtime component querying a Work or Decision Repository;
 - an unowned "application association table";
-- a cross-module join used as an authoritative mutation path; and
+- a cross-module join used as an authoritative mutation path;
+- post-publication enrichment of a required routing identifier; and
 - exposing another Organization's resource existence through lookup errors.
 
-Resolution belongs to the receiving module's Application Layer. Storage details belong to that module's Infrastructure Layer. Neither responsibility belongs inside the source Aggregate or the generic dispatcher.
+The receiving module validates the Organization and related Aggregate identifiers before mutation. The generic dispatcher only validates the envelope and routes the registered contract.
 
 ---
 
