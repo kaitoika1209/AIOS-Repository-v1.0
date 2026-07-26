@@ -323,6 +323,10 @@ Rules:
 - the snapshot is retained at least as long as the generated or Approved Memory; and
 - Organization isolation, encryption, retention, deletion, and legal-hold rules apply because the snapshot is domain provenance, not telemetry.
 
+The source snapshot is the authoritative record of what the generator and Human reviewer were allowed to see. Review and approval must never reconstruct it from current Work, Decision, search, or Secretary projections.
+
+Approved Memory immutability governs ordinary domain behavior; it is not permission for indefinite retention. Archival preserves the snapshot, while legally authorized Organization deletion, personal-data erasure, correction, redaction, and legal hold follow the explicit precedence and audit rules in ADR-0012. Such actions are privileged data-governance operations, not Memory edits or state transitions.
+
 ## MemoryGenerationProvenance
 ```text
 MemoryGenerationProvenance
@@ -796,6 +800,6 @@ AggregateVersion
 - Downstream notification, projection, or indexing failure does not reverse a committed Memory transition and must be retried.
 # Audit Requirements
 Every Memory preserves identifiers, source references, initial generated content, Secretary and model provenance, every draft cycle, attributable edits, Secretary contributions, submitted snapshots, submitters, review records, reviewer identity, approval comments or rejection reasons, timestamps, current status, Aggregate version, and complete transition history.
-Historical information must never be silently overwritten, and human, AI, and system actions must remain distinguishable.
+Historical information must never be silently overwritten, and human, AI, and system actions must remain distinguishable. A legally authorized correction, redaction, or erasure is recorded as a separate data-governance action and reconciled across projections, indexes, caches, provider inputs, and restored backups under ADR-0012.
 # Related Documents
-`docs/architecture/overview.md`, `docs/product/mvp.md`, `docs/product/roadmap.md`, `docs/architecture/state-machines/memory.md`, `docs/architecture/state-machines/work.md`, `docs/architecture/state-machines/decision.md`, `docs/architecture/aggregates/work.md`, `docs/architecture/aggregates/decision.md`, `docs/architecture/aggregates/knowledge.md`, and `docs/architecture/authorization.md`.
+`docs/architecture/overview.md`, `docs/product/mvp.md`, `docs/product/roadmap.md`, `docs/architecture/state-machines/memory.md`, `docs/architecture/state-machines/work.md`, `docs/architecture/state-machines/decision.md`, `docs/architecture/aggregates/work.md`, `docs/architecture/aggregates/decision.md`, `docs/architecture/aggregates/knowledge.md`, `docs/architecture/authorization.md`, and `docs/adr/0012-define-memory-source-snapshot-and-data-governance.md`.
