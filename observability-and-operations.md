@@ -518,7 +518,7 @@ Examples:
 - eventId
 - traceId
 - spanId
-- generationAttemptId
+- generationOperationId
 
 T1 can link activity across systems and is therefore internal operational data.
 
@@ -1173,7 +1173,7 @@ authorization.permission
 event.domain_event_id
 event.integration_message_type
 worker.attempt
-ai.generation_attempt_id
+ai.generation_operation_id
 operations.operation_id
 ```
 
@@ -1243,7 +1243,7 @@ The MVP class contract is:
 | `WorkerAttempt` | `identity.correlation_id`, `worker.worker_type`, `worker.worker_id`, `worker.operation_id`, `worker.attempt`, `worker.maximum_attempts` |
 | `OutboxRelay` | one registered Domain Event or Integration Message identity pair, `event.outbox_record_id`, `worker.attempt` |
 | `ConsumerDelivery` | one registered message identity pair, `event.consumer_name`, `worker.attempt`; `event.processed_marker_id` is required for `ConsumerEffectsCommitted` |
-| `MemoryGeneration` | `identity.correlation_id`, `identity.organization_id`, `domain.work_id`, `ai.generation_attempt_id`, `ai.generation_policy_version`, `worker.attempt` |
+| `MemoryGeneration` | `identity.correlation_id`, `identity.organization_id`, `domain.work_id`, `ai.generation_operation_id`, `ai.generation_policy_version`, `worker.attempt` |
 | `SecurityViolation` | `identity.correlation_id`, `identity.principal_type`, `authorization.resource_type`, `authorization.reason_code`; protected identifiers follow the restricted-sink policy |
 | `PrivilegedOperation` | `operations.operation_id`, `operations.command_type`, `operations.scope_type`, `operations.reason_code`, `operations.audit_record_id` when durable intent or result exists |
 | `ProjectionOrReconciliation` | `identity.organization_id` when scoped, `projection.projection_name` or `reconciliation.finding_type`, and the registered source high-water mark or finding reference |
@@ -1963,7 +1963,7 @@ identity.organization_id
 
 domain.work_id
 
-ai.generation_attempt_id
+ai.generation_operation_id
 
 event.domain_event_id
 
@@ -3326,7 +3326,7 @@ event.integration_message_id
 event.operational_event_id
 operations.audit_record_id
 worker.operation_id
-ai.generation_attempt_id
+ai.generation_operation_id
 ```
 
 High-cardinality attributes belong only in permitted logs and traces, not ordinary metric labels. Their namespace does not change their privacy class.
@@ -3890,70 +3890,118 @@ memoryGeneratedAt - workCompletedAt
 
 A retry MUST NOT create a second Work-to-Memory SLO observation.
 
-Metrics MAY use bounded labels such as outcome, failureCategory, workerType, and configured provider. They MUST NOT use organizationId, workId, generationAttemptId, eventId, raw model response, or error message as metric labels.
+Metrics MAY use bounded labels such as outcome, failureCategory, workerType, and configured provider. They MUST NOT use organizationId, workId, generationOperationId, eventId, raw model response, or error message as metric labels.
 
 ---
 
 # Durable Memory Generation State
 
-Logs, metrics, and traces are not sufficient to determine whether Memory generation is pending, progressing, retrying, or terminally failed.
+Logs, metrics, and traces are not sufficient to determine whether Memory generation is pending, running, retrying, or terminal.
 
-The PostgreSQL memory generation operation defined in the persistence architecture is the durable operational record. It is keyed by Organization, source Work, and generation policy, and includes at minimum:
+The authoritative operational record is `memory_generation_operations`, keyed by Organization, Work, and generation policy.
+
+Required fields include:
 
 ```text
-generationAttemptId
-
+generationOperationId
 organizationId
-
 workId
-
 sourceEventId
-
+sourceSnapshotId
 generationPolicyVersion
-
 status
-
 attemptCount
-
-startedAt
-
+nextAttemptAt
+lockedBy
+lockedUntil
+claimVersion
+firstStartedAt
+lastAttemptAt
 completedAt
-
 lastErrorCode
-
 createdAt
-
 updatedAt
 ```
 
-Permitted operational statuses remain:
+Canonical statuses are:
 
 ```text
 Pending
-
 Generating
-
+RetryPending
 Generated
-
 Failed
-
 Abandoned
 ```
 
-This operational status is not MemoryStatus and is not domain authority over Work or Memory.
-
 Required rules:
 
-- duplicate WorkCompleted delivery reuses the same logical generation identity
-- retry updates the existing logical operation or creates a policy-compliant attempt under that operation
-- Work remains Completed when generation fails
-- partial provider output is never exposed as a Memory
-- Generated is recorded only after a reviewable Memory draft exists
-- the Memory insert, Generated outcome, processed-event marker, and MemoryGenerated Outbox record MUST commit atomically
-- terminal failure remains queryable until explicitly retried, abandoned, or resolved
-- reconciliation compares this durable state with Work, Memory, Outbox, and processed-event records
+- duplicate `WorkCompleted` delivery reuses the same logical generation operation;
+- each real provider attempt increments `attemptCount` exactly once;
+- claim recovery and deferral do not increment attempts;
+- provider timeout with no usable candidate becomes `RetryPending` while budget remains;
+- Work remains Completed when generation fails;
+- a stale or lease-lost response is discarded;
+- partial provider output is never exposed as Memory;
+- `Generated` is recorded only in the same commit that creates or proves the matching reviewable Memory, processed-event result, `MemoryGenerated` Outbox record, and required audit;
+- terminal failure remains queryable until authorized retry or abandonment; and
+- reconciliation compares operation, source snapshot, Work, Memory, Outbox, and processed-event state.
 
-The durable record enables administrative queries by Organization and source Work. High-cardinality identifiers remain in PostgreSQL, logs, and traces rather than metric labels.
+Required bounded metrics include:
+
+```text
+memory_generation_pending_total
+memory_generation_generating_total
+memory_generation_retry_pending_total
+memory_generation_failed_total
+memory_generation_attempt_total
+memory_generation_timeout_total
+memory_generation_stale_response_total
+memory_generation_duplicate_provider_call_total
+memory_generation_oldest_pending_age_seconds
+```
+
+Labels may include bounded outcome, failure category, configured provider, and registered model reference. OrganizationId, WorkId, operationId, eventId, workerId, claimVersion, raw model response, and error message are prohibited metric labels.
+
+---
+
+# External Effect Ledger Observability
+
+This section applies only when an `ExternalBusinessEffect` consumer is enabled. The baseline MVP has none.
+
+Canonical ledger statuses are `Prepared`, `InFlight`, `Succeeded`, `ConfirmedAbsent`, `OutcomeUnknown`, `Failed`, `Compensating`, and `Compensated`. Telemetry uses these persisted values without aliases.
+
+Required operational log names are:
+
+```text
+ExternalEffectPrepared
+ExternalEffectSendStarted
+ExternalEffectSucceeded
+ExternalEffectConfirmedAbsent
+ExternalEffectOutcomeUnknown
+ExternalEffectReconciliationStarted
+ExternalEffectCompensationStarted
+ExternalEffectCompensated
+ExternalEffectLeaseLost
+```
+
+A success log is emitted only from committed `Succeeded` evidence. Timeout, acknowledgement loss, post-send lease loss, or local commit uncertainty emits `ExternalEffectOutcomeUnknown`; it MUST NOT emit failure-as-absence or trigger blind retry.
+
+Required bounded metrics are:
+
+```text
+external_effect_in_flight_total
+external_effect_outcome_unknown_total
+external_effect_reconciliation_due_total
+external_effect_compensation_in_progress_total
+external_effect_send_total
+external_effect_terminal_total
+external_effect_oldest_unknown_age_seconds
+```
+
+Allowed labels are bounded registered values such as consumer name, effect type, provider, status, and recovery mode. OrganizationId, eventId, effectOperationId, effectKey, provider idempotency key, provider operation reference, ordering key, and raw error are prohibited labels.
+
+The Organization-scoped health query exposes protected identifiers and stable evidence references from PostgreSQL under authorization; dashboards expose only bounded aggregate counts.
 
 ---
 
@@ -4272,7 +4320,7 @@ aggregateId
 workId
 decisionId
 memoryId
-generationAttemptId
+generationOperationId
 domainEventId
 integrationMessageId
 commandId
@@ -6125,6 +6173,27 @@ Validation:
 
 ---
 
+# Runbook: External Effect Outcome Unknown
+
+This runbook applies only to a registered `ExternalBusinessEffect`.
+
+1. pause automatic resend for the logical effect and keep its ordering key blocked;
+2. verify Organization, consumer, event, effect type, effect key, request fingerprint, provider, and ledger claim history;
+3. determine whether the provider enforces the stored idempotency key and whether its retention window is still valid;
+4. query the provider using the stored provider operation reference when authoritative status lookup is supported;
+5. record exactly one typed outcome: provider-confirmed success, provider-confirmed absence, still unknown, or compensation required;
+6. on confirmed success, finalize local processed-event, dead-letter, ordering, Outbox, audit, replay, and ledger evidence through the fenced recovery transaction;
+7. on confirmed absence, retain the same logical effect identity and key before any safe retry;
+8. when compensation is approved, create a separate linked compensation operation and preserve the original effect history;
+9. reconcile successors and external state before unblocking;
+10. close only when the durable ledger and downstream state agree.
+
+Prohibited actions include changing the request fingerprint, generating a new effect key to bypass deduplication, treating timeout as absence, deleting the ledger row, manually marking the processed event successful, or resending a non-idempotent unqueryable effect.
+
+If neither provider idempotency nor authoritative outcome query exists, automatic execution of that consumer is an unsupported configuration and remains disabled.
+
+---
+
 # Runbook: Dead-Letter Event
 
 Steps:
@@ -6132,19 +6201,18 @@ Steps:
 1. inspect only authorized, redacted event metadata and consumer failure evidence;
 2. confirm the source Organization, ConsumerRegistration, side-effect class, ordering policy, and affected ordering key;
 3. determine whether the processed event is `Failed`, whether later deliveries are blocked, and whether any external effect outcome is unknown;
-4. fix the handler, configuration, association, projection, or external dependency without editing the immutable source event;
-5. select one canonical recovery mode: `RetryOriginal`, `ReprocessWithCurrentHandler`, `RebuildProjection`, or `ValidateOnly`;
-6. use `ValidateOnly` first when handler compatibility, current authorization, idempotency, or ordering impact is uncertain;
-7. have an active OrganizationOwner or OrganizationAdmin issue the typed Organization-scoped replay command under the authorization matrix;
-8. monitor replay, processed-event, dead-letter, ordering-state, and effect-ledger outcomes together;
-9. close only when the typed recovery transaction records `Resolved`, or when an authorized validated skip records `Skipped`;
-10. verify blocked successors resume and reconciliation reports no remaining gap.
+4. for `ExternalBusinessEffect` with unknown outcome, follow the External Effect Outcome Unknown runbook before considering replay;
+5. fix the handler, configuration, association, projection, or external dependency without editing the immutable source event;
+6. select one canonical recovery mode: `RetryOriginal`, `ReprocessWithCurrentHandler`, `RebuildProjection`, or `ValidateOnly`;
+7. use `ValidateOnly` first when handler compatibility, current authorization, idempotency, or ordering impact is uncertain;
+8. have an active OrganizationOwner or OrganizationAdmin issue the typed Organization-scoped replay command under the authorization matrix;
+9. monitor replay, processed-event, dead-letter, ordering-state, generation-operation or effect-ledger outcomes together;
+10. close only when the typed recovery transaction records `Resolved`, or when an authorized validated skip records `Skipped`;
+11. verify blocked successors resume and reconciliation reports no remaining gap.
+
+Memory generation is `ExternalComputation`. A provider timeout with no usable candidate follows its generation-operation retry policy; it does not use the external-business-effect outcome runbook.
 
 Do not use a database update, process restart, lease expiry, feature flag, or successful `ValidateOnly` to mark a dead letter resolved or unblock ordering.
-
-Skipping requires the registered skip policy, current Human authorization, expected versions, explicit reason, impact analysis, and required reconciliation or compensation evidence. For a Domain Coordination Consumer or irreversible Integration Consumer, the default is deny; OrganizationOwner authority and owning-module safety evidence are required.
-
-A provider timeout or unknown non-idempotent external outcome remains blocked until effect-ledger and provider reconciliation prove absence, success, or approved compensation. Blind replay is prohibited.
 
 ---
 
