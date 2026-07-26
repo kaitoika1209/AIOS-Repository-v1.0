@@ -1365,6 +1365,96 @@ The System cannot invoke the command without causation.
 
 ---
 
+# Consumer Recovery Authorization Boundary
+
+Consumer recovery is an Operations Application Service capability, not an Aggregate permission and not unrestricted System authority.
+
+In the MVP, an Organization-scoped recovery request requires an authenticated active `HumanMemberPrincipal` in the source event's Organization. Infrastructure access, database access, a SystemPrincipal, or a SecretaryPrincipal does not grant Organization business authority.
+
+The immutable source event determines `organizationId`. The command payload cannot select another Organization or provide `requestedBy`, `approvedBy`, Membership, role, or principal type.
+
+---
+
+# Consumer Recovery Permission Matrix
+
+Canonical permissions and default role policy are:
+
+| Operation | Permission | OrganizationOwner | OrganizationAdmin |
+|---|---|---:|---:|
+| Inspect redacted failed-event metadata | `events.inspect_failed` | Allow | Allow |
+| Validate a Failed delivery without effects | `events.retry` | Allow | Allow |
+| RetryOriginal for a Failed delivery | `events.retry` | Allow | Allow |
+| RebuildProjection for a registered projection | `events.replay_projection` | Allow | Allow |
+| ReprocessWithCurrentHandler for authoritative or irreversible effect | `events.replay_domain_consumer` | Allow | Deny unless explicit Organization policy grants it |
+| Skip rebuildable independent projection result | `events.skip` | Allow when ConsumerRegistration permits | Allow when ConsumerRegistration permits |
+| Skip Domain Coordination or irreversible Integration result | `events.skip` | Allow only with registered safety or compensation evidence | Deny by default |
+
+This matrix authorizes the operational command only. Aggregate invariants, handler registration, idempotency, ordering, effect-ledger, and expected-version checks may still deny execution.
+
+The MVP does not require universal four-eyes approval. The authenticated authorized Human request is the approval and is captured as durable intent. A future separation-of-duties policy may require a different approver without changing the recovery command semantics.
+
+---
+
+# Replay Authorization Timing
+
+Authorization is evaluated twice:
+
+```text
+Request time
+    -> create durable replay intent and Class B audit
+
+Execution time
+    -> revalidate current Identity, Membership, Organization, permission,
+       policy version, source Organization, and registered recovery policy
+```
+
+If authority is revoked or the Organization is no longer eligible before execution, the replay becomes `Denied`. The Worker MUST NOT treat authorization denial as a transient error or use the historical authorization decision as present authority.
+
+Expected dead-letter, ordering-state, processed-event, and target Aggregate versions are concurrency preconditions, not authorization substitutes.
+
+---
+
+# System Worker Recovery Authority
+
+A recovery Worker may:
+
+- claim an already authorized replayId;
+- execute only the registered consumer and mode in that record;
+- perform `ValidateOnly`;
+- invoke the owning module's typed command;
+- record fenced success or failure; and
+- schedule a retry within the registered technical policy.
+
+A recovery Worker may not:
+
+- request or approve replay;
+- change replay mode, Organization, consumer, or event;
+- reset `Processed` or `Skipped`;
+- approve skip;
+- mark a dead letter resolved independently;
+- fabricate current Human authority; or
+- repeat an external effect with unknown outcome.
+
+---
+
+# Skip Authorization
+
+`SkipDeadLetter` is a distinct Human command. It requires current `events.skip`, a registered ConsumerRegistration skip policy, explicit reason, expected versions, ordering-impact confirmation, and reconciliation or compensation evidence where required.
+
+For a Domain Coordination Consumer or irreversible Integration Consumer, the default is deny. The OrganizationOwner command plus registered owning-module safety evidence is required in the MVP.
+
+A successful skip is terminal for that consumer result. It does not state that the business effect succeeded and cannot be undone through generic replay.
+
+---
+
+# Platform Access Is Not Organization Authority
+
+The MVP does not model a cross-Organization Human PlatformOperator principal. Deployment or database operators may pause Workers, preserve evidence, and restore infrastructure under the Operations controls, but they cannot use that access to authorize Organization-scoped replay or skip.
+
+Cross-Organization replay, support impersonation, and break-glass recovery require a separate future identity, approval, customer-visibility, and audit design.
+
+---
+
 # Self-Review Policy
 
 The MVP does not require universal separation between author and reviewer.
@@ -2483,19 +2573,25 @@ They may not:
 
 # Retry Authorization
 
-A retry does not require new Human authorization when it repeats the same already-authorized operation.
+An immediate technical retry does not require a new Human command when it repeats the same already-authorized operation within the same idempotency and authorization scope.
 
-The retry must preserve:
+It must preserve:
 
 ```text
 original commandId or eventId
 original correlationId
 original causationId
 original actor attribution
+Organization scope
+authorized operation and mode
 policy context where required
 ```
 
-A retry may not broaden the original scope.
+A retry may not broaden scope, change mode, select a different resource, or recover from a terminal business or consumer outcome.
+
+A processed-event status of `Failed` is a terminal operational failure for ordinary delivery. Moving `Failed -> Processing` is not an automatic technical retry; it requires the typed, audited consumer-replay workflow and current authorization defined below.
+
+Once a replayId has been authorized, a Worker may retry its own transient execution failure within the registered retry policy without asking the Human to submit a duplicate command. Before a new execution claim begins, current Identity, Membership, Organization, permission, and replay scope are revalidated.
 
 ---
 
