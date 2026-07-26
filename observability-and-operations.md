@@ -827,27 +827,31 @@ Application / Worker
 
 ---
 
-# Recommended MVP Components
+# MVP Implementation Stack Decision
 
-The architecture remains vendor-neutral.
+The architecture contracts, telemetry schema, and Application Layer ports remain provider-neutral.
 
-A possible implementation may use:
+The production MVP implementation is fixed by [ADR-0002](docs/adr/0002-select-mvp-observability-stack.md). That ADR is the canonical source for:
 
-```text
-OpenTelemetry
+- selected managed services and disabled components
+- primary Region and accepted regional failure mode
+- cost limits and cardinality guardrails
+- implementation retention and provider constraints
+- security controls and operational ownership
+- the trigger for revisiting the decision
 
-Prometheus-compatible metrics
+The selected MVP baseline uses:
 
-Grafana-compatible dashboards
+- Amazon CloudWatch Logs and Logs Insights
+- Amazon CloudWatch metrics, dashboards, and alarms
+- Amazon SNS for operator notification
+- AWS CloudTrail for AWS control-plane audit
+- PostgreSQL for authoritative AIOS audit
+- OpenTelemetry APIs and W3C Trace Context without remote trace export
 
-Structured JSON logs
+Prometheus, Grafana, a self-managed OpenTelemetry Collector fleet, external error-tracking SaaS, and remote production tracing are not MVP requirements.
 
-Centralized log aggregation
-
-PostgreSQL audit tables
-```
-
-Managed equivalents are acceptable.
+Vendor-specific SDKs, resource names, access policies, and exporter settings belong to Infrastructure Layer adapters and Infrastructure as Code. Replacing a selected component requires an ADR update; it MUST NOT change Domain, Application, audit-durability, Organization-isolation, or Human-authority contracts.
 
 ---
 
@@ -861,7 +865,7 @@ OpenTelemetry is recommended for:
 - standard semantic attributes
 - vendor-neutral export
 
-The exact exporter and backend may vary by environment.
+The MVP production exporter decision is fixed by ADR-0002. Remote trace export is disabled for the MVP baseline. A later exporter or backend requires an ADR update that defines retention, cost, regional behavior, access, ownership, and failure semantics.
 
 ---
 
@@ -2221,7 +2225,7 @@ Initial MVP production defaults:
 
 | Data set | Default retention |
 |---|---:|
-| Metrics | 30 days |
+| Metrics | 30-day active SLO and dashboard query window; provider-managed non-sensitive rollups may remain longer under ADR-0002 |
 | Sampled traces | 7 days |
 | Application, Worker, deployment, database, and access logs | 30 days |
 | Restricted security logs | 90 days |
@@ -2229,6 +2233,8 @@ Initial MVP production defaults:
 | Persisted Class C denial telemetry | Maximum 30 days |
 | Class D aggregated security observations | 30 days |
 | Terminal operational workflow records and health history | 90 days after terminal resolution |
+
+For a managed metric backend with fixed rollup retention, the table defines AIOS active query and SLO windows rather than a guaranteed provider deletion time. Such a backend is permitted only when metric dimensions contain bounded T0 or approved T1 attributes and exclude Organization, Aggregate, Human, request, trace, and external-correlation identifiers. The implementation ADR MUST record the provider retention and the security rationale. Logs, audit, operational workflow records, and traces do not inherit this metric-only exception.
 
 Longer retention requires a documented legal, contractual, security, or operational need. Shorter retention must not break an active incident investigation, SLO window, reconciliation requirement, or mandatory audit period.
 
@@ -3435,6 +3441,7 @@ The observability foundation must preserve:
 20. Telemetry schema changes are versioned.
 21. Reconciliation detects failure of an independently owned guarantee; it never replaces preventive enforcement or directly mutates authoritative Domain state.
 22. Specialized log attributes use registered namespaces and class contracts; modules cannot add ad hoc top-level fields.
+23. The MVP telemetry provider, Region, cost limits, retention constraints, and operational owners are selected by an implementation ADR; vendor details remain outside Domain and Application contracts.
 
 ---
 
