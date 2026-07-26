@@ -831,7 +831,7 @@ Application / Worker
 
 The architecture contracts, telemetry schema, and Application Layer ports remain provider-neutral.
 
-The production MVP implementation is fixed by [ADR-0002](docs/adr/0002-select-mvp-observability-stack.md). That ADR is the canonical source for:
+The production MVP implementation is fixed by [ADR-0003](docs/adr/0003-select-mvp-observability-stack.md). That ADR is the canonical source for:
 
 - selected managed services and disabled components
 - primary Region and accepted regional failure mode
@@ -865,7 +865,7 @@ OpenTelemetry is recommended for:
 - standard semantic attributes
 - vendor-neutral export
 
-The MVP production exporter decision is fixed by ADR-0002. Remote trace export is disabled for the MVP baseline. A later exporter or backend requires an ADR update that defines retention, cost, regional behavior, access, ownership, and failure semantics.
+The MVP production exporter decision is fixed by ADR-0003. Remote trace export is disabled for the MVP baseline. A later exporter or backend requires an ADR update that defines retention, cost, regional behavior, access, ownership, and failure semantics.
 
 ---
 
@@ -2225,7 +2225,7 @@ Initial MVP production defaults:
 
 | Data set | Default retention |
 |---|---:|
-| Metrics | 30-day active SLO and dashboard query window; provider-managed non-sensitive rollups may remain longer under ADR-0002 |
+| Metrics | 30-day active SLO and dashboard query window; provider-managed non-sensitive rollups may remain longer under ADR-0003 |
 | Sampled traces | 7 days |
 | Application, Worker, deployment, database, and access logs | 30 days |
 | Restricted security logs | 90 days |
