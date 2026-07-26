@@ -164,6 +164,9 @@ Stores the authoritative outcome applied to the local completion gate.
 ```text
 WorkDecisionOutcomeRecord
 - decisionId: DecisionId
+- revisionNumber: DecisionRevisionNumber
+- submittedSnapshotId: DecisionSubmittedSnapshotId
+- decisionAggregateVersion: AggregateVersion
 - outcome: Approved | Rejected | Withdrawn
 - originatingHumanActorId: HumanMemberId
 - decisionResolvedAt: Timestamp
@@ -243,15 +246,15 @@ Rules:
 ## CompletionGate
 ```text
 NotRequired
-Pending(decisionId)
-Satisfied(decisionId, approvedAt, approvedBy)
-Unsatisfied(decisionId, outcome, resolvedAt, resolvedBy)
+Pending(decisionId, revisionNumber, submittedSnapshotId)
+Satisfied(decisionId, revisionNumber, submittedSnapshotId, approvedAt, approvedBy)
+Unsatisfied(decisionId, revisionNumber, submittedSnapshotId, outcome, resolvedAt, resolvedBy)
 ```
 The completion gate is a local snapshot.
 It is not the source of truth for Decision content or review history.
 Rules:
 - `WaitingForDecision` requires `Pending`;
-- `Pending` identifies exactly one blocking Decision;
+- `Pending` identifies exactly one immutable submitted Decision revision;
 - `Satisfied` requires an Approved Decision outcome;
 - `Unsatisfied` requires Rejected or Withdrawn;
 - completion is prohibited while `Pending` or required-but-`Unsatisfied`; and
@@ -361,24 +364,25 @@ InProgress → WaitingForDecision
 Rules:
 - only an authorized Human Member may request;
 - no unresolved blocking Decision already exists;
-- `decisionId` is supplied by coordinated Decision creation or submission;
-- completion gate becomes `Pending(decisionId)`;
-- `blockingDecisionId` is recorded; and
+- the Application Service has submitted the blocking Decision revision for review in the same transaction;
+- `decisionId`, `revisionNumber`, and `submittedSnapshotId` identify that immutable submitted revision;
+- completion gate becomes `Pending(decisionId, revisionNumber, submittedSnapshotId)`;
+- the matching active blocking reference is recorded; and
 - `WorkDecisionRequested` is emitted.
-The Work Aggregate does not create the Decision.
+The Work Aggregate does not create or submit the Decision. A Draft Decision never blocks Work.
 ## RecordDecisionOutcome
 Transition:
 ```text
 WaitingForDecision → InProgress
 ```
 Rules:
-- matching blocking `decisionId` is required;
+- matching `decisionId`, `revisionNumber`, and `submittedSnapshotId` are required;
 - outcome comes from an authoritative Decision event;
 - source event has not already been applied;
 - Approved sets the gate to `Satisfied`;
 - Rejected or Withdrawn sets the gate to `Unsatisfied`;
 - outcome history is appended;
-- blocking reference is cleared; and
+- the active blocking reference is cleared while the resolved reference remains in the gate and outcome history; and
 - `WorkDecisionOutcomeRecorded` is emitted.
 The technical processor must preserve the originating Human Member separately from the System Principal that applies the event.
 ## CompleteWork
@@ -408,6 +412,7 @@ Rules:
 - reason is required;
 - cancellation record is created;
 - existing Decision history is preserved;
+- any active blocking reference is cleared while its last gate snapshot remains preserved;
 - Work becomes immutable; and
 - `WorkCancelled` is emitted.
 Cancellation does not withdraw or cancel a Decision automatically.
@@ -506,10 +511,11 @@ The Secretary must never start, complete, cancel, or satisfy the completion gate
 - Assignment and participant history remains traceable.
 ## Decision Gate
 - At most one blocking Decision is pending.
-- `WaitingForDecision` requires a Pending gate.
-- Pending gate requires the matching `blockingDecisionId`.
+- `WaitingForDecision` requires a Pending gate and matching active blocking reference.
+- A non-terminal Pending gate requires the matching active blocking reference; Cancelled Work may preserve its last Pending gate snapshot after clearing that active reference.
+- Pending gate requires a complete matching revision and submitted-snapshot reference.
 - `InProgress` cannot retain a Pending gate.
-- Decision outcome applies only to the matching pending Decision.
+- Decision outcome applies only to the matching pending submitted revision.
 - The same source event cannot apply twice.
 - Satisfied requires Approved.
 - Unsatisfied requires Rejected or Withdrawn.
@@ -579,6 +585,9 @@ Every event includes:
 - transition-specific data.
 `WorkDecisionOutcomeRecorded` also includes:
 - Decision identifier;
+- Decision revision number;
+- submitted snapshot identifier;
+- Decision Aggregate version;
 - outcome;
 - originating Human Member;
 - Decision resolution timestamp;
@@ -663,9 +672,9 @@ Cross-context reads use explicit query ports or Integration Event data, not anot
 ## Creating and Updating Work
 For creation, authenticate the Human Member, evaluate Organization permission, validate referenced Members, construct Work, call `WorkRepository.Add(organizationId, work)`, and persist `WorkCreated`, command idempotency, and required audit metadata in the same Application transaction. For mutation, load through `Get`, invoke the Aggregate command, call `Save` with the expected version, and persist emitted events durably in that transaction.
 ## Requesting a Blocking Decision
-The MVP `RequestBlockingDecision` coordinator loads Work, creates Decision, verifies Organization scope and the unresolved-blocking-Decision rule, invokes both Aggregates, calls `WorkRepository.Save` and `DecisionRepository.Add`, and persists both event sets plus command idempotency in one PostgreSQL transaction. Atomicity is required while Work and Decision are co-located in one module and database; a future service split requires an ADR defining durable coordination, compensation, idempotency, and visible recovery before this guarantee may change.
+The MVP `RequestBlockingDecision` coordinator loads Work and either creates a Decision or loads an existing rejected or withdrawn Decision with an active Draft revision. It verifies Organization scope and the unresolved-blocking-Decision rule, invokes `Decision.SubmitForReview`, then invokes `Work.RequestBlockingDecision` with the resulting Decision revision and submitted-snapshot reference. It saves both Aggregates and persists both event sets plus command idempotency in one PostgreSQL transaction. Atomicity is required while Work and Decision are co-located in one module and database; a future service split requires an ADR defining durable coordination, compensation, idempotency, and visible recovery before this guarantee may change.
 ## Applying a Decision Outcome
-Consume `Integration / DecisionOutcomeOccurred / 1`, validate its Organization, Work, and Decision identifiers, check processed-event idempotency, load Work, verify the matching blocking `decisionId`, invoke `RecordDecisionOutcome`, and atomically save with the expected version, persist the resulting Work event, and record the processed event.
+Consume `Integration / DecisionOutcomeOccurred / 1`, validate its Organization, Work, Decision, revision, and submitted-snapshot identifiers, check processed-event idempotency, load Work, verify the full matching active blocking reference, invoke `RecordDecisionOutcome`, and atomically save with the expected version, persist the resulting Work event, and record the processed event.
 Decision resolution never invokes `CompleteWork`.
 ## Completing Work
 Authenticate a Human Member, evaluate completion permission, load Work, invoke `CompleteWork`, and let the Application transaction atomically save Work, append `WorkCompleted` to the Outbox, and record command idempotency and required audit evidence. Downstream Memory generation finishes independently.
@@ -681,6 +690,7 @@ Conflicts include:
 - cancellation during completion;
 - Decision outcome during cancellation;
 - duplicate Decision events; and
+- stale outcomes from an earlier Decision revision; and
 - repeated completion.
 Idempotency requirements:
 - one Decision outcome event applies once;
@@ -699,6 +709,7 @@ AggregateVersion
 # Failure Semantics
 - A failed Work transaction commits neither Work state, Outbox records, processed-command or processed-event records, nor required transactional audit evidence; uncommitted in-memory Domain Events are discarded.
 - Failed Decision-to-Work coordination leaves Decision resolved and retries the Work update idempotently.
+- If Work cancellation commits before a Decision outcome is applied, the outcome handler records a terminal no-op with audit evidence and does not reopen or mutate Work.
 - Failed Memory generation leaves Work `Completed`.
 - Failed projections or notifications do not reverse committed Work state.
 - Secretary failure never changes Work state.
