@@ -5252,11 +5252,192 @@ The stored `guarantee_reference` and `catalog_version` preserve which invariant 
 
 ---
 
+# External Effect Ledger Activation Boundary
+
+The `external_effect_operations` table is mandatory only when an enabled ConsumerRegistration uses `sideEffectClass = ExternalBusinessEffect`.
+
+The baseline MVP has no such enabled consumer: notifications use `sideEffectClass = PostgreSQLLocal`, and Memory generation is `ExternalComputation`. Schema documentation is future-facing safety design, not permission to enable email, webhook, remote-object, payment, or access-control effects without the complete adapter contract.
+
+An `ExternalBusinessEffect` registration fails startup validation unless its provider adapter declares supported idempotency, outcome query, compensation, retention-window, security, runbook, metrics, and test capabilities.
+
+---
+
+# External Effect Operation Persistence
+
+Conditional table:
+
+```text
+external_effect_operations
+- effect_operation_id
+- organization_id
+- consumer_name
+- event_id
+- effect_type
+- effect_key
+- request_fingerprint
+- provider
+- provider_idempotency_key nullable
+- provider_operation_reference nullable
+- provider_idempotency_expires_at nullable
+- status
+- attempt_count
+- next_reconciliation_at nullable
+- locked_by nullable
+- locked_until nullable
+- claim_version
+- first_sent_at nullable
+- last_sent_at nullable
+- outcome_observed_at nullable
+- provider_outcome_code nullable
+- compensation_effect_operation_id nullable
+- last_error_code nullable
+- error_reference nullable
+- version
+- created_at
+- updated_at
+```
+
+The ledger stores hashes, bounded metadata, and protected references. It MUST NOT store provider secrets, authentication tokens, unrestricted payloads, or raw responses.
+
+Required identity rules:
+
+```sql
+CREATE UNIQUE INDEX uq_external_effect_logical_identity
+ON external_effect_operations (
+    organization_id,
+    consumer_name,
+    event_id,
+    effect_type,
+    effect_key
+);
+
+CREATE UNIQUE INDEX uq_external_effect_provider_key
+ON external_effect_operations (
+    provider,
+    provider_idempotency_key
+)
+WHERE provider_idempotency_key IS NOT NULL;
+```
+
+The first index prevents a new logical send after a crash. A changed `request_fingerprint` under the same identity is `EffectFingerprintConflict`.
+
+---
+
+# External Effect Status Values
+
+```text
+Prepared
+InFlight
+Succeeded
+ConfirmedAbsent
+OutcomeUnknown
+Failed
+Compensating
+Compensated
+```
+
+Permitted transitions are:
+
+```text
+Prepared -> InFlight
+ConfirmedAbsent -> InFlight
+Failed -> InFlight                 only when registered policy proves safe retry
+InFlight -> Succeeded
+InFlight -> ConfirmedAbsent
+InFlight -> OutcomeUnknown
+InFlight -> Failed                 only when provider proves no effect occurred
+OutcomeUnknown -> Succeeded
+OutcomeUnknown -> ConfirmedAbsent
+OutcomeUnknown -> Compensating
+Compensating -> Compensated
+Compensating -> OutcomeUnknown
+```
+
+`Succeeded` and `Compensated` are terminal for the original operation identity. Compensation has a separate linked operation; the link does not erase the original `Succeeded` evidence.
+
+---
+
+# External Effect Write-Ahead and Claim Invariants
+
+`Prepared` commits before any provider call. A real send claim increments `attempt_count` and `claim_version`, sets `locked_by`, `locked_until`, and `last_sent_at` using database time, then commits `InFlight`.
+
+The provider call occurs outside the database transaction.
+
+Finalization verifies:
+
+```text
+status = InFlight
+locked_by = currentWorkerId
+claim_version = acquiredClaimVersion
+locked_until > now()
+request_fingerprint = acquiredRequestFingerprint
+```
+
+A stale Worker cannot record an outcome. A timeout, expired post-send lease, acknowledgement loss, or local commit uncertainty becomes `OutcomeUnknown` unless provider evidence proves a different result.
+
+---
+
+# External Effect and Consumer Atomicity
+
+The external provider effect cannot be part of the PostgreSQL transaction. PostgreSQL atomically records only local evidence and consequences after the provider outcome is proven.
+
+For proven success, one fenced local transaction records:
+
+- effect operation `Succeeded`;
+- provider outcome reference;
+- processed-event terminal result;
+- linked dead-letter resolution when recovering;
+- ordering-state advancement;
+- local Aggregate or projection effect where required;
+- required Outbox and audit; and
+- replay result when applicable.
+
+If this local commit fails after provider success, recovery queries the provider or repeats the same provider-enforced idempotency key. It does not create a new effect identity.
+
+`OutcomeUnknown` keeps the processed event `Failed`, dead letter `Investigating`, and ordering state blocked. Absence of a processed-event row is never proof of provider absence.
+
+---
+
+# External Effect Reconciliation Indexes
+
+```sql
+CREATE INDEX ix_external_effect_reconcile
+ON external_effect_operations (
+    status,
+    next_reconciliation_at
+)
+WHERE status IN (
+    'InFlight',
+    'OutcomeUnknown',
+    'Compensating'
+);
+
+CREATE INDEX ix_external_effect_expired_claim
+ON external_effect_operations (
+    locked_until
+)
+WHERE status IN (
+    'InFlight',
+    'Compensating'
+);
+```
+
+Organization, event, effect, provider-operation, and Identity identifiers remain query fields, not metric labels.
+
+---
+
 # Memory Generation Source Persistence
 
 The MVP persists one canonical source snapshot before invoking the external AI provider.
 
-Recommended table:
+Recommended tables:
+
+```text
+memory_generation_sources
+memory_generation_source_decisions
+```
+
+Conceptual source structure:
 
 ```text
 memory_generation_sources
@@ -5273,7 +5454,7 @@ memory_generation_sources
 - created_at
 ```
 
-Immutable Decision inputs are recorded in owned child rows:
+Immutable Decision inputs are owned child rows:
 
 ```text
 memory_generation_source_decisions
@@ -5286,8 +5467,6 @@ memory_generation_source_decisions
 - decision_resolved_at
 ```
 
-The canonical source document contains only the bounded Work completion facts and immutable revision content required by the generation policy. It is authoritative provenance for what the generator and reviewer saw; it is not telemetry or a search projection.
-
 Required constraints:
 
 ```text
@@ -5295,57 +5474,19 @@ UNIQUE (organization_id, source_snapshot_id)
 UNIQUE (organization_id, work_id, work_completed_event_id, source_schema_version)
 ```
 
-All child references include `organization_id` and use composite Organization-scoped foreign keys where practical.
+The source snapshot is append-only and contains only bounded Work completion facts and immutable Decision revision content required by the generation policy.
 
-The source snapshot is append-only. Application roles used by workers may insert it but cannot update or delete it through ordinary application paths. Retention is at least the lifetime of the related Memory, subject to the same Organization deletion, legal-hold, encryption, and regional-residency policy as Memory.
+---
 
-## Source Capture Transaction
+# Memory Generation Operation Persistence
 
-The Memory-generation consumer executes one durable use case in two short transactions:
-
-```text
-BEGIN
-
-Validate WorkCompleted envelope, Organization scope, and generation identity
-Create or reuse the exact terminal Work and immutable Decision source snapshot
-Create or reuse the stable generation operation or Pending attempt
-Persist source snapshot hash, policy version, and attempt identity
-
-COMMIT
-
-Call AI provider using only the committed source snapshot
-
-BEGIN
-
-Recheck operation, source-snapshot identity, and provider-input hash
-Check processed event by consumerName + eventId
-Check Memory by organizationId + sourceWorkId
-Validate generated candidate
-Add generated Memory with source and provider-input hashes
-Append MemoryGenerated to the Outbox
-Mark generation operation Generated
-Record processed event and required transactional audit
-
-COMMIT
-```
-
-No provider call occurs in either database transaction. The first commit does not mark `WorkCompleted` processed because the authoritative Memory effect does not yet exist.
-
-A retry for the same generation operation reuses the persisted source snapshot. If the final unique Memory insert races, the handler loads the existing Organization-scoped Memory, verifies that it represents the same source Work and generation identity, and records prior success without overwriting it. A source hash or version mismatch is terminal for automatic processing until Human investigation or a typed recovery command resolves it.
-
-# Memory Generation Attempt Persistence
+Memory generation is `ExternalComputation` and uses one stable logical operation rather than the generic external-business-effect ledger.
 
 Recommended table:
 
 ```text
-memory_generation_attempts
-```
-
-Conceptual structure:
-
-```text
-memory_generation_attempts
-- generation_attempt_id
+memory_generation_operations
+- generation_operation_id
 - organization_id
 - work_id
 - source_event_id
@@ -5355,57 +5496,136 @@ memory_generation_attempts
 - generation_policy_version
 - status
 - attempt_count
-- started_at
-- completed_at
-- model_reference
+- next_attempt_at nullable
+- locked_by nullable
+- locked_until nullable
+- claim_version
+- first_started_at nullable
+- last_attempt_at nullable
+- completed_at nullable
+- model_reference nullable
 - prompt_template_version
 - output_schema_version
-- last_error_code
-- last_error_message
+- last_error_code nullable
+- error_reference nullable
+- version
 - created_at
 - updated_at
 ```
 
----
-
-# Memory Generation Attempt Status
-
-```text
-Pending
-
-Generating
-
-Generated
-
-Failed
-
-Abandoned
-```
-
-This table is operational metadata.
-
-It is not the Memory Aggregate.
-
----
-
-# Generation Attempt Uniqueness
-
-Recommended business key:
+Full logical uniqueness is required:
 
 ```sql
-CREATE UNIQUE INDEX uq_memory_generation_attempt_identity
-ON memory_generation_attempts (
+CREATE UNIQUE INDEX uq_memory_generation_operation_identity
+ON memory_generation_operations (
+    organization_id,
     work_id,
     generation_policy_version
-)
-WHERE status IN (
-    'Pending',
-    'Generating',
-    'Generated'
 );
 ```
 
-The exact retry model may preserve multiple attempt rows under one stable generation operation.
+A terminal `Failed` or `Abandoned` row does not free the identity for a second operation. Typed retry reuses the same row.
+
+---
+
+# Memory Generation Operation Status
+
+```text
+Pending
+Generating
+RetryPending
+Generated
+Failed
+Abandoned
+```
+
+Permitted transitions are:
+
+```text
+Pending -> Generating
+RetryPending -> Generating
+Generating -> Generated
+Generating -> RetryPending
+Generating -> Failed
+Failed -> RetryPending             only through authorized typed retry
+Pending | RetryPending | Failed -> Abandoned through authorized operation
+```
+
+`Generated` and `Abandoned` are terminal. `Generated` requires a linked existing Memory with matching Organization, Work, source snapshot, generation policy, and provider-input hash.
+
+---
+
+# Memory Generation Claim and Recovery
+
+A real generation claim increments `attempt_count` and `claim_version`, sets lease fields with database time, and changes the operation to `Generating`.
+
+Finalization verifies the generation claim and processed-event consumer claim before creating Memory.
+
+Expired `Generating` changes to `RetryPending` through a fenced recovery transaction, preserves `attempt_count`, sets `next_attempt_at`, records `LeaseExpired`, and clears claim fields. Recovery is not a provider attempt.
+
+A provider timeout with no usable candidate follows the same `RetryPending` path while budget remains. Because this is computation-only, no external business outcome is inferred.
+
+Required indexes:
+
+```sql
+CREATE INDEX ix_memory_generation_runnable
+ON memory_generation_operations (
+    status,
+    next_attempt_at
+)
+WHERE status IN (
+    'Pending',
+    'RetryPending'
+);
+
+CREATE INDEX ix_memory_generation_expired_claim
+ON memory_generation_operations (
+    locked_until
+)
+WHERE status = 'Generating';
+```
+
+---
+
+# Memory Generation Transactions
+
+First transaction:
+
+```text
+Validate WorkCompleted and Organization
+Create or reuse immutable source snapshot
+Create or reuse stable generation operation
+Verify source and provider-input hashes
+COMMIT
+```
+
+Generation claim transaction:
+
+```text
+Require Pending or due RetryPending
+Set Generating, increment attemptCount and claimVersion
+Set lease fields using database time
+COMMIT
+```
+
+Provider call occurs outside PostgreSQL using only the committed source snapshot.
+
+Final transaction:
+
+```text
+Verify generation and processed-event fencing
+Recheck operation, source snapshot, and provider-input hash
+Check Memory uniqueness
+Validate candidate
+Add Memory
+Append MemoryGenerated to Outbox
+Set operation Generated
+Set processed event Processed with result reference
+Record required audit
+COMMIT
+```
+
+A retry reuses the exact snapshot and operation. A stale or lease-lost provider response is discarded. A unique Memory conflict loads the existing Organization-scoped Memory and proves matching generation identity before recording prior success.
 
 ---
 
@@ -5781,7 +6001,7 @@ memory_source_references
 memory_secretary_contributions
 memory_generation_sources
 memory_generation_source_decisions
-memory_generation_attempts
+memory_generation_operations
 ```
 
 No Knowledge or Capability tables exist in the MVP.
@@ -5795,6 +6015,7 @@ outbox_messages
 processed_events
 dead_letter_events
 event_replays
+external_effect_operations
 reconciliation_findings
 ```
 
@@ -7598,7 +7819,7 @@ outbox_messages
 
 processed_events
 
-memory_generation_attempts
+memory_generation_operations
 
 reconciliation_findings
 ```
@@ -9363,7 +9584,7 @@ The event-consumer and ordering rules in `docs/architecture/events-and-outbox.md
 
 Database restoration can rewind local evidence but cannot undo an email, webhook, provider request, access revocation, or other external side effect already performed after the selected restore point.
 
-Consumers with external effects MUST use durable provider idempotency keys or an external-effect ledger where the provider permits it. Before replaying an outcome-ambiguous effect, recovery MUST:
+Consumers with external business effects MUST always use the external-effect ledger. They additionally use a durable provider idempotency key or authoritative provider outcome query as declared by the registered adapter. Before replaying an outcome-ambiguous effect, recovery MUST:
 
 - inspect the restored idempotency or effect record
 - identify the time window lost by the restore
