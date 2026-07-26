@@ -3300,6 +3300,7 @@ memory_source_references
 - organization_id
 - memory_id
 - memory_revision_id
+- source_snapshot_id
 - source_type
 - source_id
 - source_version
@@ -3402,6 +3403,8 @@ CREATE TABLE memories (
     memory_id                         uuid PRIMARY KEY,
     organization_id                   uuid NOT NULL,
     source_work_id                    uuid NOT NULL,
+    source_snapshot_id                uuid NOT NULL,
+    source_snapshot_hash              text NOT NULL,
     status                            text NOT NULL,
     is_active                         boolean NOT NULL,
 
@@ -4993,6 +4996,81 @@ The stored `guarantee_reference` and `catalog_version` preserve which invariant 
 
 ---
 
+# Memory Generation Source Persistence
+
+The MVP persists one canonical source snapshot before invoking the external AI provider.
+
+Recommended table:
+
+```text
+memory_generation_sources
+- source_snapshot_id
+- organization_id
+- work_id
+- work_aggregate_version
+- work_content_revision_id
+- work_completed_event_id
+- source_schema_version
+- canonical_source_json
+- source_snapshot_hash
+- captured_at
+- created_at
+```
+
+Immutable Decision inputs are recorded in owned child rows:
+
+```text
+memory_generation_source_decisions
+- source_snapshot_id
+- organization_id
+- decision_id
+- decision_revision_id
+- decision_submitted_snapshot_id
+- decision_content_hash
+- decision_resolved_at
+```
+
+The canonical source document contains only the bounded Work completion facts and immutable revision content required by the generation policy. It is authoritative provenance for what the generator and reviewer saw; it is not telemetry or a search projection.
+
+Required constraints:
+
+```text
+UNIQUE (organization_id, source_snapshot_id)
+UNIQUE (organization_id, work_id, work_completed_event_id, source_schema_version)
+```
+
+All child references include `organization_id` and use composite Organization-scoped foreign keys where practical.
+
+The source snapshot is append-only. Application roles used by workers may insert it but cannot update or delete it through ordinary application paths. Retention is at least the lifetime of the related Memory, subject to the same Organization deletion, legal-hold, encryption, and regional-residency policy as Memory.
+
+## Source Capture Transaction
+
+The Memory-generation consumer executes:
+
+```text
+BEGIN
+
+Validate idempotency and Organization scope
+Load exact terminal Work version
+Load exact immutable Decision snapshots
+Create canonical source snapshot and hash
+Create stable generation operation or Pending attempt
+Commit
+
+Call AI provider using only the committed snapshot
+
+BEGIN
+
+Recheck operation and snapshot identity
+Persist generated Memory with source snapshot and provider-input hashes
+Record processed event
+Commit
+```
+
+No provider call occurs in either database transaction.
+
+A retry for the same generation operation reuses the persisted source snapshot. A hash or version mismatch is terminal for automatic processing until Human investigation or a typed recovery command resolves it.
+
 # Memory Generation Attempt Persistence
 
 Recommended table:
@@ -5009,6 +5087,9 @@ memory_generation_attempts
 - organization_id
 - work_id
 - source_event_id
+- source_snapshot_id
+- source_snapshot_hash
+- provider_input_hash
 - generation_policy_version
 - status
 - attempt_count
