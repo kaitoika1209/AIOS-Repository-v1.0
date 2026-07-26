@@ -503,6 +503,8 @@ The process:
 - prevents duplicate Memory creation; and
 - invokes `CreateGeneratedMemory`.
 
+`Integration / WorkCompleted / 1` is the only registered MVP generation trigger. `MemoryGenerationRequested` and `MemoryGenerationFailed` are not Memory Domain Events or Integration Events; request, retry, and failure are represented by the source delivery and durable generation operation.
+
 Generation operation states are:
 
 ```text
