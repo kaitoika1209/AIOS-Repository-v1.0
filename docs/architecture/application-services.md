@@ -2331,7 +2331,7 @@ Advance ordering state
 COMMIT
 ```
 
-This prevents both state change without a success marker and a success marker without state change. Fencing verification occurs before target mutation; failure returns `LeaseLost` and commits no domain effect.
+This prevents both state change without a success marker and a success marker without state change. Before any target Aggregate mutation, fencing verification must require `status = Processing`, `lockedBy = currentWorkerId`, `claimVersion = acquiredClaimVersion`, and `lockedUntil > databaseNow`. Failure returns `LeaseLost` and commits no Aggregate state, Outbox event, audit record, dead-letter record, ordering-state change, or processed-event result.
 
 ---
 
