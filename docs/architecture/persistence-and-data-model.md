@@ -5061,31 +5061,37 @@ The source snapshot is append-only. Application roles used by workers may insert
 
 ## Source Capture Transaction
 
-The Memory-generation consumer executes:
+The Memory-generation consumer executes one durable use case in two short transactions:
 
 ```text
 BEGIN
 
-Validate idempotency and Organization scope
-Load exact terminal Work version
-Load exact immutable Decision snapshots
-Create canonical source snapshot and hash
-Create stable generation operation or Pending attempt
-Commit
+Validate WorkCompleted envelope, Organization scope, and generation identity
+Create or reuse the exact terminal Work and immutable Decision source snapshot
+Create or reuse the stable generation operation or Pending attempt
+Persist source snapshot hash, policy version, and attempt identity
 
-Call AI provider using only the committed snapshot
+COMMIT
+
+Call AI provider using only the committed source snapshot
 
 BEGIN
 
-Recheck operation and snapshot identity
-Persist generated Memory with source snapshot and provider-input hashes
-Record processed event
-Commit
+Recheck operation, source-snapshot identity, and provider-input hash
+Check processed event by consumerName + eventId
+Check Memory by organizationId + sourceWorkId
+Validate generated candidate
+Add generated Memory with source and provider-input hashes
+Append MemoryGenerated to the Outbox
+Mark generation operation Generated
+Record processed event and required transactional audit
+
+COMMIT
 ```
 
-No provider call occurs in either database transaction.
+No provider call occurs in either database transaction. The first commit does not mark `WorkCompleted` processed because the authoritative Memory effect does not yet exist.
 
-A retry for the same generation operation reuses the persisted source snapshot. A hash or version mismatch is terminal for automatic processing until Human investigation or a typed recovery command resolves it.
+A retry for the same generation operation reuses the persisted source snapshot. If the final unique Memory insert races, the handler loads the existing Organization-scoped Memory, verifies that it represents the same source Work and generation identity, and records prior success without overwriting it. A source hash or version mismatch is terminal for automatic processing until Human investigation or a typed recovery command resolves it.
 
 # Memory Generation Attempt Persistence
 
@@ -5661,17 +5667,17 @@ Check command idempotency
 
 Resolve current authorization
 
-Load Aggregate
-
-Verify expected version
+For creation: construct Aggregate
+For mutation: Get Aggregate and verify expected version
 
 Execute Aggregate command
 
-Save Aggregate
+For creation: Add Aggregate
+For mutation: Save Aggregate with expected version
 
-Persist child changes
+Persist Aggregate-owned child changes
 
-Persist Domain Events to Outbox
+Persist required Domain Events and mapped Integration Events to Outbox
 
 Persist authorization audit metadata
 
@@ -5685,6 +5691,8 @@ If any required step fails:
 ```text
 ROLLBACK
 ```
+
+`Add` and `Save` participate in the current transaction. Neither operation opens an independent transaction or performs an upsert.
 
 ---
 
@@ -5900,6 +5908,8 @@ WorkDecisionRequested Event
 DecisionCreated Event
 
 Processed Command
+
+Required Authorization Audit
 ```
 
 The transaction establishes:
