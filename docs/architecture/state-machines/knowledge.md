@@ -1,10 +1,12 @@
 # Knowledge State Machine
 
-> **Document status:** Future Blueprint  
-> **MVP status:** Out of scope  
+> **Document status:** Future Hypothesis  
+> **Scope classification:** Future Hypothesis  
+> **MVP implementation authority:** None  
+> **Promotion requirement:** Accepted implementation ADR and release-scope update  
 > **Target roadmap phase:** Phase 4 — Organizational Intelligence
 
-This State Machine specifies a future lifecycle boundary. The MVP defines no Knowledge command, state, event, persistence table, background handler, or user interface.
+This State Machine specifies a candidate future lifecycle boundary. Its normative words apply only if the hypothesis is promoted under ADR-0010. The MVP defines no Knowledge command, state, event, persistence table, background handler, port, route, user interface, migration, or deployment dependency.
 
 Approved Memory remains historical truth and does not enter this State Machine automatically.
 
