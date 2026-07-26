@@ -1072,7 +1072,7 @@ Authorization is enforced before executing aggregate commands.
 
 The aggregate assumes authorization has already been verified.
 
-Business invariants remain enforced inside the aggregate.
+Decision-local lifecycle and state invariants remain enforced inside the Decision Aggregate. Authorization and external preconditions remain outside it.
 
 ---
 
@@ -1163,7 +1163,7 @@ Application Services coordinate multiple aggregates.
 
 They contain workflow orchestration.
 
-Business invariants remain inside aggregates.
+Aggregate-local invariants remain inside their owning Aggregates. Cross-Aggregate preconditions and workflow coordination remain in the Application Layer, while reusable context-wide semantics belong to a Domain Policy or Specification.
 
 ---
 
