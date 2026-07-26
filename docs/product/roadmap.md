@@ -1,9 +1,11 @@
 # Product Roadmap
 > **Document status:** Proposed  
 > **Blueprint version:** 0.2.1  
-> **Roadmap type:** Directional, capability-based roadmap
+> **Roadmap type:** Directional, capability-based roadmap  
+> **Scope classification:** Phase 1 delegates to MVP Normative scope; later phases are Future Hypotheses  
+> **Implementation authority:** None for later phases without an accepted implementation ADR and release-scope update
 ## Purpose
-This document describes the planned evolution of AIOS from the Minimum Viable Product (MVP) into the complete organizational operating system defined by the AIOS Blueprint.
+This document describes a directional evolution of AIOS from the Minimum Viable Product (MVP) into the complete organizational operating system defined by the AIOS Blueprint. A roadmap phase communicates sequencing intent; it does not approve code, schema, events, interfaces, infrastructure, or deployment dependencies. Promotion follows [ADR-0010](../adr/0010-classify-blueprint-scope-and-implementation-authority.md).
 It communicates:
 - the sequence of major product capabilities;
 - the outcome and boundary of each phase;
