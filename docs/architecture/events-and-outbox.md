@@ -4906,7 +4906,7 @@ organizationId + decisionId + revisionNumber + outcome
 
 Technical delivery idempotency additionally uses `sourceDomainEventId` and the consumer registration key.
 
-The target Work must verify that `workId` identifies the loaded Work and that its Completion Gate references the same `decisionId`.
+The target Work must verify that `workId` identifies the loaded Work and that its active Pending Completion Gate references the same `decisionId`, `revisionNumber`, and `submittedSnapshotId`. Matching `decisionId` alone is prohibited because a later revision may reuse that identity.
 
 ---
 
@@ -4929,7 +4929,7 @@ Load Work by organizationId and workId
 
 ↓
 
-Verify Completion Gate references decisionId
+Verify active Completion Gate references decisionId + revisionNumber + submittedSnapshotId
 
 ↓
 
@@ -4955,6 +4955,8 @@ The handler must not:
 - override the Completion Gate directly;
 - infer a different outcome; or
 - accept a mismatched Organization, Work, Decision, or source-event type.
+
+If Work was cancelled before delivery, the handler records a terminal no-op with audit evidence. If the current Pending reference is newer than the event, the older outcome may be recorded as stale only after that ordering fact is proved. A newer-than-pending reference or conflicting outcome for the same submitted snapshot is blocked or failed for investigation; an event never rebinds the gate implicitly.
 
 ---
 
@@ -7803,6 +7805,9 @@ Required tests include:
 - Organization mismatch fails
 - unrelated Decision fails
 - duplicate outcome is no-op
+- prior-revision outcome cannot update a newer Pending gate
+- conflicting outcomes for one submitted snapshot fail permanently
+- cancellation before delivery produces an audited terminal no-op
 - outcome handler never completes Work
 
 ---
