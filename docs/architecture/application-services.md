@@ -590,7 +590,7 @@ That rule belongs to the Work Aggregate.
 
 A Human Member requests a Decision that must be resolved before Work completion.
 
-This workflow coordinates Work and Decision creation.
+This workflow coordinates Work with submission of an immutable blocking Decision revision. It may create the Decision first or use the active Draft revision of an existing rejected or withdrawn Decision.
 
 The two aggregates remain independently authoritative.
 
@@ -606,14 +606,12 @@ Human Member
 Decision Coordination Service
       │
       ├── Load Work
-      │
-      ├── Ask Work to reserve blocking Decision reference
-      │
-      ├── Create Decision
+      ├── Create or load Decision Draft
+      ├── Submit Decision revision for review
+      ├── Ask Work to record the exact submitted-revision reference
       │
       ├── Save Work
-      │
-      ├── Add Decision
+      ├── Add or save Decision
       │
       └── Write Outbox events
       ▼
@@ -624,52 +622,62 @@ Commit
 
 ## Atomic Coordination
 
-Within the Modular Monolith, the MVP may coordinate the initial Work and Decision changes in one PostgreSQL transaction.
+Within the Modular Monolith, the MVP coordinates activation of the blocking relationship in one PostgreSQL transaction.
 
 ```text
 BEGIN
 
 Load Work
 
-Create Decision identity
+Create and add Decision, or load existing Decision with expected version
 
-Work.RequestBlockingDecision(decisionId)
+Decision.SubmitForReview(humanActor)
 
-Decision.Create(...)
+blockingReference = (
+    decisionId,
+    revisionNumber,
+    submittedSnapshotId
+)
+
+Work.RequestBlockingDecision(blockingReference)
 
 Save Work with expected version
 
-Add Decision
+Add new Decision or save existing Decision with expected version
 
 Write WorkDecisionRequested to Outbox
 
 Write DecisionCreated to Outbox
+
+Write DecisionSubmitted to Outbox
 
 Record processed command
 
 COMMIT
 ```
 
-This is an Application Layer transaction.
+For an existing Decision, load and save it with its expected version instead of creating and adding it; `DecisionCreated` is then absent, while `DecisionSubmitted` remains required. This is an Application Layer transaction.
 
 It does not merge the two Aggregate boundaries.
 
 ---
 
-## Why Atomic Creation Is Allowed
+## Why Atomic Activation Is Allowed
 
 The workflow establishes a required reference between two newly coordinated facts:
 
 - Work is waiting for a specific blocking Decision.
-- That Decision exists.
+- That Decision revision exists as an immutable submitted snapshot and is `InReview`.
 
 A single database transaction prevents:
 
 - a Work item referencing a nonexistent Decision
 - an orphaned blocking Decision
+- a Draft Decision incorrectly blocking Work
+- mismatched Work and Decision revision references
 - partial creation of the workflow
 
-After creation, the aggregates evolve independently.
+After activation, the aggregates evolve independently.
 
 ---
 
@@ -681,10 +689,12 @@ Before executing the workflow, the Application Service verifies:
 - the Work belongs to the current Organization
 - the actor may request a Decision
 - the proposed Decision belongs to the same Organization
+- the Decision is new, or is Rejected or Withdrawn with exactly one active Draft revision
+- the blocking Draft is complete enough to submit
 
 The Work Aggregate still determines whether its current state permits a blocking Decision.
 
-The Decision Aggregate still validates its own initial content.
+The Decision Aggregate still validates its own initial content and submission rules. The Work Aggregate receives the immutable `decisionId`, `revisionNumber`, and `submittedSnapshotId` only after `SubmitForReview` succeeds in memory; neither change is visible unless the transaction commits.
 
 ---
 
@@ -1011,6 +1021,9 @@ Load Work and retain its expected version
 
 Work.RecordDecisionOutcome(
     decisionId,
+    revisionNumber,
+    submittedSnapshotId,
+    decisionAggregateVersion,
     Approved,
     decidedAt
 )
@@ -1043,6 +1056,9 @@ Load Work and retain its expected version
 
 Work.RecordDecisionOutcome(
     decisionId,
+    revisionNumber,
+    submittedSnapshotId,
+    decisionAggregateVersion,
     Rejected,
     decidedAt
 )
@@ -1059,7 +1075,7 @@ COMMIT
 A rejected blocking Decision typically causes:
 
 ```text
-CompletionGate = Unsatisfied(decisionId)
+CompletionGate = Unsatisfied(decisionId, revisionNumber, submittedSnapshotId)
 ```
 
 The exact transition remains owned by the Work Aggregate.
@@ -1079,6 +1095,9 @@ Load Work and retain its expected version
 
 Work.RecordDecisionOutcome(
     decisionId,
+    revisionNumber,
+    submittedSnapshotId,
+    decisionAggregateVersion,
     Withdrawn,
     decidedAt
 )
@@ -1095,6 +1114,12 @@ COMMIT
 The Work Aggregate decides how withdrawal affects the Completion Gate.
 
 The handler only conveys the immutable Decision outcome.
+
+## Outcome Races and Terminal No-Ops
+
+The handler matches the complete active blocking reference: `decisionId`, `revisionNumber`, and `submittedSnapshotId`. `decisionId` alone is not sufficient when a later revision reuses the same Decision identity.
+
+On an optimistic-concurrency conflict, the handler reloads Work and re-evaluates the event. If Work was cancelled first, the handler records the event as a terminal no-op with the reason and audit evidence; it does not reopen Work, restore a Completion Gate, or retry forever. If Work already records the same submitted-revision outcome, the handler records duplicate or stale success. A mismatched current reference or a conflicting outcome for the same submitted snapshot is blocked or failed for investigation and never rebinds the gate automatically.
 
 ---
 
