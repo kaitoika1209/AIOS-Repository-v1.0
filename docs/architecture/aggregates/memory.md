@@ -326,7 +326,7 @@ Rules:
 ## MemoryGenerationProvenance
 ```text
 MemoryGenerationProvenance
-- generationRequestId: GenerationRequestId
+- generationRequestId: GenerationOperationId
 - sourceSnapshotId: MemorySourceSnapshotId
 - sourceSnapshotHash: ContentHash
 - providerInputHash: ContentHash
@@ -485,16 +485,40 @@ This does not create a new Memory or `MemoryRevision`.
 ---
 # Business Rules
 ## Generation
+
 Generation starts only after Work completion and runs outside the Memory Aggregate.
+
+It is classified as `ExternalComputation`: the AI provider produces untrusted candidate content but does not create an authoritative Memory or other external business outcome.
+
 The process:
+
 - consumes `WorkCompleted`;
-- loads permitted source material;
-- invokes the Secretary or AI provider;
+- commits the exact immutable source snapshot;
+- creates or reuses one stable generation operation;
+- acquires a fenced generation claim;
+- invokes the Secretary or AI provider outside PostgreSQL;
 - validates output;
-- retries temporary failure;
-- prevents duplicate processing; and
+- schedules bounded retry for temporary failure;
+- discards stale or lease-lost responses;
+- prevents duplicate Memory creation; and
 - invokes `CreateGeneratedMemory`.
-Generation job states are operational process states, not `MemoryStatus`.
+
+Generation operation states are:
+
+```text
+Pending
+Generating
+RetryPending
+Generated
+Failed
+Abandoned
+```
+
+They are operational process states, not `MemoryStatus`.
+
+A provider timeout with no usable response may duplicate compute cost when retried, but it does not create unknown business state. Retry reuses the same source snapshot, generation policy version, provider-input hash, and generation operation.
+
+`Generated` is valid only when the final fenced PostgreSQL transaction creates or proves the matching Memory and atomically records `MemoryGenerated`, the processed-event result, and required audit.
 ## Draft Editing
 Generated Memory is editable because AI output may be inaccurate or incomplete.
 The system must preserve:
@@ -719,8 +743,20 @@ Memory generation first checks the processed-event and generation-operation iden
 
 # Application Service Responsibilities
 ## Generating Memory
-The Application Service consumes `WorkCompleted` in two short transactions separated by the external AI call. The first transaction validates Organization scope and idempotency, captures and commits the exact immutable source snapshot and a stable generation operation. The Secretary receives only that committed snapshot outside any database transaction. The second transaction rechecks the operation and snapshot, creates Memory in `Generated`, calls `MemoryRepository.Add` under the `(organizationId, sourceWorkId)` uniqueness constraint, appends `MemoryGenerated`, records the processed event and required audit evidence, and commits atomically. A concurrent uniqueness conflict resolves to the already-created Memory and must never overwrite it.
-Generation failure must not reopen Work.
+
+The Application Service consumes `WorkCompleted` in bounded transactions separated by the external AI call.
+
+1. It validates Organization and event identity, commits the exact immutable source snapshot, and creates or reuses the stable generation operation.
+2. It acquires a `Generating` claim that increments `attemptCount` and `claimVersion`.
+3. It calls the provider outside PostgreSQL using only the committed snapshot.
+4. It validates the candidate.
+5. In one final transaction it verifies generation and consumer fencing, calls `MemoryRepository.Add`, appends `MemoryGenerated`, sets the generation operation to `Generated`, records the processed-event result and required audit, and commits.
+
+The uniqueness constraint on `(organizationId, sourceWorkId)` remains the final race guard. A conflicting existing Memory is accepted only after proving the same Work and generation identity; it is never overwritten.
+
+A timeout or transient provider failure changes the same operation to `RetryPending` with `nextAttemptAt` while budget remains. Retry exhaustion changes it to `Failed`. Expired claims are recovered through `claimVersion`; a late response from a stale claim is discarded.
+
+Generation failure does not reopen Work and creates no partial Memory.
 ## Editing Memory
 The Application Service authenticates the actor, evaluates Organization permission, loads Memory, invokes `EditGeneratedMemory`, saves with the expected Aggregate version, and publishes the edit event. Secretary-assisted edits preserve AI attribution.
 ## Reviewing Memory
@@ -749,7 +785,10 @@ AggregateVersion
 ```
 ---
 # Failure Semantics
-- Generation failure leaves Work Completed and creates no partial Memory Aggregate. A committed source snapshot and generation-attempt record may remain as durable retry evidence and must be reused rather than rebuilt from mutable current data.
+- Generation failure leaves Work Completed and creates no partial Memory Aggregate. The committed source snapshot and stable generation operation remain durable retry evidence and must be reused rather than rebuilt from mutable current data.
+- Provider timeout with no usable candidate becomes `RetryPending` while retry budget remains; it is not treated as an unknown external business effect.
+- A stale or lease-lost provider response cannot create Memory.
+- Retry exhaustion becomes `Failed`; `Abandoned` requires an explicit authorized operational decision.
 - Edit failure leaves the previous draft unchanged and commits no edit event.
 - Approval or rejection failure leaves Memory `InReview` with no authoritative outcome.
 - Downstream notification, projection, or indexing failure does not reverse a committed Memory transition and must be retried.
