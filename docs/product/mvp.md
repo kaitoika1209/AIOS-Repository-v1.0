@@ -434,7 +434,7 @@ Detailed state transitions belong to the Decision state machine document.
 
 The MVP supports one Secretary for each Organization.
 
-Secretary is a domain concept representing an AI Principal that assists the Organization.
+The Secretary is an Organization-scoped AI Principal and cross-cutting participant, not a Bounded Context, Aggregate, or domain-owning service.
 
 The Secretary is not a human Member.
 
@@ -463,7 +463,11 @@ The Secretary must never:
 - act as a human Member; or
 - modify approved historical records.
 
-All Secretary outputs must be attributable to the Secretary and distinguishable from human-authored content.
+The Secretary Runtime may call only typed, context-owned AI Assistance Application Ports. Those ports expose allowlisted advisory operations and omit repositories, database access, mutable Aggregates, generic command dispatch, unrestricted queries, and Human-only or System-only commands.
+
+Every invocation requires an active Organization-, Secretary-, context-, operation-, and port-version-specific assistance grant plus an initiating Human command or separately permitted System workflow. Unknown operations fail closed before provider invocation. Generation and Human adoption are separate commands; adoption re-evaluates current authorization and domain rules.
+
+All Secretary outputs must be attributable to the Secretary and distinguishable from human-authored content. [ADR-0011](../adr/0011-bound-secretary-to-context-owned-assistance-ports.md) defines the binding implementation boundary.
 
 The MVP does not include:
 
