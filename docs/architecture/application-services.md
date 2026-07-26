@@ -2737,53 +2737,188 @@ Sensitive payloads are referenced through protected storage and are not copied i
 
 ---
 
-# Failed Event Recovery
+# Failed Consumer Recovery Application Service
 
-Operators act through typed, audited recovery commands. They may inspect authorized failure details, correct configuration or associations, deploy a handler fix, run `ValidateOnly`, request replay, skip only when the registered policy permits, and resolve the linked dead-letter record after reconciliation.
+The Operations Application Service owns consumer recovery orchestration. Repositories expose persistence; they do not authorize replay, decide whether a skip is safe, or mark a dead letter resolved independently.
 
-Recovery never edits the immutable source event. A retry from `Failed` acquires a new fenced `Processing` claim and records replay identity and reason. A skip transitions the consumer result to `Skipped`; it does not claim that the business effect succeeded.
-
----
-
-# Event Replay
-
-The system should support controlled replay.
-
-Replay must:
-
-- preserve the original eventId where deduplication semantics require it, or
-- use an explicit replay identifier with originalEventId metadata
-- preserve correlation context
-- avoid bypassing idempotency
-- record the operator and reason
-
----
-
-# Replay Modes
-
-Recommended modes:
+MVP typed commands are:
 
 ```text
-Retry Original Processing
-Rebuild Read Model
-Reprocess With New Handler Version
+RequestConsumerReplay
+SkipDeadLetter
+CancelConsumerReplay
 ```
 
-Business Aggregate mutation replay requires the strongest safeguards.
+The actor, Membership, Organization, and policy context come from trusted `ExecutionContext`. Command payloads MUST NOT contain actor overrides.
 
 ---
 
-# Dead Letter Handling
+# RequestConsumerReplay Flow
 
-A dedicated message broker dead-letter queue is optional in the MVP.
+```text
+Authenticate HumanMemberPrincipal
+Resolve exactly one Organization context
+Load immutable source event by Organization
+Load ConsumerRegistration
+Load processed event, linked dead letter, and ordering state by Organization
+Require processed event = Failed
+Authorize the canonical replay mode against current Membership and policy
+Validate expected dead-letter and ordering-state versions
+Validate owning-module recovery policy, idempotency, and side-effect class
 
-PostgreSQL-backed failed Outbox and processed-event records are sufficient when they provide:
+BEGIN
+Create event_replay = Requested
+Store requester, reason, mode, expected versions, and policy version
+Append Class B durable intent audit
+COMMIT
 
-- durable failure storage
-- inspectability
-- retry control
-- auditability
-- alerting
+Return replayId
+```
+
+The request transaction does not change the processed-event, dead-letter, or ordering-state result. It creates durable authorized intent for asynchronous execution.
+
+---
+
+# Canonical Replay Modes
+
+Application Services use exactly:
+
+```text
+RetryOriginal
+ReprocessWithCurrentHandler
+RebuildProjection
+ValidateOnly
+```
+
+Aliases such as “Retry Original Processing” or “Reprocess With New Handler Version” are not persisted values.
+
+---
+
+# Replay Validation Worker
+
+A narrowly capable System Worker may claim a `Requested` replay but cannot create or broaden it.
+
+Before execution it revalidates current Human Identity, Membership, Organization status, permission, policy version, source Organization, ConsumerRegistration, expected versions, handler compatibility, ordering impact, and idempotency evidence.
+
+```text
+Requested -> Validating
+```
+
+Authorization or Organization failure produces `Denied`, appends the result audit, and commits no consumer or domain mutation. A stale expected version produces `Cancelled` or a typed stale-precondition result; it is not silently retried against new state.
+
+`ValidateOnly` terminates after read-only validation. It changes only the replay record and required audit:
+
+```text
+Validating -> Completed | Failed | Denied
+```
+
+It does not acquire a processed-event claim.
+
+---
+
+# Replay Execution Claim
+
+For `RetryOriginal` or `ReprocessWithCurrentHandler`, a short transaction:
+
+```text
+Lock active replay by replayId
+Verify replay = Validating
+Verify no other active replay for consumerName + eventId
+Lock processed event and linked dead letter
+Verify processed event = Failed
+Verify dead-letter and ordering expected versions
+Set replay = Running with workerId, lockedUntil, and claimVersion
+Set processed event Failed -> Processing with the consumer claim
+COMMIT
+```
+
+External work starts only after this transaction. Replay and consumer claims use database time and independent fencing fields but remain linked by replayId.
+
+A `RebuildProjection` execution uses a dedicated rebuild session and shadow or disposable projection. It never claims the authoritative consumer processed-event row.
+
+---
+
+# Replay Completion Transaction
+
+For a PostgreSQL-local domain effect, completion uses one transaction and invokes the owning module's typed handler or command. The Operations service MUST NOT update Aggregate tables directly.
+
+```text
+BEGIN
+Verify replay fencing and replay = Running
+Verify processed-event consumer fencing and status = Processing
+Revalidate target Aggregate expected state where required
+Execute owning module command
+Persist Aggregate and follow-up Outbox records
+Record required audit
+Set processed event = Processed with stable result reference
+Set dead letter = Resolved with replayId and resolution reference
+Advance or unblock ordering state
+Set replay = Completed with result code and reference
+COMMIT
+```
+
+A stale replay claim or consumer claim returns `LeaseLost` before target mutation and commits none of these results.
+
+For an external effect, the handler uses the registered effect ledger and provider idempotency key. Timeout or unknown provider outcome keeps the ordering key blocked until provider reconciliation or approved compensation proves the result.
+
+---
+
+# Replay Failure Transaction
+
+A transient infrastructure failure schedules retry only while the replay and consumer claims remain valid and retry policy permits it.
+
+A terminal execution failure atomically:
+
+```text
+Set processed event = Failed
+Set linked dead letter = Open or Investigating
+Preserve ordering block
+Set replay = Failed
+Store bounded error code and stable error reference
+Clear replay and consumer claims
+Append required operational audit or Outbox evidence
+```
+
+No failure path marks the dead letter resolved or advances ordering.
+
+---
+
+# SkipDeadLetter Flow
+
+`SkipDeadLetter` requires current Human authorization, registered skip policy, expected dead-letter and ordering versions, reason, ordering-impact analysis, and required reconciliation or compensation evidence.
+
+For Domain Coordination Consumers or irreversible Integration Consumers, absence of registered safety evidence fails closed.
+
+The successful transaction atomically:
+
+```text
+Verify processed event = Failed
+Verify linked dead letter and ordering state
+Verify expected versions and current authorization
+Set processed event Failed -> Skipped
+Set dead letter -> Skipped
+Advance or intentionally break ordering state according to policy
+Append required audit and recovery Outbox evidence
+COMMIT
+```
+
+There is no generic `ResolveDeadLetter` mutation. `Resolved` is derived only from a committed typed recovery outcome. A successful `ValidateOnly`, deployment, restart, lease expiry, or manual flag change is not a recovery outcome.
+
+---
+
+# CancelConsumerReplay
+
+Cancellation is allowed for `Requested` or `Validating`, and for `Running` only before the owning handler or external effect begins.
+
+Cancellation uses expected replay version and current authorization. It does not roll back committed domain or external effects. An ambiguous external outcome cannot be cancelled into safety; it requires reconciliation and remains blocked.
+
+---
+
+# Terminal Processed-Event Rule
+
+`Processed` and `Skipped` are terminal. Application Services MUST NOT reset, delete, or supersede these rows for generic replay.
+
+Re-executing an already successful authoritative consumer is outside the MVP and requires a future typed migration or compensation design.
 
 ---
 
