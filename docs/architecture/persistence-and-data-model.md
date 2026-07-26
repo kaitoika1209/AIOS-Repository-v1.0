@@ -4438,11 +4438,32 @@ If Secretary identities require persistence, use:
 ```text
 secretary_principals
 - secretary_principal_id
+- organization_id
 - status
-- capability_set_version
+- assistance_permission_set_version
 - created_at
 - disabled_at
 ```
+
+`organization_id` is immutable. The Secretary Principal identity is unique within its Organization scope, and every reference uses a composite Organization-consistent foreign key.
+
+Context-specific advisory permissions use:
+
+```text
+secretary_assistance_grants
+- organization_id
+- secretary_principal_id
+- context_key
+- assistance_operation
+- port_contract_version
+- granted_at
+- granted_by_membership_id
+- revoked_at
+- revoked_by_membership_id
+- reason
+```
+
+An active grant is unique by `organization_id + secretary_principal_id + context_key + assistance_operation + port_contract_version`. A grant is deny-by-default, versioned, auditable, and cannot name a Human-only command. `assistance_operation` is an authorization term and is not a reference to the future Capability Aggregate.
 
 Secretary principals must not be linked to:
 
