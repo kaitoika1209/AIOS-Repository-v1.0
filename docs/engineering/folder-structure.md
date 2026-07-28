@@ -44,7 +44,7 @@ apps/
 
 Next.js frontend application.
 
-#### api
+### api
 
 NestJS backend application.
 
@@ -67,19 +67,19 @@ packages/
 
 Business rules and domain models.
 
-#### ui
+### ui
 
 Reusable UI components.
 
-#### shared
+### shared
 
 Common utilities.
 
-#### config
+### config
 
 Shared configuration.
 
-#### types
+### types
 
 Shared TypeScript types.
 

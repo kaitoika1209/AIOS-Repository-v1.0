@@ -73,23 +73,50 @@ document disagree, the authoritative document wins — see
 
 ## Repository Structure
 
-The layout below is the **target** monorepo structure defined in
+The target layout is defined in
 [`docs/engineering/folder-structure.md`](docs/engineering/folder-structure.md).
-Only `docs/` and `.github/` exist today.
 
 ```text
 .
-├── apps/          (planned)
-├── packages/      (planned)
-├── services/      (planned)
-├── infra/         (planned)
+├── apps/
+│   ├── api/           (scaffold)
+│   └── web/           (scaffold)
+├── packages/
+│   ├── types/         shared vocabulary — implemented
+│   ├── domain/        (scaffold)
+│   ├── shared/        (scaffold)
+│   └── config/        (scaffold)
+├── services/          (planned)
+├── infra/             (planned)
 ├── docs/
 │   ├── product/
 │   ├── architecture/
 │   ├── engineering/
 │   └── adr/
+├── scripts/
 └── README.md
 ```
+
+---
+
+## Getting Started
+
+Requires Node 22+ and pnpm 10+.
+
+```bash
+pnpm install
+pnpm run typecheck
+pnpm run test
+pnpm run build
+```
+
+Documentation structure is verified separately:
+
+```bash
+pnpm run check:docs
+```
+
+Copy [`.env.example`](.env.example) to `.env` before running the applications.
 
 ---
 
