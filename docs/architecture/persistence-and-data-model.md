@@ -3031,9 +3031,14 @@ Recommended indexes:
 CREATE INDEX ix_decisions_organization_status
 ON decisions (
     organization_id,
-    status
+    status,
+    updated_at DESC
 );
 ```
+
+`updated_at DESC` is part of the index because Decision list queries are
+Organization-scoped, status-filtered, and most-recent-first. See Organization-First
+Indexes.
 
 ```sql
 CREATE INDEX ix_decisions_related_work
@@ -3597,6 +3602,44 @@ human_identities
 
 ---
 
+## Human Identity Conceptual DDL
+
+```sql
+CREATE TABLE human_identities (
+    identity_id                 uuid PRIMARY KEY,
+    status                      text NOT NULL,
+    display_name                text NOT NULL,
+    primary_email               text NULL,
+    primary_email_normalized    text NULL,
+    locale                      text NULL,
+
+    version                     bigint NOT NULL,
+    created_at                  timestamptz NOT NULL,
+    updated_at                  timestamptz NOT NULL,
+    disabled_at                 timestamptz NULL,
+
+
+    CONSTRAINT ck_human_identities_version
+        CHECK (
+            version > 0
+        ),
+
+    CONSTRAINT ck_human_identities_disabled_at
+        CHECK (
+            (status = 'Disabled') = (disabled_at IS NOT NULL)
+        )
+);
+```
+
+A Human Identity is not Organization-scoped. It carries no `organization_id`, because
+one Identity may hold Memberships in several Organizations. Authority is granted by
+Membership, never by Identity.
+
+No password, credential, or provider secret is stored here. Authentication is delegated
+to an external Identity Provider (ADR-0013).
+
+---
+
 ## Human Identity Status Values
 
 ```text
@@ -3673,6 +3716,43 @@ authentication_subjects
 - unlinked_at
 - created_at
 ```
+
+---
+
+## Authentication Subject Conceptual DDL
+
+```sql
+CREATE TABLE authentication_subjects (
+    authentication_subject_id   uuid PRIMARY KEY,
+    identity_id                 uuid NOT NULL,
+    provider                    text NOT NULL,
+    issuer                      text NOT NULL,
+    subject                     text NOT NULL,
+
+    linked_at                   timestamptz NOT NULL,
+    unlinked_at                 timestamptz NULL,
+    created_at                  timestamptz NOT NULL,
+
+    CONSTRAINT fk_authentication_subjects_identity
+        FOREIGN KEY (
+            identity_id
+        )
+        REFERENCES human_identities (
+            identity_id
+        )
+);
+```
+
+This is the only table in the system that stores an external identity provider subject.
+Per ADR-0013 and the Identity Provider Independence rule, no Aggregate, projection,
+event payload, Outbox message, or audit record may store `provider`, `issuer`, or
+`subject`.
+
+The table is deliberately not Organization-scoped: authentication establishes *who* the
+person is, and Membership separately establishes *where* they may act.
+
+Replacing or adding an identity provider is an insert into this table. It is not a
+migration of any Aggregate.
 
 ---
 
@@ -3764,6 +3844,58 @@ organizations
 - archived_at
 - archive_reason
 ```
+
+---
+
+## Organization Conceptual DDL
+
+```sql
+CREATE TABLE organizations (
+    organization_id             uuid PRIMARY KEY,
+    name                        text NOT NULL,
+    status                      text NOT NULL,
+    created_by_identity_id      uuid NOT NULL,
+
+    version                     bigint NOT NULL,
+    created_at                  timestamptz NOT NULL,
+    updated_at                  timestamptz NOT NULL,
+
+    suspended_at                timestamptz NULL,
+    suspension_reason           text NULL,
+    archived_at                 timestamptz NULL,
+    archive_reason              text NULL,
+
+    CONSTRAINT fk_organizations_created_by_identity
+        FOREIGN KEY (
+            created_by_identity_id
+        )
+        REFERENCES human_identities (
+            identity_id
+        ),
+
+
+    CONSTRAINT ck_organizations_version
+        CHECK (
+            version > 0
+        ),
+
+    CONSTRAINT ck_organizations_suspended_at
+        CHECK (
+            (status = 'Suspended') = (suspended_at IS NOT NULL)
+        ),
+
+    CONSTRAINT ck_organizations_archived_at
+        CHECK (
+            (status = 'Archived') = (archived_at IS NOT NULL)
+        )
+);
+```
+
+`organization_id` is the tenant-isolation column. Every Organization-owned table
+carries it, and every repository query filters on it.
+
+The Organization Aggregate deliberately does not contain its Memberships. Membership is
+a separate Aggregate so that one Organization Aggregate does not grow without bound.
 
 ---
 
@@ -3892,6 +4024,89 @@ memberships
 
 ---
 
+## Membership Conceptual DDL
+
+```sql
+CREATE TABLE memberships (
+    membership_id                   uuid PRIMARY KEY,
+    organization_id                 uuid NOT NULL,
+    identity_id                     uuid NULL,
+
+    pending_invitee_email           text NULL,
+    pending_invitee_email_normalized text NULL,
+
+    status                          text NOT NULL,
+
+    invited_by_identity_id          uuid NULL,
+    invited_by_membership_id        uuid NULL,
+    invited_at                      timestamptz NULL,
+    activated_at                    timestamptz NULL,
+
+    suspended_by_identity_id        uuid NULL,
+    suspended_at                    timestamptz NULL,
+    suspension_reason               text NULL,
+
+    revoked_by_identity_id          uuid NULL,
+    revoked_at                      timestamptz NULL,
+    revocation_reason               text NULL,
+
+    version                         bigint NOT NULL,
+    created_at                      timestamptz NOT NULL,
+    updated_at                      timestamptz NOT NULL,
+
+    CONSTRAINT uq_memberships_organization_membership
+        UNIQUE (
+            organization_id,
+            membership_id
+        ),
+
+    CONSTRAINT fk_memberships_organization
+        FOREIGN KEY (
+            organization_id
+        )
+        REFERENCES organizations (
+            organization_id
+        ),
+
+    CONSTRAINT fk_memberships_identity
+        FOREIGN KEY (
+            identity_id
+        )
+        REFERENCES human_identities (
+            identity_id
+        ),
+
+
+    CONSTRAINT ck_memberships_version
+        CHECK (
+            version > 0
+        ),
+
+    CONSTRAINT ck_memberships_identity_presence
+        CHECK (
+            (status = 'Invited' AND identity_id IS NULL)
+            OR (status <> 'Invited' AND identity_id IS NOT NULL)
+        ),
+
+    CONSTRAINT ck_memberships_revoked_at
+        CHECK (
+            (status = 'Revoked') = (revoked_at IS NOT NULL)
+        )
+);
+```
+
+`identity_id` is null only while the Membership is `Invited`, because an invitation may
+be addressed to someone who has no Human Identity yet. Activation is the point at which
+an Identity is bound, and the check constraint above makes the two states inseparable.
+
+An `Invited` Membership grants no business authority. Only an `Active` Membership can
+produce a `HumanMemberPrincipal`.
+
+Revoked Memberships are retained. Historical Work, Decision, and Memory records continue
+to reference them, and deleting one would break auditability.
+
+---
+
 ## Membership Status Values
 
 ```text
@@ -3997,18 +4212,22 @@ WHERE status = 'Invited'
 
 ## Membership Composite Key
 
-Recommended additional uniqueness:
+`uq_memberships_organization_membership` is declared inline in the Membership Conceptual
+DDL above, matching the equivalent constraint on `work_items`.
+
+It must exist before any composite foreign key can reference it. Declaring it inline
+rather than as a later `ALTER TABLE` keeps the schema creatable in one pass:
 
 ```sql
-ALTER TABLE memberships
-ADD CONSTRAINT uq_memberships_organization_membership
-UNIQUE (
-    organization_id,
-    membership_id
-);
+CONSTRAINT uq_memberships_organization_membership
+    UNIQUE (
+        organization_id,
+        membership_id
+    )
 ```
 
-This supports safe composite foreign keys from Organization-owned resources.
+This is what supports safe composite foreign keys from Organization-owned resources —
+`membership_role_assignments` and `organization_invitations` both depend on it.
 
 ---
 
@@ -4036,6 +4255,52 @@ membership_role_assignments
 - revoked_at
 - revocation_reason
 ```
+
+---
+
+## Membership Role Assignment Conceptual DDL
+
+```sql
+CREATE TABLE membership_role_assignments (
+    role_assignment_id          uuid PRIMARY KEY,
+    organization_id             uuid NOT NULL,
+    membership_id               uuid NOT NULL,
+    role                        text NOT NULL,
+
+    assigned_by_identity_id     uuid NOT NULL,
+    assigned_by_membership_id   uuid NOT NULL,
+    assigned_at                 timestamptz NOT NULL,
+
+    revoked_by_identity_id      uuid NULL,
+    revoked_by_membership_id    uuid NULL,
+    revoked_at                  timestamptz NULL,
+    revocation_reason           text NULL,
+
+    CONSTRAINT fk_membership_role_assignments_membership
+        FOREIGN KEY (
+            organization_id,
+            membership_id
+        )
+        REFERENCES memberships (
+            organization_id,
+            membership_id
+        ),
+
+
+    CONSTRAINT ck_membership_role_assignments_revocation
+        CHECK (
+            (revoked_at IS NULL) = (revoked_by_identity_id IS NULL)
+        )
+);
+```
+
+The foreign key is composite on `(organization_id, membership_id)` rather than on
+`membership_id` alone. This is what makes a cross-Organization role assignment
+unrepresentable at the database level rather than merely prohibited in application code.
+
+Role revocation is recorded, never deleted. A role assignment is active while
+`revoked_at IS NULL`, which is the condition the active-uniqueness index and every
+authorization query use.
 
 ---
 
@@ -4159,6 +4424,64 @@ organization_invitations
 - created_at
 - updated_at
 ```
+
+---
+
+## Organization Invitation Conceptual DDL
+
+```sql
+CREATE TABLE organization_invitations (
+    invitation_id               uuid PRIMARY KEY,
+    organization_id             uuid NOT NULL,
+    membership_id               uuid NOT NULL,
+    invitation_version          integer NOT NULL,
+
+    token_hash                  text NOT NULL,
+    status                      text NOT NULL,
+
+    expires_at                  timestamptz NOT NULL,
+    consumed_at                 timestamptz NULL,
+    revoked_at                  timestamptz NULL,
+    created_at                  timestamptz NOT NULL,
+    updated_at                  timestamptz NOT NULL,
+
+    CONSTRAINT fk_organization_invitations_membership
+        FOREIGN KEY (
+            organization_id,
+            membership_id
+        )
+        REFERENCES memberships (
+            organization_id,
+            membership_id
+        ),
+
+
+    CONSTRAINT ck_organization_invitations_version
+        CHECK (
+            invitation_version > 0
+        ),
+
+    CONSTRAINT ck_organization_invitations_consumed_at
+        CHECK (
+            (status = 'Consumed') = (consumed_at IS NOT NULL)
+        ),
+
+    CONSTRAINT ck_organization_invitations_revoked_at
+        CHECK (
+            (status = 'Revoked') = (revoked_at IS NOT NULL)
+        )
+);
+```
+
+Only `token_hash` is stored. The invitation token itself is shown once to the sender and
+never persisted, so a database disclosure does not yield usable invitations.
+
+`invitation_version` allows an invitation to be reissued for the same Membership while
+invalidating earlier tokens.
+
+`Expired` is a derived state that a scheduled job materializes; `expires_at` remains the
+authority, so an invitation past its expiry is never accepted even if the job has not
+run.
 
 ---
 
@@ -7142,16 +7465,11 @@ Most Organization-owned list queries should begin with:
 organization_id
 ```
 
-Example:
+`ix_decisions_organization_status`, defined under Decision Indexes, follows this shape:
+`organization_id` first, then the filter column, then the sort column.
 
-```sql
-CREATE INDEX ix_decisions_organization_status
-ON decisions (
-    organization_id,
-    status,
-    updated_at DESC
-);
-```
+Do not redefine an index here. This section states the principle; each table's own
+Indexes section is where its indexes are declared.
 
 ---
 

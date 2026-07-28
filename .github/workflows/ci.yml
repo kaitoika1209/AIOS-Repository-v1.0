@@ -34,3 +34,35 @@ jobs:
 
       - name: Build
         run: pnpm run build
+
+  schema:
+    name: Documented schema applies to PostgreSQL
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # The persistence and events documents are the authoritative schema.
+      # Applying them to a real database keeps "conceptual DDL" honest.
+      - name: Extract schema from documentation
+        run: python3 scripts/extract_schema.py
+
+      - name: Apply schema
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -v ON_ERROR_STOP=1 -f build/schema.sql

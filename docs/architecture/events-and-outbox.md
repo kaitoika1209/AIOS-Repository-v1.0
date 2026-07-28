@@ -1899,6 +1899,7 @@ CREATE TABLE outbox_messages (
     aggregate_type         text NOT NULL,
     aggregate_id           text NOT NULL,
     aggregate_version      bigint NOT NULL,
+    event_sequence         integer NOT NULL,
     organization_id        uuid NULL,
     payload                jsonb NOT NULL,
     headers                jsonb NOT NULL DEFAULT '{}'::jsonb,

@@ -70,7 +70,7 @@ A Clerk subject reaches the domain through the existing
 Clerk session
       ↓  verify token
 provider = "clerk", issuer, subject
-      ↓  authentication_subject_references lookup
+      ↓  authentication_subjects lookup
 identityId                       (fails closed if absent)
       ↓  memberships lookup, scoped by organizationId
 membershipId + status
@@ -86,7 +86,7 @@ sees a Clerk token, session, user object, or subject string.
 ### Domain rules that follow
 
 1. `provider`, `issuer`, and `subject` are stored **only** in
-   `authentication_subject_references`. No Aggregate, projection, event payload, Outbox
+   `authentication_subjects`. No Aggregate, projection, event payload, Outbox
    message, or audit record stores them.
 2. Every actor field — `created_by_identity_id`, `approved_by_identity_id`,
    `completed_by_identity_id`, and equivalents — stores an AIOS `identityId`.
@@ -150,7 +150,7 @@ Benefits:
 - the tenant boundary, role model, and audit trail stay inside PostgreSQL where they can
   be enforced transactionally;
 - Clerk is replaceable by adding a row type to
-  `authentication_subject_references`, with no Aggregate migration;
+  `authentication_subjects`, with no Aggregate migration;
 - the domain remains framework-independent as ADR-0001 requires; and
 - authorization has exactly one source, so drift cannot become a cross-tenant defect.
 
