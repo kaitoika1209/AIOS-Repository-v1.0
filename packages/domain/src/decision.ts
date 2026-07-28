@@ -4,13 +4,14 @@
  * Implements `docs/architecture/state-machines/decision.md` and
  * `docs/architecture/aggregates/decision.md`.
  *
- * The Decision is authoritative for its own content, revisions, review history,
- * and resolution. Work holds only a completion-gate snapshot derived from the
- * events emitted here (ADR-0007).
+ * Revisions are child entities, not root fields. That is the point of the
+ * model: a revision becomes immutable when it leaves Draft, so starting a new
+ * revision after a rejection preserves the rejected content as evidence rather
+ * than overwriting it. The state machine is explicit that a new revision "does
+ * not erase or rewrite the rejected revision".
  *
- * Rejected is deliberately non-terminal: a rejected revision may begin a new
- * revision of the same organizational question. Approved and Withdrawn are
- * terminal.
+ * The Decision knows nothing about Work status, the completion gate, Memory, or
+ * Knowledge. Coordination happens in the Application Layer through events.
  */
 
 import type {
@@ -22,7 +23,7 @@ import type {
   OrganizationId,
   WorkId,
 } from "@aios/types";
-import { isHumanMember, type Principal } from "@aios/types";
+import { isHumanMember } from "@aios/types";
 
 import {
   CrossOrganizationError,
@@ -39,12 +40,45 @@ export interface DecisionOption {
   readonly summary: string;
 }
 
-export interface DecisionResolution {
+/** `docs/architecture/persistence-and-data-model.md` — Decision Revision Status. */
+export type RevisionStatus =
+  | "Draft"
+  | "Submitted"
+  | "Approved"
+  | "Rejected"
+  | "Withdrawn";
+
+/**
+ * One editable proposal.
+ *
+ * Immutable once `status` leaves `Draft`. The repository must not issue content
+ * updates for a non-Draft revision, and the aggregate refuses them here.
+ */
+export interface DecisionRevision {
+  readonly revisionId: string;
   readonly revisionNumber: number;
-  readonly submittedSnapshotId: string;
-  readonly outcome: "Approved" | "Rejected" | "Withdrawn";
-  readonly resolvedByIdentityId: IdentityId;
-  readonly resolvedAt: Date;
+  readonly status: RevisionStatus;
+  readonly title: string;
+  readonly question: string;
+  readonly context: string | null;
+  readonly options: readonly DecisionOption[];
+  readonly rationale: string | null;
+  readonly createdByIdentityId: IdentityId;
+  readonly createdByMembershipId: MembershipId;
+  readonly createdAt: Date;
+}
+
+/** The outcomes a review may produce. */
+export type DecisionResolutionOutcome = "Approved" | "Rejected" | "Withdrawn";
+
+/** Append-only review evidence. Never overwritten. */
+export interface DecisionReviewRecord {
+  readonly revisionId: string;
+  readonly revisionNumber: number;
+  readonly outcome: DecisionResolutionOutcome;
+  readonly reviewedByIdentityId: IdentityId;
+  readonly reviewedByMembershipId: MembershipId;
+  readonly reviewedAt: Date;
   readonly rationale: string;
   readonly selectedOptionId: string | null;
 }
@@ -52,17 +86,22 @@ export interface DecisionResolution {
 export interface DecisionState {
   readonly decisionId: DecisionId;
   readonly organizationId: OrganizationId;
+  /** Immutable external identifier. Not a reference to a loaded Work object. */
   readonly relatedWorkId: WorkId;
-  readonly question: string;
-  readonly context: string | null;
-  readonly options: readonly DecisionOption[];
+  readonly isBlocking: boolean;
   readonly status: DecisionStatus;
-  readonly revisionNumber: number;
-  /** Set when the current revision is submitted; identifies the locked draft. */
-  readonly submittedSnapshotId: string | null;
+  readonly revisions: readonly DecisionRevision[];
+  /** The Draft revision, when one exists. Only one may exist at a time. */
+  readonly currentRevisionId: string | null;
+  /**
+   * The submitted revision. This is the value Work stores as
+   * `submittedSnapshotId` in its completion gate.
+   */
+  readonly submittedRevisionId: string | null;
+  readonly decidedRevisionId: string | null;
+  readonly reviewRecords: readonly DecisionReviewRecord[];
   readonly createdByIdentityId: IdentityId;
-  /** Every resolved revision, oldest first. A new revision never erases one. */
-  readonly resolutions: readonly DecisionResolution[];
+  readonly createdByMembershipId: MembershipId;
   readonly version: AggregateVersion;
 }
 
@@ -100,36 +139,70 @@ const requireStatus = (
   allowed: readonly DecisionStatus[],
 ): void => {
   if (!allowed.includes(decision.status)) {
-    throw new InvalidTransitionError(
-      "Decision",
-      decision.status,
-      command,
-      allowed,
-    );
+    throw new InvalidTransitionError("Decision", decision.status, command, allowed);
   }
 };
 
 const nextVersion = (v: AggregateVersion): AggregateVersion =>
   (v + 1) as AggregateVersion;
 
-const requireSubmittedSnapshot = (decision: DecisionState): string => {
-  if (decision.submittedSnapshotId === null) {
+/** The Draft revision. Absent whenever the Decision is not editable. */
+export const currentRevision = (d: DecisionState): DecisionRevision | null =>
+  d.revisions.find((r) => r.revisionId === d.currentRevisionId) ?? null;
+
+export const submittedRevision = (d: DecisionState): DecisionRevision | null =>
+  d.revisions.find((r) => r.revisionId === d.submittedRevisionId) ?? null;
+
+export const revisionByNumber = (
+  d: DecisionState,
+  revisionNumber: number,
+): DecisionRevision | null =>
+  d.revisions.find((r) => r.revisionNumber === revisionNumber) ?? null;
+
+const replaceRevision = (
+  revisions: readonly DecisionRevision[],
+  updated: DecisionRevision,
+): readonly DecisionRevision[] =>
+  revisions.map((r) => (r.revisionId === updated.revisionId ? updated : r));
+
+const requireDraftRevision = (
+  decision: DecisionState,
+  command: string,
+): DecisionRevision => {
+  const revision = currentRevision(decision);
+  if (revision === null || revision.status !== "Draft") {
     throw new DomainError(
       "DECISION_INVALID_TRANSITION",
-      "The Decision has no submitted revision snapshot.",
-      { decisionId: decision.decisionId },
+      "The Decision has no editable Draft revision.",
+      { decisionId: decision.decisionId, command },
     );
   }
-  return decision.submittedSnapshotId;
+  return revision;
+};
+
+const validateOptions = (options: readonly DecisionOption[]): void => {
+  if (options.length === 0) {
+    throw new ValidationError(
+      "A Decision must offer at least one option before review.",
+      { field: "options" },
+    );
+  }
+  const ids = options.map((o) => o.optionId);
+  if (new Set(ids).size !== ids.length) {
+    throw new ValidationError("Duplicate option identity.", { field: "options" });
+  }
 };
 
 export interface CreateDecisionInput {
   readonly decisionId: DecisionId;
   readonly organizationId: OrganizationId;
   readonly relatedWorkId: WorkId;
+  readonly revisionId: string;
+  readonly title: string;
   readonly question: string;
   readonly context?: string | null;
   readonly options?: readonly DecisionOption[];
+  readonly isBlocking?: boolean;
 }
 
 export const createDecision = (
@@ -155,18 +228,33 @@ export const createDecision = (
     });
   }
 
+  const revision: DecisionRevision = {
+    revisionId: input.revisionId,
+    revisionNumber: 1,
+    status: "Draft",
+    title: input.title.trim(),
+    question,
+    context: input.context?.trim() || null,
+    options: input.options ?? [],
+    rationale: null,
+    createdByIdentityId: actor.identityId,
+    createdByMembershipId: actor.membershipId,
+    createdAt: ctx.now,
+  };
+
   const state: DecisionState = {
     decisionId: input.decisionId,
     organizationId: input.organizationId,
     relatedWorkId: input.relatedWorkId,
-    question,
-    context: input.context?.trim() || null,
-    options: input.options ?? [],
+    isBlocking: input.isBlocking ?? false,
     status: "Draft",
-    revisionNumber: 1,
-    submittedSnapshotId: null,
+    revisions: [revision],
+    currentRevisionId: revision.revisionId,
+    submittedRevisionId: null,
+    decidedRevisionId: null,
+    reviewRecords: [],
     createdByIdentityId: actor.identityId,
-    resolutions: [],
+    createdByMembershipId: actor.membershipId,
     version: 1 as AggregateVersion,
   };
 
@@ -177,7 +265,7 @@ export const createDecision = (
         type: "DecisionCreated",
         decisionId: state.decisionId,
         relatedWorkId: state.relatedWorkId,
-        question: state.question,
+        question,
         organizationId: state.organizationId,
         occurredAt: ctx.now,
         actorIdentityId: actor.identityId,
@@ -187,13 +275,15 @@ export const createDecision = (
   };
 };
 
-/** Edit the draft. Only a Draft is editable; InReview is locked. */
+/** Edit the Draft revision. Only Draft content is editable. */
 export const updateDraft = (
   decision: DecisionState,
   changes: {
+    readonly title?: string;
     readonly question?: string;
     readonly context?: string | null;
     readonly options?: readonly DecisionOption[];
+    readonly rationale?: string | null;
   },
   ctx: ActorContext,
 ): CommandResult<DecisionState, DecisionEvent> => {
@@ -201,64 +291,130 @@ export const updateDraft = (
   requireSameOrganization(decision, ctx);
   requireStatus(decision, "decision.edit_draft", ["Draft"]);
 
-  const state: DecisionState = {
-    ...decision,
+  const revision = requireDraftRevision(decision, "decision.edit_draft");
+
+  if (changes.options !== undefined) {
+    const ids = changes.options.map((o) => o.optionId);
+    if (new Set(ids).size !== ids.length) {
+      throw new ValidationError("Duplicate option identity.", { field: "options" });
+    }
+  }
+
+  const updated: DecisionRevision = {
+    ...revision,
+    title: changes.title === undefined ? revision.title : changes.title.trim(),
     question:
-      changes.question === undefined ? decision.question : changes.question.trim(),
+      changes.question === undefined ? revision.question : changes.question.trim(),
     context:
-      changes.context === undefined ? decision.context : changes.context?.trim() || null,
-    options: changes.options ?? decision.options,
-    version: nextVersion(decision.version),
+      changes.context === undefined
+        ? revision.context
+        : changes.context?.trim() || null,
+    options: changes.options ?? revision.options,
+    rationale:
+      changes.rationale === undefined
+        ? revision.rationale
+        : changes.rationale?.trim() || null,
   };
 
-  return { state, events: [] };
+  return {
+    state: {
+      ...decision,
+      revisions: replaceRevision(decision.revisions, updated),
+      version: nextVersion(decision.version),
+    },
+    events: [],
+  };
 };
 
 /**
  * Submit for review.
  *
- * Locks the draft and produces the `submittedSnapshotId` that Work stores in
- * its completion gate. The snapshot id is supplied by the caller so the
- * Aggregate stays free of id generation.
+ * Locks the Draft revision by moving it to `Submitted`, which makes it
+ * immutable and turns it into the reviewable snapshot. Its `revisionId` is what
+ * Work stores as `submittedSnapshotId`.
  */
 export const submitForReview = (
   decision: DecisionState,
-  submittedSnapshotId: string,
   ctx: ActorContext,
 ): CommandResult<DecisionState, DecisionEvent> => {
   const actor = requireHuman(ctx, "decision.submit");
   requireSameOrganization(decision, ctx);
   requireStatus(decision, "decision.submit", ["Draft"]);
 
-  if (decision.options.length === 0) {
-    throw new ValidationError(
-      "A Decision must offer at least one option before review.",
-      { field: "options" },
-    );
-  }
+  const revision = requireDraftRevision(decision, "decision.submit");
+  validateOptions(revision.options);
 
-  const state: DecisionState = {
-    ...decision,
-    status: "InReview",
-    submittedSnapshotId,
-    version: nextVersion(decision.version),
-  };
+  const submitted: DecisionRevision = { ...revision, status: "Submitted" };
 
   return {
-    state,
+    state: {
+      ...decision,
+      status: "InReview",
+      revisions: replaceRevision(decision.revisions, submitted),
+      currentRevisionId: null,
+      submittedRevisionId: submitted.revisionId,
+      version: nextVersion(decision.version),
+    },
     events: [
       {
         type: "DecisionSubmitted",
         decisionId: decision.decisionId,
         relatedWorkId: decision.relatedWorkId,
-        revisionNumber: decision.revisionNumber,
-        submittedSnapshotId,
+        revisionNumber: submitted.revisionNumber,
+        submittedSnapshotId: submitted.revisionId,
         organizationId: decision.organizationId,
         occurredAt: ctx.now,
         actorIdentityId: actor.identityId,
         actorMembershipId: actor.membershipId,
       },
     ],
+  };
+};
+
+const resolve = (
+  decision: DecisionState,
+  ctx: ActorContext,
+  command: string,
+  outcome: "Approved" | "Rejected" | "Withdrawn",
+  rationale: string,
+  selectedOptionId: string | null,
+): { state: DecisionState; revision: DecisionRevision; actorId: IdentityId } => {
+  const actor = requireHuman(ctx, command);
+  requireSameOrganization(decision, ctx);
+
+  const revision = submittedRevision(decision);
+  if (revision === null) {
+    throw new DomainError(
+      "DECISION_INVALID_TRANSITION",
+      "The Decision has no submitted revision.",
+      { decisionId: decision.decisionId },
+    );
+  }
+
+  const resolved: DecisionRevision = { ...revision, status: outcome };
+  const record: DecisionReviewRecord = {
+    revisionId: revision.revisionId,
+    revisionNumber: revision.revisionNumber,
+    outcome,
+    reviewedByIdentityId: actor.identityId,
+    reviewedByMembershipId: actor.membershipId,
+    reviewedAt: ctx.now,
+    rationale: rationale.trim(),
+    selectedOptionId,
+  };
+
+  return {
+    state: {
+      ...decision,
+      status: outcome,
+      revisions: replaceRevision(decision.revisions, resolved),
+      submittedRevisionId: null,
+      decidedRevisionId: revision.revisionId,
+      reviewRecords: [...decision.reviewRecords, record],
+      version: nextVersion(decision.version),
+    },
+    revision,
+    actorId: actor.identityId,
   };
 };
 
@@ -268,52 +424,40 @@ export const approveDecision = (
   input: { readonly selectedOptionId: string; readonly rationale: string },
   ctx: ActorContext,
 ): CommandResult<DecisionState, DecisionEvent> => {
-  const actor = requireHuman(ctx, "decision.approve");
-  requireSameOrganization(decision, ctx);
   requireStatus(decision, "decision.approve", ["InReview"]);
 
-  const snapshotId = requireSubmittedSnapshot(decision);
-
-  if (!decision.options.some((o) => o.optionId === input.selectedOptionId)) {
+  const revision = submittedRevision(decision);
+  if (revision !== null && !revision.options.some((o) => o.optionId === input.selectedOptionId)) {
     throw new ValidationError(
       "The selected option is not part of the submitted revision.",
       { field: "selectedOptionId", selectedOptionId: input.selectedOptionId },
     );
   }
 
-  const state: DecisionState = {
-    ...decision,
-    status: "Approved",
-    resolutions: [
-      ...decision.resolutions,
-      {
-        revisionNumber: decision.revisionNumber,
-        submittedSnapshotId: snapshotId,
-        outcome: "Approved",
-        resolvedByIdentityId: actor.identityId,
-        resolvedAt: ctx.now,
-        rationale: input.rationale.trim(),
-        selectedOptionId: input.selectedOptionId,
-      },
-    ],
-    version: nextVersion(decision.version),
-  };
+  const resolved = resolve(
+    decision,
+    ctx,
+    "decision.approve",
+    "Approved",
+    input.rationale,
+    input.selectedOptionId,
+  );
 
   return {
-    state,
+    state: resolved.state,
     events: [
       {
         type: "DecisionApproved",
         decisionId: decision.decisionId,
         relatedWorkId: decision.relatedWorkId,
-        revisionNumber: decision.revisionNumber,
-        submittedSnapshotId: snapshotId,
+        revisionNumber: resolved.revision.revisionNumber,
+        submittedSnapshotId: resolved.revision.revisionId,
         selectedOptionId: input.selectedOptionId,
         rationale: input.rationale.trim(),
         organizationId: decision.organizationId,
         occurredAt: ctx.now,
-        actorIdentityId: actor.identityId,
-        actorMembershipId: actor.membershipId,
+        actorIdentityId: resolved.actorId,
+        actorMembershipId: (ctx.principal as { membershipId: MembershipId }).membershipId,
       },
     ],
   };
@@ -325,40 +469,94 @@ export const rejectDecision = (
   rationale: string,
   ctx: ActorContext,
 ): CommandResult<DecisionState, DecisionEvent> => {
-  const actor = requireHuman(ctx, "decision.reject");
-  requireSameOrganization(decision, ctx);
   requireStatus(decision, "decision.reject", ["InReview"]);
 
-  const snapshotId = requireSubmittedSnapshot(decision);
-
-  const state: DecisionState = {
-    ...decision,
-    status: "Rejected",
-    resolutions: [
-      ...decision.resolutions,
-      {
-        revisionNumber: decision.revisionNumber,
-        submittedSnapshotId: snapshotId,
-        outcome: "Rejected",
-        resolvedByIdentityId: actor.identityId,
-        resolvedAt: ctx.now,
-        rationale: rationale.trim(),
-        selectedOptionId: null,
-      },
-    ],
-    version: nextVersion(decision.version),
-  };
+  const resolved = resolve(
+    decision,
+    ctx,
+    "decision.reject",
+    "Rejected",
+    rationale,
+    null,
+  );
 
   return {
-    state,
+    state: resolved.state,
     events: [
       {
         type: "DecisionRejected",
         decisionId: decision.decisionId,
         relatedWorkId: decision.relatedWorkId,
-        revisionNumber: decision.revisionNumber,
-        submittedSnapshotId: snapshotId,
+        revisionNumber: resolved.revision.revisionNumber,
+        submittedSnapshotId: resolved.revision.revisionId,
         rationale: rationale.trim(),
+        organizationId: decision.organizationId,
+        occurredAt: ctx.now,
+        actorIdentityId: resolved.actorId,
+        actorMembershipId: (ctx.principal as { membershipId: MembershipId }).membershipId,
+      },
+    ],
+  };
+};
+
+/**
+ * Withdraw. Permitted from Draft or InReview. Terminal.
+ *
+ * The state machine lists Withdrawn as terminal in three places; the aggregate
+ * document previously contradicted that with a `Withdrawn -> StartRevision`
+ * lifecycle test, which has been corrected.
+ */
+export const withdrawDecision = (
+  decision: DecisionState,
+  reason: string,
+  ctx: ActorContext,
+): CommandResult<DecisionState, DecisionEvent> => {
+  const actor = requireHuman(ctx, "decision.withdraw");
+  requireSameOrganization(decision, ctx);
+  requireStatus(decision, "decision.withdraw", ["Draft", "InReview"]);
+
+  const revision = submittedRevision(decision) ?? currentRevision(decision);
+  if (revision === null) {
+    throw new DomainError(
+      "DECISION_INVALID_TRANSITION",
+      "The Decision has no revision to withdraw.",
+      { decisionId: decision.decisionId },
+    );
+  }
+
+  const withdrawn: DecisionRevision = { ...revision, status: "Withdrawn" };
+
+  return {
+    state: {
+      ...decision,
+      status: "Withdrawn",
+      revisions: replaceRevision(decision.revisions, withdrawn),
+      currentRevisionId: null,
+      submittedRevisionId: null,
+      decidedRevisionId: revision.revisionId,
+      reviewRecords: [
+        ...decision.reviewRecords,
+        {
+          revisionId: revision.revisionId,
+          revisionNumber: revision.revisionNumber,
+          outcome: "Withdrawn",
+          reviewedByIdentityId: actor.identityId,
+          reviewedByMembershipId: actor.membershipId,
+          reviewedAt: ctx.now,
+          rationale: reason.trim(),
+          selectedOptionId: null,
+        },
+      ],
+      version: nextVersion(decision.version),
+    },
+    events: [
+      {
+        type: "DecisionWithdrawn",
+        decisionId: decision.decisionId,
+        relatedWorkId: decision.relatedWorkId,
+        revisionNumber: revision.revisionNumber,
+        submittedSnapshotId: decision.submittedRevisionId,
+        reason: reason.trim(),
         organizationId: decision.organizationId,
         occurredAt: ctx.now,
         actorIdentityId: actor.identityId,
@@ -371,72 +569,55 @@ export const rejectDecision = (
 /**
  * Start a new revision of a rejected Decision.
  *
- * Increments the revision number and clears the submitted snapshot, so a stale
- * reference can never satisfy a gate raised for the new revision. Prior
- * resolutions are preserved.
+ * Copies the rejected revision's content into a **new** revision rather than
+ * reopening it. The rejected revision stays immutable, which is what preserves
+ * it as evidence.
  */
 export const startRevision = (
   decision: DecisionState,
+  revisionId: string,
   ctx: ActorContext,
 ): CommandResult<DecisionState, DecisionEvent> => {
-  requireHuman(ctx, "decision.start_revision");
+  const actor = requireHuman(ctx, "decision.start_revision");
   requireSameOrganization(decision, ctx);
   requireStatus(decision, "decision.start_revision", ["Rejected"]);
 
-  const state: DecisionState = {
-    ...decision,
+  const previous =
+    decision.revisions.find((r) => r.revisionId === decision.decidedRevisionId) ??
+    decision.revisions[decision.revisions.length - 1];
+
+  if (previous === undefined) {
+    throw new DomainError(
+      "DECISION_INVALID_TRANSITION",
+      "The Decision has no revision to base a new revision on.",
+      { decisionId: decision.decisionId },
+    );
+  }
+
+  const next: DecisionRevision = {
+    revisionId,
+    revisionNumber: previous.revisionNumber + 1,
     status: "Draft",
-    revisionNumber: decision.revisionNumber + 1,
-    submittedSnapshotId: null,
-    version: nextVersion(decision.version),
-  };
-
-  return { state, events: [] };
-};
-
-/** Withdraw. Permitted from Draft or InReview. Terminal. */
-export const withdrawDecision = (
-  decision: DecisionState,
-  reason: string,
-  ctx: ActorContext,
-): CommandResult<DecisionState, DecisionEvent> => {
-  const actor = requireHuman(ctx, "decision.withdraw");
-  requireSameOrganization(decision, ctx);
-  requireStatus(decision, "decision.withdraw", ["Draft", "InReview"]);
-
-  const state: DecisionState = {
-    ...decision,
-    status: "Withdrawn",
-    resolutions: [
-      ...decision.resolutions,
-      {
-        revisionNumber: decision.revisionNumber,
-        submittedSnapshotId: decision.submittedSnapshotId ?? "",
-        outcome: "Withdrawn",
-        resolvedByIdentityId: actor.identityId,
-        resolvedAt: ctx.now,
-        rationale: reason.trim(),
-        selectedOptionId: null,
-      },
-    ],
-    version: nextVersion(decision.version),
+    title: previous.title,
+    question: previous.question,
+    context: previous.context,
+    options: previous.options,
+    rationale: previous.rationale,
+    createdByIdentityId: actor.identityId,
+    createdByMembershipId: actor.membershipId,
+    createdAt: ctx.now,
   };
 
   return {
-    state,
-    events: [
-      {
-        type: "DecisionWithdrawn",
-        decisionId: decision.decisionId,
-        relatedWorkId: decision.relatedWorkId,
-        revisionNumber: decision.revisionNumber,
-        submittedSnapshotId: decision.submittedSnapshotId,
-        reason: reason.trim(),
-        organizationId: decision.organizationId,
-        occurredAt: ctx.now,
-        actorIdentityId: actor.identityId,
-        actorMembershipId: actor.membershipId,
-      },
-    ],
+    state: {
+      ...decision,
+      status: "Draft",
+      revisions: [...decision.revisions, next],
+      currentRevisionId: next.revisionId,
+      submittedRevisionId: null,
+      decidedRevisionId: null,
+      version: nextVersion(decision.version),
+    },
+    events: [],
   };
 };

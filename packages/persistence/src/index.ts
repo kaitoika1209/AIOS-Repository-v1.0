@@ -9,6 +9,8 @@
  */
 
 export * from "./mapping.js";
+export * from "./decision-mapping.js";
+export * from "./decision-repository.js";
 export * from "./work-repository.js";
 export * from "./outbox.js";
 export * from "./unit-of-work.js";

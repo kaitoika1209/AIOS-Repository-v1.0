@@ -27,13 +27,13 @@ export interface IdGenerator {
   workId(): WorkId;
   decisionId(): DecisionId;
   /**
-   * Identifies one locked Decision revision snapshot.
+   * Identifies one Decision revision.
    *
-   * Must be a UUID: `work_items.completion_gate_submitted_snapshot_id` and the
-   * matching blocking-reference column are typed `uuid` in the schema, so an
-   * opaque non-UUID string is rejected at write time.
+   * A submitted revision's id is what Work stores as `submittedSnapshotId`, so
+   * it must be a UUID: the corresponding `work_items` columns are typed `uuid`
+   * and reject an opaque non-UUID string at write time.
    */
-  snapshotId(): string;
+  revisionId(): string;
 }
 
 export interface WorkRepository {

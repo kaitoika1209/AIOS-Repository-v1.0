@@ -39,6 +39,7 @@ TABLE_ORDER = [
     "organization_invitations",
     "work_items",
     "decisions",
+    "decision_revisions",
     "memories",
     "outbox_messages",
     "processed_events",

@@ -1841,8 +1841,8 @@ Draft -> Submit -> InReview
 InReview -> Approve -> Approved
 InReview -> Reject -> Rejected
 Rejected -> StartRevision -> Draft
+Draft -> Withdraw -> Withdrawn
 InReview -> Withdraw -> Withdrawn
-Withdrawn -> StartRevision -> Draft
 ```
 
 ---
@@ -1857,6 +1857,7 @@ At minimum:
 - rejecting a Draft fails
 - submitting an incomplete Draft fails
 - starting a revision from Approved fails
+- starting a revision from Withdrawn fails
 - editing a rejected snapshot fails
 - creating a second active Draft fails
 - resolving the same review twice fails

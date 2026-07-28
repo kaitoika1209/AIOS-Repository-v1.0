@@ -21,6 +21,7 @@ import {
   requestBlockingDecision,
   startRevision,
   submitForReview,
+  submittedRevision,
   withdrawDecision,
   type DecisionOption,
   type DecisionState,
@@ -64,9 +65,11 @@ export const createDecisionUseCase = async (
   ctx: WorkCommandContext,
   input: {
     readonly relatedWorkId: WorkId;
+    readonly title: string;
     readonly question: string;
     readonly context?: string | null;
     readonly options?: readonly DecisionOption[];
+    readonly isBlocking?: boolean;
   },
 ): Promise<DecisionState> => {
   requirePermission(ctx.principal, "decision.create");
@@ -80,9 +83,12 @@ export const createDecisionUseCase = async (
         decisionId: deps.ids.decisionId(),
         organizationId: ctx.organizationId,
         relatedWorkId: input.relatedWorkId,
+        revisionId: deps.ids.revisionId(),
+        title: input.title,
         question: input.question,
         ...(input.context === undefined ? {} : { context: input.context }),
         ...(input.options === undefined ? {} : { options: input.options }),
+        ...(input.isBlocking === undefined ? {} : { isBlocking: input.isBlocking }),
       },
       ctx,
     );
@@ -117,14 +123,14 @@ export const submitBlockingDecisionUseCase = async (
       currentDecision.relatedWorkId,
     );
 
-    const submitted = submitForReview(currentDecision, deps.ids.snapshotId(), ctx);
+    const submitted = submitForReview(currentDecision, ctx);
 
     const blocked = requestBlockingDecision(
       currentWork,
       {
         decisionId: submitted.state.decisionId,
-        revisionNumber: submitted.state.revisionNumber,
-        submittedSnapshotId: submitted.state.submittedSnapshotId!,
+        revisionNumber: submittedRevision(submitted.state)!.revisionNumber,
+        submittedSnapshotId: submitted.state.submittedRevisionId!,
       },
       ctx,
     );
@@ -200,7 +206,7 @@ export const startRevisionUseCase = async (
 
   return deps.uow.transaction(async (tx) => {
     const current = await loadDecision(tx, ctx.organizationId, decisionId);
-    const { state } = startRevision(current, ctx);
+    const { state } = startRevision(current, deps.ids.revisionId(), ctx);
 
     await tx.decisions.update(state, current.version);
     return state;

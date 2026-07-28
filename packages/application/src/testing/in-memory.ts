@@ -166,8 +166,8 @@ export class SequentialIds implements IdGenerator {
   decisionId(): DecisionId {
     return `decision-${++this.n}` as DecisionId;
   }
-  snapshotId(): string {
-    return `snapshot-${++this.n}`;
+  revisionId(): string {
+    return `revision-${++this.n}`;
   }
 }
 

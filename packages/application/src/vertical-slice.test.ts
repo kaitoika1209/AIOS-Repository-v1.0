@@ -141,6 +141,7 @@ describe("atomic activation (ADR-0007)", () => {
 
     const decision = await createDecisionUseCase(h.deps, ctx, {
       relatedWorkId: work.workId,
+      title: "Launch timing",
       question: "Launch on Friday?",
       options: [{ optionId: "yes", summary: "Yes" }],
     });
@@ -154,7 +155,7 @@ describe("atomic activation (ADR-0007)", () => {
       reference: {
         decisionId: decision.decisionId,
         revisionNumber: 1,
-        submittedSnapshotId: result.decision.submittedSnapshotId,
+        submittedSnapshotId: result.decision.submittedRevisionId,
       },
     });
   });
@@ -167,6 +168,7 @@ describe("atomic activation (ADR-0007)", () => {
     const work = await createWorkUseCase(h.deps, ctx, { title: "Not started" });
     const decision = await createDecisionUseCase(h.deps, ctx, {
       relatedWorkId: work.workId,
+      title: "t",
       question: "?",
       options: [{ optionId: "a", summary: "A" }],
     });
@@ -178,7 +180,7 @@ describe("atomic activation (ADR-0007)", () => {
     // The Decision must not be left InReview with no Work waiting on it.
     const after = await h.decisions.findById(ORG, decision.decisionId);
     expect(after?.status).toBe("Draft");
-    expect(after?.submittedSnapshotId).toBeNull();
+    expect(after?.submittedRevisionId).toBeNull();
     expect((await h.work.findById(ORG, work.workId))?.status).toBe("Draft");
   });
 });
@@ -188,6 +190,7 @@ describe("approval does not complete Work", () => {
     const { h, ctx, work } = await setupInProgressWork();
     const decision = await createDecisionUseCase(h.deps, ctx, {
       relatedWorkId: work.workId,
+      title: "Launch",
       question: "Launch?",
       options: [{ optionId: "yes", summary: "Yes" }],
     });
@@ -219,7 +222,7 @@ describe("approval does not complete Work", () => {
         workId: work.workId,
         decisionId: decision.decisionId,
         revisionNumber: 1,
-        submittedSnapshotId: decision.resolutions[0]!.submittedSnapshotId,
+        submittedSnapshotId: decision.reviewRecords[0]!.revisionId,
         outcome: "Approved",
         resolvedByIdentityId: IdentityId("identity-reviewer"),
         resolvedByMembershipId: MembershipId("membership-reviewer"),
@@ -240,7 +243,7 @@ describe("approval does not complete Work", () => {
         workId: work.workId,
         decisionId: decision.decisionId,
         revisionNumber: 1,
-        submittedSnapshotId: decision.resolutions[0]!.submittedSnapshotId,
+        submittedSnapshotId: decision.reviewRecords[0]!.revisionId,
         outcome: "Approved",
         resolvedByIdentityId: IdentityId("identity-reviewer"),
         resolvedByMembershipId: MembershipId("membership-reviewer"),
@@ -258,6 +261,7 @@ describe("rejection blocks completion", () => {
     const { h, ctx, work } = await setupInProgressWork();
     const decision = await createDecisionUseCase(h.deps, ctx, {
       relatedWorkId: work.workId,
+      title: "Launch",
       question: "Launch?",
       options: [{ optionId: "yes", summary: "Yes" }],
     });
@@ -277,7 +281,7 @@ describe("rejection blocks completion", () => {
         workId: blocked.work.workId,
         decisionId: decision.decisionId,
         revisionNumber: 1,
-        submittedSnapshotId: rejected.resolutions[0]!.submittedSnapshotId,
+        submittedSnapshotId: rejected.reviewRecords[0]!.revisionId,
         outcome: "Rejected",
         resolvedByIdentityId: IdentityId("identity-reviewer"),
         resolvedByMembershipId: MembershipId("membership-reviewer"),
@@ -291,8 +295,8 @@ describe("rejection blocks completion", () => {
     // The rejected revision remains, and a new revision may be started.
     const revised = await startRevisionUseCase(h.deps, ctx, decision.decisionId);
     expect(revised.status).toBe("Draft");
-    expect(revised.revisionNumber).toBe(2);
-    expect(revised.resolutions).toHaveLength(1);
+    expect(revised.revisions).toHaveLength(2);
+    expect(revised.reviewRecords).toHaveLength(1);
   });
 });
 
@@ -301,6 +305,7 @@ describe("outbox", () => {
     const { h, ctx, work } = await setupInProgressWork();
     const decision = await createDecisionUseCase(h.deps, ctx, {
       relatedWorkId: work.workId,
+      title: "Launch",
       question: "Launch?",
       options: [{ optionId: "yes", summary: "Yes" }],
     });

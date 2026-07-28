@@ -2805,6 +2805,82 @@ The exact business fields may vary according to the Decision Aggregate.
 
 ---
 
+## Decision Revision Conceptual DDL
+
+```sql
+CREATE TABLE decision_revisions (
+    decision_revision_id        uuid PRIMARY KEY,
+    organization_id             uuid NOT NULL,
+    decision_id                 uuid NOT NULL,
+    revision_number             integer NOT NULL,
+    revision_status             text NOT NULL,
+
+    title                       text NOT NULL,
+    question                    text NOT NULL,
+    context                     text NULL,
+    options                     jsonb NOT NULL DEFAULT '[]'::jsonb,
+    rationale                   text NULL,
+
+    created_by_identity_id      uuid NOT NULL,
+    created_by_membership_id    uuid NOT NULL,
+
+    reviewed_by_identity_id     uuid NULL,
+    reviewed_by_membership_id   uuid NULL,
+    reviewed_at                 timestamptz NULL,
+    review_rationale            text NULL,
+    selected_option_id          text NULL,
+
+    created_at                  timestamptz NOT NULL,
+    updated_at                  timestamptz NOT NULL,
+
+    CONSTRAINT uq_decision_revisions_organization_revision
+        UNIQUE (
+            organization_id,
+            decision_revision_id
+        ),
+
+    CONSTRAINT fk_decision_revisions_decision
+        FOREIGN KEY (
+            organization_id,
+            decision_id
+        )
+        REFERENCES decisions (
+            organization_id,
+            decision_id
+        ),
+
+    CONSTRAINT ck_decision_revisions_selected_option
+        CHECK (
+            selected_option_id IS NULL
+            OR revision_status = 'Approved'
+        )
+);
+```
+
+Two deviations from the conceptual structure above are deliberate, under the
+Implementation Guidance rule that the exact schema may differ while the domain
+model remains the authority for invariants.
+
+`options` is a JSONB array rather than a single `proposed_option`. The Decision
+state machine requires that a revision offer several options, that no duplicate
+option identity exists, and that the approved option belong to the submitted
+revision. One text column cannot express that.
+
+Review evidence is stored on the revision rather than in a separate
+`decision_review_records` table, because a review outcome is one-to-one with the
+revision it resolves. `revision_status` already records which outcome occurred;
+the reviewer, timestamp, rationale, and selected option complete it. A separate
+table would need the same uniqueness constraint to prevent a second review of
+one revision.
+
+The foreign key is composite on `(organization_id, decision_id)`, so a revision
+cannot reference a Decision in another Organization.
+
+Content immutability is enforced by the repository, which must not issue content
+updates when `revision_status <> 'Draft'`.
+
+---
+
 ## Decision Revision Status Values
 
 Recommended values:

@@ -156,32 +156,24 @@ Costs:
 - richer read models later may want a query builder, requiring a follow-up
   decision.
 
-## Follow-up: Decision persistence is blocked
+## Follow-up: Decision persistence, resolved
 
-Implementing this ADR surfaced a mismatch that must be resolved before the
-Decision repository can be written. It is recorded here rather than worked
-around, because a mapping written today would encode the mismatch.
+Implementing this ADR surfaced a mismatch between the Decision domain model and
+the documented schema. It is recorded here because the fix changed the domain
+model rather than the schema.
 
-The `decisions` table keeps only root state — status, revision pointers, and
-review outcome. Revision *content* lives in `decision_revisions`, which is one of
-the tables still documented conceptually and has no DDL. The Decision Aggregate
-document likewise models `DecisionRevision`, `DecisionSubmittedSnapshot`, and
-`DecisionReviewRecord` as child entities.
+The `decisions` table keeps only root state; revision *content* lives in
+`decision_revisions`. The Decision Aggregate document likewise models
+`DecisionRevision` as a child entity. The first `DecisionState` flattened
+`question`, `context`, and `options` onto the root, so starting a new revision
+left them in place and a later edit overwrote the rejected revision's content —
+contradicting the state machine's rule that a new revision "does not erase or
+rewrite the rejected revision".
 
-The current `DecisionState` in `@aios/domain` flattens all of that onto the root:
-`question`, `context`, and `options` are root fields, and `startRevision` bumps
-the revision number while leaving them in place. A subsequent edit therefore
-overwrites the content of the rejected revision, which contradicts the Decision
-state machine: *"A transition from `Rejected` to `Draft` starts a new revision of
-the same organizational question. It does not erase or rewrite the rejected
-revision."*
-
-The domain model is wrong here, not the schema. Resolving it requires modelling
-revisions as child entities and adding DDL for `decision_revisions`, and only
-then can Decision persistence be implemented.
-
-Work persistence is unaffected: `work_items` and the Work Aggregate agree, and
-the repository is tested against the documented schema.
+Revisions are now child entities, `decision_revisions` has DDL, and the
+repository writes content only for a revision still in `Draft`. Both the domain
+and repository test suites assert that editing revision 2 leaves revision 1
+intact.
 
 ## Related documents
 

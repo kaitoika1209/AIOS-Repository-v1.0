@@ -141,14 +141,4 @@ export const gateColumns = (
   };
 };
 
-/*
- * Decision mapping is intentionally absent.
- *
- * The `decisions` table keeps revision content in `decision_revisions`, which
- * has no DDL yet, and the Decision Aggregate document models DecisionRevision,
- * DecisionSubmittedSnapshot, and DecisionReviewRecord as child entities. The
- * current `DecisionState` flattens those onto the root, so it cannot be mapped
- * to the documented schema without losing rejected-revision content.
- *
- * Writing a mapping now would encode that mismatch. See the ADR-0015 follow-up.
- */
+/* Decision mapping lives in `decision-mapping.ts`: a Decision spans two tables. */
