@@ -21,6 +21,14 @@ import type {
 
 export interface DomainEventBase {
   readonly organizationId: OrganizationId;
+  /**
+   * The Aggregate version this event was produced at.
+   *
+   * Required on every domain event, and part of the Outbox stream-position
+   * uniqueness constraint. Consumers use it to reject an older version after a
+   * newer one has already been applied.
+   */
+  readonly aggregateVersion: number;
   readonly occurredAt: Date;
   /** The Human Identity whose authority produced this event. */
   readonly actorIdentityId: IdentityId;
@@ -139,3 +147,26 @@ export const DECISION_OUTCOME_EVENTS = [
 ] as const;
 
 export type DecisionOutcomeEventType = (typeof DECISION_OUTCOME_EVENTS)[number];
+
+/**
+ * Stamp a command's events with the version the Aggregate reached.
+ *
+ * Every event from one command shares that version; `event_sequence`
+ * distinguishes them within it.
+ */
+type Unstamped<T> = T extends unknown ? Omit<T, "aggregateVersion"> : never;
+
+const withVersion = <T>(aggregateVersion: number, events: readonly Unstamped<T>[]) =>
+  events.map((event) => ({ ...event, aggregateVersion }) as unknown as T);
+
+/** Stamp a Work command's events with the version the Aggregate reached. */
+export const stampWork = (
+  aggregateVersion: number,
+  events: readonly Unstamped<WorkEvent>[],
+): readonly WorkEvent[] => withVersion<WorkEvent>(aggregateVersion, events);
+
+/** Stamp a Decision command's events with the version the Aggregate reached. */
+export const stampDecision = (
+  aggregateVersion: number,
+  events: readonly Unstamped<DecisionEvent>[],
+): readonly DecisionEvent[] => withVersion<DecisionEvent>(aggregateVersion, events);

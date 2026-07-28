@@ -40,9 +40,13 @@ export interface WorkRow {
   created_by_membership_id: string;
   started_at: Date | null;
   completed_by_identity_id: string | null;
+  completed_by_membership_id: string | null;
   completion_summary: string | null;
   completed_at: Date | null;
   cancelled_at: Date | null;
+  cancelled_by_identity_id: string | null;
+  cancelled_by_membership_id: string | null;
+  cancellation_reason: string | null;
   version: string | number;
 }
 
@@ -108,8 +112,12 @@ export const hydrateWork = (row: WorkRow): WorkState => ({
   startedAt: row.started_at,
   completedAt: row.completed_at,
   completedByIdentityId: row.completed_by_identity_id as IdentityId | null,
+  completedByMembershipId: row.completed_by_membership_id as MembershipId | null,
   completionSummary: row.completion_summary,
   cancelledAt: row.cancelled_at,
+  cancelledByIdentityId: row.cancelled_by_identity_id as IdentityId | null,
+  cancelledByMembershipId: row.cancelled_by_membership_id as MembershipId | null,
+  cancellationReason: row.cancellation_reason,
   version: toVersion(row.version),
 });
 

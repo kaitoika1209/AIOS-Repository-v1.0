@@ -77,9 +77,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Repository SQL is exercised against the documented schema, not a
+      # Repository and HTTP tests run against the documented schema, not a
       # hand-written fixture, so a schema change that breaks a query fails here.
-      - name: Repository tests against PostgreSQL
+      - name: Database-backed tests
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
-        run: pnpm --filter @aios/persistence test
+        run: pnpm --filter @aios/persistence --filter @aios/api test

@@ -1,29 +1,26 @@
 /**
  * PostgreSQL unit of work.
  *
- * One use case, one transaction. State changes and their Outbox rows commit
- * together or not at all, which is the guarantee ADR-0006 depends on.
+ * One use case, one transaction. Aggregate state and its Outbox rows commit
+ * together or not at all, which is the guarantee ADR-0006 depends on: an event
+ * can never exist without the state change that produced it.
  *
- * The Decision repository is deliberately absent: see `decision-repository.md`
- * note in ADR-0015's follow-up. Only Work is persisted so far.
+ * Repositories are constructed per transaction and share the one client, so
+ * every statement in a use case runs inside the same transaction.
  */
 
 import type { Pool, PoolClient } from "pg";
 
-import type { UnitOfWork } from "@aios/application";
+import type { RepositoryBundle, UnitOfWork } from "@aios/application";
 
+import { PostgresDecisionRepository } from "./decision-repository.js";
 import { PostgresOutbox } from "./outbox.js";
 import { PostgresWorkRepository } from "./work-repository.js";
 
-export interface WorkOnlyBundle {
-  readonly work: PostgresWorkRepository;
-  readonly outbox: PostgresOutbox;
-}
-
-export class PostgresUnitOfWork {
+export class PostgresUnitOfWork implements UnitOfWork {
   constructor(private readonly pool: Pool) {}
 
-  async transaction<T>(fn: (tx: WorkOnlyBundle) => Promise<T>): Promise<T> {
+  async transaction<T>(fn: (tx: RepositoryBundle) => Promise<T>): Promise<T> {
     const client: PoolClient = await this.pool.connect();
 
     try {
@@ -31,6 +28,7 @@ export class PostgresUnitOfWork {
 
       const result = await fn({
         work: new PostgresWorkRepository(client),
+        decisions: new PostgresDecisionRepository(client),
         outbox: new PostgresOutbox(client),
       });
 
@@ -44,6 +42,3 @@ export class PostgresUnitOfWork {
     }
   }
 }
-
-/** Narrowing helper so the partial bundle can satisfy `UnitOfWork` in tests. */
-export type PartialUnitOfWork = Pick<UnitOfWork, "transaction">;

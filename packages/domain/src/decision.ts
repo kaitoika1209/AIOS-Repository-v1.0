@@ -32,7 +32,7 @@ import {
   InvalidTransitionError,
   ValidationError,
 } from "./errors.js";
-import type { DecisionEvent } from "./events.js";
+import { stampDecision, type DecisionEvent } from "./events.js";
 import type { ActorContext, CommandResult } from "./work.js";
 
 export interface DecisionOption {
@@ -260,7 +260,7 @@ export const createDecision = (
 
   return {
     state,
-    events: [
+    events: stampDecision(state.version, [
       {
         type: "DecisionCreated",
         decisionId: state.decisionId,
@@ -271,7 +271,7 @@ export const createDecision = (
         actorIdentityId: actor.identityId,
         actorMembershipId: actor.membershipId,
       },
-    ],
+    ]),
   };
 };
 
@@ -355,7 +355,7 @@ export const submitForReview = (
       submittedRevisionId: submitted.revisionId,
       version: nextVersion(decision.version),
     },
-    events: [
+    events: stampDecision(nextVersion(decision.version), [
       {
         type: "DecisionSubmitted",
         decisionId: decision.decisionId,
@@ -367,7 +367,7 @@ export const submitForReview = (
         actorIdentityId: actor.identityId,
         actorMembershipId: actor.membershipId,
       },
-    ],
+    ]),
   };
 };
 
@@ -445,7 +445,7 @@ export const approveDecision = (
 
   return {
     state: resolved.state,
-    events: [
+    events: stampDecision(resolved.state.version, [
       {
         type: "DecisionApproved",
         decisionId: decision.decisionId,
@@ -459,7 +459,7 @@ export const approveDecision = (
         actorIdentityId: resolved.actorId,
         actorMembershipId: (ctx.principal as { membershipId: MembershipId }).membershipId,
       },
-    ],
+    ]),
   };
 };
 
@@ -482,7 +482,7 @@ export const rejectDecision = (
 
   return {
     state: resolved.state,
-    events: [
+    events: stampDecision(resolved.state.version, [
       {
         type: "DecisionRejected",
         decisionId: decision.decisionId,
@@ -495,7 +495,7 @@ export const rejectDecision = (
         actorIdentityId: resolved.actorId,
         actorMembershipId: (ctx.principal as { membershipId: MembershipId }).membershipId,
       },
-    ],
+    ]),
   };
 };
 
@@ -549,7 +549,7 @@ export const withdrawDecision = (
       ],
       version: nextVersion(decision.version),
     },
-    events: [
+    events: stampDecision(nextVersion(decision.version), [
       {
         type: "DecisionWithdrawn",
         decisionId: decision.decisionId,
@@ -562,7 +562,7 @@ export const withdrawDecision = (
         actorIdentityId: actor.identityId,
         actorMembershipId: actor.membershipId,
       },
-    ],
+    ]),
   };
 };
 

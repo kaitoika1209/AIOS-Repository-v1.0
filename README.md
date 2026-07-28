@@ -51,15 +51,16 @@ AIOS is built on the following principles:
 ## Project Status
 
 AIOS is in early implementation. The architectural blueprint is substantially
-complete; the Work and Decision slice exists as code, without an HTTP surface or
-user interface yet.
+complete, and the Work → Decision slice runs end to end over HTTP against
+PostgreSQL. There is no user interface yet, and authentication uses a
+development stub rather than Clerk.
 
 Current progress:
 
 - ✅ Product Vision
 - ✅ Domain Architecture
 - ✅ Technical Specification
-- 🚧 Foundation Development — domain and application layers for Work and Decision
+- 🚧 Foundation Development — Work and Decision through the HTTP API; no user interface yet
 
 Current objective:
 
@@ -80,7 +81,7 @@ The target layout is defined in
 ```text
 .
 ├── apps/
-│   ├── api/           (planned) NestJS, ADR-0014 routes
+│   ├── api/           NestJS, ADR-0014 routes
 │   └── web/           (planned) Next.js
 ├── packages/
 │   ├── types/         shared vocabulary and catalogues
@@ -118,6 +119,17 @@ pnpm run check:docs
 ```
 
 Copy [`.env.example`](.env.example) to `.env` before running the applications.
+
+To run the API against a local PostgreSQL database:
+
+```bash
+python3 scripts/extract_schema.py
+psql "$DATABASE_URL" -f build/schema.sql
+pnpm --filter @aios/api dev
+```
+
+Database-backed tests are skipped unless `DATABASE_URL` is set, so
+`pnpm run test` stays runnable without a database.
 
 ---
 

@@ -36,9 +36,13 @@ const COLUMNS = `
   created_by_membership_id,
   started_at,
   completed_by_identity_id,
+  completed_by_membership_id,
   completion_summary,
   completed_at,
   cancelled_at,
+  cancelled_by_identity_id,
+  cancelled_by_membership_id,
+  cancellation_reason,
   version
 `;
 
@@ -77,7 +81,8 @@ export class PostgresWorkRepository implements WorkRepository {
          decision_outcome,
          created_by_identity_id, created_by_membership_id,
          started_at, completed_by_identity_id, completed_by_membership_id,
-         completion_summary, completed_at, cancelled_at,
+         completion_summary, completed_at,
+         cancelled_at, cancelled_by_identity_id, cancelled_by_membership_id, cancellation_reason,
          version, created_at, updated_at
        ) VALUES (
          $1, $2, $3, $4, $5,
@@ -86,8 +91,9 @@ export class PostgresWorkRepository implements WorkRepository {
          $13,
          $14, $15,
          $16, $17, $18,
-         $19, $20, $21,
-         $22, $23, $24
+         $19, $20,
+         $21, $22, $23, $24,
+         $25, $26, $27
        )`,
       [
         work.workId,
@@ -107,10 +113,13 @@ export class PostgresWorkRepository implements WorkRepository {
         work.createdByMembershipId,
         work.startedAt,
         work.completedByIdentityId,
-        work.completedByIdentityId === null ? null : work.createdByMembershipId,
+        work.completedByMembershipId,
         work.completionSummary,
         work.completedAt,
         work.cancelledAt,
+        work.cancelledByIdentityId,
+        work.cancelledByMembershipId,
+        work.cancellationReason,
         work.version,
         new Date(),
         new Date(),
@@ -136,14 +145,18 @@ export class PostgresWorkRepository implements WorkRepository {
               decision_outcome = $11,
               started_at = $12,
               completed_by_identity_id = $13,
-              completion_summary = $14,
-              completed_at = $15,
-              cancelled_at = $16,
-              version = $17,
-              updated_at = $18
-        WHERE organization_id = $19
-          AND work_id = $20
-          AND version = $21`,
+              completed_by_membership_id = $14,
+              completion_summary = $15,
+              completed_at = $16,
+              cancelled_at = $17,
+              cancelled_by_identity_id = $18,
+              cancelled_by_membership_id = $19,
+              cancellation_reason = $20,
+              version = $21,
+              updated_at = $22
+        WHERE organization_id = $23
+          AND work_id = $24
+          AND version = $25`,
       [
         work.title,
         work.description,
@@ -158,9 +171,13 @@ export class PostgresWorkRepository implements WorkRepository {
         gate.outcome,
         work.startedAt,
         work.completedByIdentityId,
+        work.completedByMembershipId,
         work.completionSummary,
         work.completedAt,
         work.cancelledAt,
+        work.cancelledByIdentityId,
+        work.cancelledByMembershipId,
+        work.cancellationReason,
         work.version,
         new Date(),
         work.organizationId,

@@ -1,0 +1,114 @@
+/**
+ * Domain and application errors mapped to the HTTP contract in ADR-0014.
+ *
+ * The mapping is by error *code*, never by message text, which is what lets
+ * messages change without changing behaviour.
+ *
+ * Two choices are deliberate:
+ *
+ * - An invalid state-machine transition is `409`, not `422`. The request is well
+ *   formed and no invariant is broken; the Aggregate is simply not in a state
+ *   that accepts the command.
+ * - A cross-tenant resource is `404`, never `403`. A `403` would confirm that
+ *   the resource exists in some other Organization.
+ */
+
+import {
+  type ArgumentsHost,
+  Catch,
+  type ExceptionFilter,
+  HttpException,
+} from "@nestjs/common";
+import type { Response } from "express";
+
+import { DomainError } from "@aios/domain";
+import { AuthorizationError, NotFoundError } from "@aios/application";
+
+export interface ErrorBody {
+  readonly code: string;
+  readonly message: string;
+  readonly details: Record<string, unknown>;
+}
+
+const DOMAIN_STATUS: Readonly<Record<string, number>> = {
+  WORK_INVALID_TRANSITION: 409,
+  DECISION_INVALID_TRANSITION: 409,
+  WORK_COMPLETION_GATE_UNSATISFIED: 409,
+  WORK_BLOCKING_DECISION_EXISTS: 409,
+  WORK_BLOCKING_REFERENCE_MISMATCH: 409,
+  WORK_IMMUTABLE: 409,
+  DECISION_IMMUTABLE: 409,
+  VERSION_CONFLICT: 409,
+  VALIDATION_FAILED: 422,
+  HUMAN_AUTHORITY_REQUIRED: 403,
+  // Cross-Organization references are reported as absent, not forbidden.
+  CROSS_ORGANIZATION_REFERENCE: 404,
+};
+
+export const statusFor = (error: unknown): number => {
+  if (error instanceof AuthorizationError) return 403;
+  if (error instanceof NotFoundError) return 404;
+  if (error instanceof DomainError) return DOMAIN_STATUS[error.code] ?? 400;
+  if (error instanceof HttpException) return error.getStatus();
+  return 500;
+};
+
+export const bodyFor = (error: unknown): ErrorBody => {
+  if (error instanceof AuthorizationError) {
+    return {
+      code: "PERMISSION_DENIED",
+      // Deliberately does not name the permission: that would tell a caller
+      // which capability to go looking for.
+      message: "You do not have permission to perform this action.",
+      details: {},
+    };
+  }
+
+  if (error instanceof NotFoundError) {
+    return { code: "NOT_FOUND", message: error.message, details: {} };
+  }
+
+  if (error instanceof DomainError) {
+    return {
+      code:
+        error.code === "CROSS_ORGANIZATION_REFERENCE" ? "NOT_FOUND" : error.code,
+      message:
+        error.code === "CROSS_ORGANIZATION_REFERENCE"
+          ? "Not found."
+          : error.message,
+      details:
+        error.code === "CROSS_ORGANIZATION_REFERENCE"
+          ? {}
+          : (error.details as Record<string, unknown>),
+    };
+  }
+
+  if (error instanceof HttpException) {
+    const response = error.getResponse();
+    return {
+      code:
+        typeof response === "object" && response !== null && "code" in response
+          ? String((response as { code: unknown }).code)
+          : "REQUEST_INVALID",
+      message: error.message,
+      details: {},
+    };
+  }
+
+  return { code: "INTERNAL_ERROR", message: "An unexpected error occurred.", details: {} };
+};
+
+@Catch()
+export class DomainExceptionFilter implements ExceptionFilter {
+  catch(error: unknown, host: ArgumentsHost): void {
+    const response = host.switchToHttp().getResponse<Response>();
+    const status = statusFor(error);
+
+    if (status === 500) {
+      // Internal detail stays in the log; the client gets a stable envelope.
+      console.error("Unhandled error", error);
+    }
+
+    response.status(status).json(bodyFor(error));
+  }
+}

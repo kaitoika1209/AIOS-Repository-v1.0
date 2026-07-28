@@ -40,6 +40,15 @@ import {
 import { PostgresDecisionRepository } from "./decision-repository.js";
 
 const url = process.env["DATABASE_URL"];
+
+/**
+ * Each database-backed suite owns a PostgreSQL schema.
+ *
+ * The suites all rebuild the schema from the documents, so sharing `public`
+ * makes them race whenever two run at once. An isolated schema per suite keeps
+ * them independent without serialising the whole test run.
+ */
+const SCHEMA = "test_decision_repo";
 const suite = url ? describe : describe.skip;
 
 const repoRoot = resolve(import.meta.dirname, "../../..");
@@ -75,12 +84,12 @@ suite("PostgresDecisionRepository", () => {
       stdio: "pipe",
     });
 
-    pool = new Pool({ connectionString: url });
+    pool = new Pool({ connectionString: url, options: `-c search_path=${SCHEMA}` });
     const schema = readFileSync(resolve(repoRoot, "build/schema.sql"), "utf8");
 
     const client = await pool.connect();
     try {
-      await client.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
+      await client.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE; CREATE SCHEMA ${SCHEMA};`);
       await client.query(schema);
     } finally {
       client.release();

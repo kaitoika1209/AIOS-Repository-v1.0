@@ -1,0 +1,415 @@
+/**
+ * End-to-end HTTP tests: real Nest application, real PostgreSQL, real schema
+ * extracted from the documents.
+ *
+ * These cover the parts that only exist once HTTP is involved — tenancy
+ * resolution, status-code mapping, and the fact that a reviewer approving a
+ * Decision still does not complete Work.
+ *
+ * Skipped when DATABASE_URL is unset.
+ */
+
+import "reflect-metadata";
+
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
+import type { INestApplication } from "@nestjs/common";
+import { Pool } from "pg";
+import request from "supertest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+
+import { createApp } from "./app.js";
+import { DEV_ISSUER, DEV_PROVIDER, DevAuthAdapter } from "./dev-auth.js";
+
+const url = process.env["DATABASE_URL"];
+
+/**
+ * Each database-backed suite owns a PostgreSQL schema.
+ *
+ * The suites all rebuild the schema from the documents, so sharing `public`
+ * makes them race whenever two run at once. An isolated schema per suite keeps
+ * them independent without serialising the whole test run.
+ */
+const SCHEMA = "test_api_e2e";
+const suite = url ? describe : describe.skip;
+
+const repoRoot = resolve(import.meta.dirname, "../../..");
+
+const ORG = "11111111-1111-1111-1111-111111111111";
+const OTHER_ORG = "22222222-2222-2222-2222-222222222222";
+const SUSPENDED_ORG = "66666666-6666-6666-6666-666666666666";
+
+const MEMBER = { identity: "33333333-3333-3333-3333-333333333333", membership: "44444444-4444-4444-4444-444444444444", subject: "member-1" };
+const REVIEWER = { identity: "77777777-7777-7777-7777-777777777777", membership: "88888888-8888-8888-8888-888888888888", subject: "reviewer-1" };
+const OUTSIDER = { identity: "99999999-9999-9999-9999-999999999999", membership: "aaaaaaaa-9999-9999-9999-999999999999", subject: "outsider-1" };
+
+suite("AIOS API", () => {
+  let pool: Pool;
+  let app: INestApplication;
+
+  const as = (who: typeof MEMBER, organizationId = ORG) => ({
+    "x-dev-subject": who.subject,
+    "x-organization-id": organizationId,
+  });
+
+  beforeAll(async () => {
+    execFileSync("python3", [resolve(repoRoot, "scripts/extract_schema.py")], {
+      cwd: repoRoot,
+      stdio: "pipe",
+    });
+
+    pool = new Pool({ connectionString: url, options: `-c search_path=${SCHEMA}` });
+    const schema = readFileSync(resolve(repoRoot, "build/schema.sql"), "utf8");
+
+    const client = await pool.connect();
+    try {
+      await client.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE; CREATE SCHEMA ${SCHEMA};`);
+      await client.query(schema);
+    } finally {
+      client.release();
+    }
+
+    app = await createApp({ pool, auth: new DevAuthAdapter() });
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app?.close();
+    await pool?.end();
+  });
+
+  beforeEach(async () => {
+    const client = await pool.connect();
+    try {
+      await client.query(
+        `TRUNCATE decision_revisions, decisions, work_items, outbox_messages,
+                  membership_role_assignments, memberships,
+                  authentication_subjects, organizations, human_identities CASCADE`,
+      );
+
+      for (const who of [MEMBER, REVIEWER, OUTSIDER]) {
+        await client.query(
+          `INSERT INTO human_identities
+             (identity_id, status, display_name, version, created_at, updated_at)
+           VALUES ($1, 'Active', 'Tester', 1, now(), now())`,
+          [who.identity],
+        );
+        await client.query(
+          `INSERT INTO authentication_subjects
+             (authentication_subject_id, identity_id, provider, issuer, subject, linked_at, created_at)
+           VALUES ($1, $2, $3, $4, $5, now(), now())`,
+          [randomUUID(), who.identity, DEV_PROVIDER, DEV_ISSUER, who.subject],
+        );
+      }
+
+      for (const [org, status] of [
+        [ORG, "Active"],
+        [OTHER_ORG, "Active"],
+        [SUSPENDED_ORG, "Suspended"],
+      ] as const) {
+        await client.query(
+          `INSERT INTO organizations
+             (organization_id, name, status, created_by_identity_id, version, created_at, updated_at${status === "Suspended" ? ", suspended_at" : ""})
+           VALUES ($1, 'Org', $2, $3, 1, now(), now()${status === "Suspended" ? ", now()" : ""})`,
+          [org, status, MEMBER.identity],
+        );
+      }
+
+      // MEMBER and REVIEWER belong to ORG; OUTSIDER belongs to OTHER_ORG only.
+      for (const [who, org, role] of [
+        [MEMBER, ORG, "Member"],
+        [REVIEWER, ORG, "Reviewer"],
+        [OUTSIDER, OTHER_ORG, "Member"],
+      ] as const) {
+        await client.query(
+          `INSERT INTO memberships
+             (membership_id, organization_id, identity_id, status, invited_at, activated_at,
+              version, created_at, updated_at)
+           VALUES ($1, $2, $3, 'Active', now(), now(), 1, now(), now())`,
+          [who.membership, org, who.identity],
+        );
+        await client.query(
+          `INSERT INTO membership_role_assignments
+             (role_assignment_id, organization_id, membership_id, role,
+              assigned_by_identity_id, assigned_by_membership_id, assigned_at)
+           VALUES ($1, $2, $3, $4, $5, $6, now())`,
+          [randomUUID(), org, who.membership, role, who.identity, who.membership],
+        );
+      }
+    } finally {
+      client.release();
+    }
+  });
+
+  const server = () => app.getHttpServer();
+
+  const createWork = async (title = "Ship the MVP") => {
+    const res = await request(server())
+      .post("/works")
+      .set(as(MEMBER))
+      .send({ title })
+      .expect(201);
+    return res.body as { workId: string; status: string; version: number };
+  };
+
+  describe("authentication and tenancy (ADR-0013)", () => {
+    it("rejects a request with no subject", async () => {
+      await request(server())
+        .get("/works")
+        .set("x-organization-id", ORG)
+        .expect(401);
+    });
+
+    it("rejects a request with no Organization header", async () => {
+      await request(server())
+        .get("/works")
+        .set("x-dev-subject", MEMBER.subject)
+        .expect(400);
+    });
+
+    it("rejects an unknown subject", async () => {
+      await request(server()).get("/works").set(as({ ...MEMBER, subject: "nobody" })).expect(401);
+    });
+
+    it("reports an Organization the caller does not belong to as 404, not 403", async () => {
+      await request(server()).get("/works").set(as(OUTSIDER, ORG)).expect(404);
+    });
+
+    it("refuses a Suspended Organization", async () => {
+      await request(server()).get("/works").set(as(MEMBER, SUSPENDED_ORG)).expect(404);
+    });
+
+    it("refuses a disabled identity even though the subject is known", async () => {
+      const client = await pool.connect();
+      try {
+        await client.query(
+          `UPDATE human_identities SET status = 'Disabled', disabled_at = now()
+            WHERE identity_id = $1`,
+          [MEMBER.identity],
+        );
+      } finally {
+        client.release();
+      }
+      await request(server()).get("/works").set(as(MEMBER)).expect(403);
+    });
+  });
+
+  describe("Work routes", () => {
+    it("creates and lists Work scoped to the Organization", async () => {
+      const work = await createWork();
+      expect(work.status).toBe("Draft");
+
+      const mine = await request(server()).get("/works").set(as(MEMBER)).expect(200);
+      expect(mine.body.items).toHaveLength(1);
+
+      const theirs = await request(server())
+        .get("/works")
+        .set(as(OUTSIDER, OTHER_ORG))
+        .expect(200);
+      expect(theirs.body.items).toHaveLength(0);
+    });
+
+    it("does not expose Work from another Organization", async () => {
+      const work = await createWork();
+      await request(server())
+        .get(`/works/${work.workId}`)
+        .set(as(OUTSIDER, OTHER_ORG))
+        .expect(404);
+    });
+
+    it("runs the Draft → InProgress → Completed lifecycle", async () => {
+      const work = await createWork();
+
+      const started = await request(server())
+        .post(`/works/${work.workId}/start`)
+        .set(as(MEMBER))
+        .expect(201);
+      expect(started.body.status).toBe("InProgress");
+
+      const completed = await request(server())
+        .post(`/works/${work.workId}/complete`)
+        .set(as(MEMBER))
+        .send({ completionSummary: "Delivered" })
+        .expect(201);
+      expect(completed.body.status).toBe("Completed");
+    });
+
+    it("maps an invalid transition to 409 with a stable code", async () => {
+      const work = await createWork();
+      const res = await request(server())
+        .post(`/works/${work.workId}/complete`)
+        .set(as(MEMBER))
+        .send({ completionSummary: "Too early" })
+        .expect(409);
+
+      expect(res.body.code).toBe("WORK_INVALID_TRANSITION");
+    });
+
+    it("maps a missing required field to 400", async () => {
+      await request(server()).post("/works").set(as(MEMBER)).send({}).expect(400);
+    });
+
+    it("maps a blank required field to 400, before the domain sees it", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/start`)
+        .set(as(MEMBER))
+        .expect(201);
+
+      // Structurally invalid input is a malformed request, not a domain
+      // invariant violation.
+      await request(server())
+        .post(`/works/${work.workId}/complete`)
+        .set(as(MEMBER))
+        .send({ completionSummary: "   " })
+        .expect(400);
+    });
+
+    it("denies a Reviewer creating Work, without naming the permission", async () => {
+      const res = await request(server())
+        .post("/works")
+        .set(as(REVIEWER))
+        .send({ title: "Not mine to create" })
+        .expect(403);
+
+      expect(res.body.code).toBe("PERMISSION_DENIED");
+      expect(JSON.stringify(res.body)).not.toContain("work.create");
+    });
+  });
+
+  describe("Work → Decision slice", () => {
+    const blockedWork = async () => {
+      const work = await createWork();
+      await request(server()).post(`/works/${work.workId}/start`).set(as(MEMBER)).expect(201);
+
+      const decision = await request(server())
+        .post("/decisions")
+        .set(as(MEMBER))
+        .send({
+          relatedWorkId: work.workId,
+          title: "Launch timing",
+          question: "Ship on Friday?",
+          options: [{ optionId: "yes", summary: "Yes" }],
+          isBlocking: true,
+        })
+        .expect(201);
+
+      const submitted = await request(server())
+        .post(`/decisions/${decision.body.decisionId}/submit`)
+        .set(as(MEMBER))
+        .expect(201);
+
+      return { work, decisionId: decision.body.decisionId as string, submitted };
+    };
+
+    it("submitting a blocking Decision blocks the Work atomically (ADR-0007)", async () => {
+      const { work, submitted } = await blockedWork();
+
+      expect(submitted.body.decision.status).toBe("InReview");
+      expect(submitted.body.workStatus).toBe("WaitingForDecision");
+
+      const reloaded = await request(server())
+        .get(`/works/${work.workId}`)
+        .set(as(MEMBER))
+        .expect(200);
+      expect(reloaded.body.status).toBe("WaitingForDecision");
+      expect(reloaded.body.completionGate).toBe("Pending");
+    });
+
+    it("a Member cannot approve; a Reviewer can", async () => {
+      const { decisionId } = await blockedWork();
+
+      await request(server())
+        .post(`/decisions/${decisionId}/approve`)
+        .set(as(MEMBER))
+        .send({ selectedOptionId: "yes", rationale: "Fine" })
+        .expect(403);
+
+      const approved = await request(server())
+        .post(`/decisions/${decisionId}/approve`)
+        .set(as(REVIEWER))
+        .send({ selectedOptionId: "yes", rationale: "Risk accepted" })
+        .expect(201);
+      expect(approved.body.status).toBe("Approved");
+    });
+
+    it("approving a Decision does not complete the Work", async () => {
+      const { work, decisionId } = await blockedWork();
+
+      await request(server())
+        .post(`/decisions/${decisionId}/approve`)
+        .set(as(REVIEWER))
+        .send({ selectedOptionId: "yes", rationale: "Risk accepted" })
+        .expect(201);
+
+      const reloaded = await request(server())
+        .get(`/works/${work.workId}`)
+        .set(as(MEMBER))
+        .expect(200);
+      expect(reloaded.body.status).not.toBe("Completed");
+    });
+
+    it("maps a domain invariant violation to 422", async () => {
+      const { decisionId } = await blockedWork();
+
+      // Well-formed request; the option simply is not part of the submitted
+      // revision, which is a domain rule rather than a malformed payload.
+      const res = await request(server())
+        .post(`/decisions/${decisionId}/approve`)
+        .set(as(REVIEWER))
+        .send({ selectedOptionId: "not-an-option", rationale: "Fine" })
+        .expect(422);
+
+      expect(res.body.code).toBe("VALIDATION_FAILED");
+    });
+
+    it("preserves the rejected revision when a new one is started", async () => {
+      const { decisionId } = await blockedWork();
+
+      await request(server())
+        .post(`/decisions/${decisionId}/reject`)
+        .set(as(REVIEWER))
+        .send({ rationale: "Needs more data" })
+        .expect(201);
+
+      const revised = await request(server())
+        .post(`/decisions/${decisionId}/revisions`)
+        .set(as(MEMBER))
+        .expect(201);
+
+      expect(revised.body.revisionNumber).toBe(2);
+      expect(revised.body.status).toBe("Draft");
+      expect(revised.body.reviewHistory).toHaveLength(1);
+      expect(revised.body.reviewHistory[0]).toMatchObject({
+        outcome: "Rejected",
+        revisionNumber: 1,
+        rationale: "Needs more data",
+      });
+    });
+  });
+
+  describe("Outbox", () => {
+    it("records events for committed commands only", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/complete`)
+        .set(as(MEMBER))
+        .send({ completionSummary: "Too early" })
+        .expect(409);
+
+      const client = await pool.connect();
+      try {
+        const rows = await client.query(
+          `SELECT event_type FROM outbox_messages ORDER BY recorded_at`,
+        );
+        expect(rows.rows.map((r: { event_type: string }) => r.event_type)).toEqual([
+          "WorkCreated",
+        ]);
+      } finally {
+        client.release();
+      }
+    });
+  });
+});

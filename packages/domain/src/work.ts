@@ -39,7 +39,7 @@ import {
   InvalidTransitionError,
   ValidationError,
 } from "./errors.js";
-import type { WorkEvent } from "./events.js";
+import { stampWork, type WorkEvent } from "./events.js";
 
 export interface WorkState {
   readonly workId: WorkId;
@@ -54,8 +54,12 @@ export interface WorkState {
   readonly startedAt: Date | null;
   readonly completedAt: Date | null;
   readonly completedByIdentityId: IdentityId | null;
+  readonly completedByMembershipId: MembershipId | null;
   readonly completionSummary: string | null;
   readonly cancelledAt: Date | null;
+  readonly cancelledByIdentityId: IdentityId | null;
+  readonly cancelledByMembershipId: MembershipId | null;
+  readonly cancellationReason: string | null;
   readonly version: AggregateVersion;
 }
 
@@ -166,14 +170,18 @@ export const createWork = (
     startedAt: null,
     completedAt: null,
     completedByIdentityId: null,
+    completedByMembershipId: null,
     completionSummary: null,
     cancelledAt: null,
+    cancelledByIdentityId: null,
+    cancelledByMembershipId: null,
+    cancellationReason: null,
     version: 1 as AggregateVersion,
   };
 
   return {
     state,
-    events: [
+    events: stampWork(state.version, [
       {
         type: "WorkCreated",
         workId: state.workId,
@@ -183,7 +191,7 @@ export const createWork = (
         actorIdentityId: actor.identityId,
         actorMembershipId: actor.membershipId,
       },
-    ],
+    ]),
   };
 };
 
@@ -205,7 +213,7 @@ export const startWork = (
 
   return {
     state,
-    events: [
+    events: stampWork(state.version, [
       {
         type: "WorkStarted",
         workId: work.workId,
@@ -214,7 +222,7 @@ export const startWork = (
         actorIdentityId: actor.identityId,
         actorMembershipId: actor.membershipId,
       },
-    ],
+    ]),
   };
 };
 
@@ -252,7 +260,7 @@ export const requestBlockingDecision = (
 
   return {
     state,
-    events: [
+    events: stampWork(state.version, [
       {
         type: "WorkDecisionRequested",
         workId: work.workId,
@@ -264,7 +272,7 @@ export const requestBlockingDecision = (
         actorIdentityId: actor.identityId,
         actorMembershipId: actor.membershipId,
       },
-    ],
+    ]),
   };
 };
 
@@ -332,7 +340,7 @@ export const recordDecisionOutcome = (
 
   return {
     state,
-    events: [
+    events: stampWork(state.version, [
       {
         type: "WorkDecisionOutcomeRecorded",
         workId: work.workId,
@@ -345,7 +353,7 @@ export const recordDecisionOutcome = (
         actorIdentityId: input.resolvedByIdentityId,
         actorMembershipId: input.resolvedByMembershipId,
       },
-    ],
+    ]),
   };
 };
 
@@ -392,13 +400,14 @@ export const completeWork = (
     status: "Completed",
     completedAt: ctx.now,
     completedByIdentityId: actor.identityId,
+    completedByMembershipId: actor.membershipId,
     completionSummary: summary,
     version: nextVersion(work.version),
   };
 
   return {
     state,
-    events: [
+    events: stampWork(state.version, [
       {
         type: "WorkCompleted",
         workId: work.workId,
@@ -408,7 +417,7 @@ export const completeWork = (
         actorIdentityId: actor.identityId,
         actorMembershipId: actor.membershipId,
       },
-    ],
+    ]),
   };
 };
 
@@ -431,12 +440,15 @@ export const cancelWork = (
     status: "Cancelled",
     blockingReference: null,
     cancelledAt: ctx.now,
+    cancelledByIdentityId: actor.identityId,
+    cancelledByMembershipId: actor.membershipId,
+    cancellationReason: reason.trim(),
     version: nextVersion(work.version),
   };
 
   return {
     state,
-    events: [
+    events: stampWork(state.version, [
       {
         type: "WorkCancelled",
         workId: work.workId,
@@ -446,7 +458,7 @@ export const cancelWork = (
         actorIdentityId: actor.identityId,
         actorMembershipId: actor.membershipId,
       },
-    ],
+    ]),
   };
 };
 

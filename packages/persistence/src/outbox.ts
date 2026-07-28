@@ -38,13 +38,16 @@ export class PostgresOutbox implements OutboxPort {
       return;
     }
 
-    // event_sequence is scoped to one aggregate version, so a command emitting
-    // several events keeps them ordered and unique within that version.
-    let sequence = 0;
+    // `event_sequence` is scoped to one aggregate version, so a command that
+    // emits several events at the same version keeps them ordered and unique.
+    // A command spanning two aggregates (ADR-0007) counts each separately.
+    const sequences = new Map<string, number>();
 
     for (const event of events) {
       const aggregate = aggregateOf(event);
-      sequence += 1;
+      const streamKey = `${aggregate.type}:${aggregate.id}:${event.aggregateVersion}`;
+      const sequence = (sequences.get(streamKey) ?? 0) + 1;
+      sequences.set(streamKey, sequence);
 
       await this.client.query(
         `INSERT INTO outbox_messages (
@@ -68,9 +71,7 @@ export class PostgresOutbox implements OutboxPort {
           1,
           aggregate.type,
           aggregate.id,
-          // The publisher orders by recorded_at and stream position; the
-          // aggregate version is carried for consumers that need it.
-          sequence,
+          event.aggregateVersion,
           sequence,
           event.organizationId,
           JSON.stringify(event),
