@@ -1057,4 +1057,4 @@ Everything that does not directly support this loop should be deferred unless it
 - `docs/architecture/state-machines/work.md`
 - `docs/architecture/state-machines/decision.md`
 - `docs/architecture/state-machines/memory.md`
-- `docs/domain/aggregates/memory.md`
+- `docs/architecture/aggregates/memory.md`

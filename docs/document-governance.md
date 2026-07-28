@@ -40,6 +40,12 @@ Accepted ADR supersedes an earlier one; the superseded ADR must be marked
 
 An ADR with any status other than `Accepted` carries **no** authority.
 
+**Rank 1 does not mean an ADR can widen the release on its own.** Per the ADR-0010
+promotion rule, moving a concept into implementable scope requires an accepted ADR
+**and** a matching update to the release-scope document. An ADR that claims new scope
+without that update is incomplete, not authoritative — treat the gap as a defect and
+land the scope update before implementing.
+
 ### Rank 2 — Release scope
 
 `docs/product/mvp.md` is the single authoritative statement of what the current release
@@ -111,20 +117,35 @@ Conflicts are defects. Silently working around one is not resolution.
 
 ## Required Document Header
 
-Per ADR-0010, every architecture and product artifact states its classification near the
-top:
+Per ADR-0010, every architecture and release-scope artifact states its classification
+near the top:
 
 ```text
-Scope classification: <MVP Normative | Reserved Extension Point | Future Hypothesis | Explicitly Out of Scope | Mixed>
+Scope classification: <MVP Normative | Reserved Extension Point | Future Hypothesis | Explicitly Out of Scope | Mixed — ...>
 MVP implementation authority: <Yes | None | qualified statement>
 Promotion requirement: <Accepted implementation ADR and scope-document update | Not applicable>
 ```
 
-Mixed-scope documents must additionally label sections or tables so a reader can
-determine classification without inference.
+### The classification vocabulary is closed
 
-ADRs are exempt from the scope header. They instead carry the metadata block defined
-below.
+ADR-0010 defines exactly four classifications. `Mixed — <explanation>` is permitted only
+as a container for those four, and such a document must additionally label its sections
+or tables so a reader can determine classification without inference.
+
+Do **not** invent a fifth value. Words like `Deferred`, `Directional`, `Blueprint`,
+`future`, and `not implemented` are descriptive prose, not classifications. CI rejects
+any other value.
+
+### Documents that carry no classification
+
+The four classifications describe *architecture artifacts*. Orientation and direction
+documents — `README.md`, `CONTRIBUTING.md`, `docs/glossary.md`,
+`docs/product/vision.md`, and this document's rank 5–6 entries — are not architecture
+artifacts. They declare a **Document class** and an explicit
+`MVP implementation authority: None` instead, and their lack of authority follows from
+their rank rather than from a scope label.
+
+ADRs are also exempt from the scope header. They carry the metadata block defined below.
 
 ---
 

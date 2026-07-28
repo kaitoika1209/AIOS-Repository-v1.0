@@ -22,20 +22,17 @@ The authoritative MVP product scope remains:
 
 ## Document Authority
 
-When documents differ, use the following source for the relevant concern:
+When documents differ, resolve the conflict using the ranking and subject-ownership
+table in [Document Governance](../document-governance.md), which is the canonical
+statement of which document wins.
 
-| Concern | Authoritative document |
-|---|---|
-| MVP inclusion and exclusion | `docs/product/mvp.md` |
-| Identity, Organization, and Membership boundaries | `docs/architecture/identity-and-organization.md` |
-| Authorization and Human-only authority | `docs/architecture/authorization.md` |
-| Aggregate-owned state and local invariants | `docs/architecture/aggregates/*.md` |
-| Lifecycle transitions and forbidden transitions | `docs/architecture/state-machines/*.md` |
-| Application orchestration and transaction ownership | `docs/architecture/application-services.md` |
-| Durable asynchronous delivery | `docs/architecture/events-and-outbox.md` |
-| Persistence constraints and tenant isolation | `docs/architecture/persistence-and-data-model.md` |
+In short: `docs/product/mvp.md` decides MVP inclusion and exclusion, and each
+architecture document owns its own subject — identity, authorization, aggregates, state
+machines, application services, events, persistence, and observability.
 
-This document summarizes those decisions and must not become a competing source of truth.
+This document summarizes those decisions and must not become a competing source of
+truth. That is why the ownership table lives in one place rather than being repeated
+here.
 
 ---
 

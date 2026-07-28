@@ -193,7 +193,7 @@ Comments should explain **why**, not **what**.
 // Retry because the external provider may be temporarily unavailable.
 ```
 
-#### Bad
+### Bad
 
 ```typescript
 // Increment i.

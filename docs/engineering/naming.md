@@ -281,7 +281,7 @@ KnowledgePromotionService
 
 Avoid generic names.
 
-#### Bad
+### Bad
 
 ```text
 Manager

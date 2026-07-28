@@ -635,6 +635,7 @@ Canonical operational states are:
 - `Abandoned`.
 These belong to an application process, job record, or process manager.
 They must not be confused with the business review lifecycle.
+Note that `Generated` deliberately appears in both sets: it is a `MemoryStatus` value *and* a terminal generation-operation status. They are different types with different owners, and an implementation must not model them with one shared enum. Where ambiguity is possible, qualify the name — for example `MemoryStatus.Generated` versus `GenerationOperationStatus.Generated`.
 
 `MemoryGenerationRequested` and `MemoryGenerationFailed` are not registered Domain or Integration Events. `WorkCompleted` is the durable trigger, and generation-operation state is the authoritative process evidence.
 ---
@@ -722,7 +723,7 @@ Historical information must not be silently overwritten.
 - `docs/architecture/overview.md`
 - `docs/product/mvp.md`
 - `docs/product/roadmap.md`
-- `docs/product/use-cases/mvp.md`
+- `docs/product/mvp-use-cases.md`
 - `docs/architecture/state-machines/work.md`
 - `docs/architecture/state-machines/decision.md`
 - `docs/architecture/state-machines/knowledge.md`

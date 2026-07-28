@@ -1,16 +1,17 @@
 # Product Vision
 
-> **Scope classification:** Directional — not an implementation authority  
+> **Document class:** Product direction — not an architecture artifact, so it carries no
+> ADR-0010 scope classification  
 > **MVP implementation authority:** None  
-> **Promotion requirement:** Vision statements become implementable only through
-> [`docs/product/mvp.md`](mvp.md) or a successor release-scope document
+> **Authority rank:** 5 — see [Document Governance](../document-governance.md)
 
 ## Purpose
 
 This document states why AIOS exists and what it is ultimately trying to change.
 
 It is deliberately directional. It does not authorize implementation, define scope, or
-override any authoritative document. See [Document Governance](../document-governance.md).
+override any authoritative document. Nothing here becomes implementable except through
+[`mvp.md`](mvp.md) or a successor release-scope document.
 
 ---
 

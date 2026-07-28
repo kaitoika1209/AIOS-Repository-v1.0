@@ -693,7 +693,7 @@ Historical review cycles must not be silently overwritten.
 - `docs/architecture/overview.md`
 - `docs/product/mvp.md`
 - `docs/product/roadmap.md`
-- `docs/product/use-cases/mvp.md`
+- `docs/product/mvp-use-cases.md`
 - `docs/architecture/state-machines/work.md`
 - `docs/architecture/state-machines/memory.md`
 - `docs/architecture/aggregates/decision.md`

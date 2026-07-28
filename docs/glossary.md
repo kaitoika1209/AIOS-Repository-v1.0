@@ -64,7 +64,7 @@ A System Principal may execute an explicitly permitted operational action caused
 
 The central business object of AIOS.
 
-A work item represents a business activity with a clear objective.
+A Work represents a business activity with a clear objective.
 
 Every meaningful activity belongs to a Work.
 
@@ -72,7 +72,7 @@ Every meaningful activity belongs to a Work.
 
 ## Decision
 
-A formal human decision made during the lifecycle of work.
+A formal human decision made during the lifecycle of a Work.
 
 AI may propose decisions.
 
@@ -82,9 +82,9 @@ Humans remain responsible for approving them.
 
 ## Memory
 
-Organizational experience generated from completed work.
+Organizational experience generated from completed Work.
 
-A memory records what happened, why it happened, and what was learned.
+A Memory records what happened, why it happened, and what was learned.
 
 ---
 
@@ -102,9 +102,13 @@ A Generated, InReview, Rejected, or Approved Memory does not automatically becom
 
 ## Workflow
 
-The process that defines how work progresses through its lifecycle.
+The process that defines how a Work progresses through its lifecycle.
 
 Examples include review, approval, and publishing.
+
+In the MVP this means only the fixed Work, Decision, and Memory state machines. A
+configurable workflow engine — custom definitions, a visual designer, user-defined state
+machines, or conditional routing — is outside the MVP.
 
 ---
 
@@ -127,9 +131,13 @@ Capability must not be inferred from one unreviewed AI output or from one histor
 
 ## Workspace
 
-The primary working environment for members inside AIOS.
+The primary working environment for Members inside AIOS.
 
-A workspace provides access to work, AI collaboration, and organizational information.
+A Workspace provides access to Work, AI collaboration, and organizational information.
+
+A Workspace is a presentation concept only. It is not a Bounded Context, Aggregate,
+ownership boundary, or transaction boundary — the Organization remains the tenant and
+ownership boundary.
 
 ---
 
@@ -163,6 +171,8 @@ A versioned authorization identifier for one advisory operation exposed by an AI
 
 ## AI Employee
 
+> **Blueprint status:** Future — outside the MVP.
+
 A future AI Principal assigned a specialized organizational role.
 
 Examples:
@@ -178,17 +188,21 @@ AI Employees collaborate with Human Members under explicit authorization and gov
 
 ## Replay
 
-A reconstruction of completed work.
+> **Blueprint status:** Future — outside the MVP.
 
-Replay allows organizations to review decisions, actions, and outcomes for learning and improvement.
+A reconstruction of completed Work.
+
+Replay allows organizations to review Decisions, actions, and outcomes for learning and improvement.
 
 ---
 
 ## Organization Brain
 
+> **Blueprint status:** Future — outside the MVP.
+
 The long-term organizational intelligence layer.
 
-It combines memories, knowledge, and capabilities to improve future work.
+It combines Memory, Knowledge, and Capability to improve future Work.
 
 ---
 

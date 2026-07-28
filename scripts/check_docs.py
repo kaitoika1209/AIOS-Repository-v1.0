@@ -3,11 +3,13 @@
 
 Enforces the mechanical rules defined in docs/document-governance.md:
 
-  1. every relative Markdown link resolves;
+  1. every relative Markdown link resolves, and every repository path written as a
+     bare code span (`docs/...`) points at a file that exists;
   2. every ADR declares Status, Date, and Blueprint Version, with a valid Status;
   3. every document under docs/architecture/ and docs/product/ declares a scope
-     classification header;
-  4. each Markdown file has exactly one H1 and no heading-level skips.
+     classification header, using only the closed ADR-0010 vocabulary;
+  4. each Markdown file has exactly one H1 and no heading-level skips;
+  5. paired example headings (Good/Bad, Preferred/Avoid) sit at the same level.
 
 Run from the repository root:
 
@@ -29,9 +31,21 @@ HEADING_EXEMPT = {".github/pull_request_template.md"}
 
 # Directories whose documents must declare a scope classification.
 SCOPE_REQUIRED_DIRS = ("docs/architecture", "docs/product")
-SCOPE_EXEMPT = {"docs/product/vision.md"}  # declares a Directional header instead
+# Product direction, not an architecture artifact: declares a Document class header
+# and "MVP implementation authority: None" instead of a scope classification.
+SCOPE_EXEMPT = {"docs/product/vision.md"}
 
 VALID_STATUS = re.compile(r"^(Proposed|Accepted|Rejected|Superseded by ADR-\d{4})$")
+
+# ADR-0010 defines exactly four classifications. "Mixed — ..." may contain them.
+# Anything else (Deferred, Directional, Blueprint, ...) is prose, not a classification.
+VALID_SCOPE = re.compile(
+    r"^(MVP Normative|Reserved Extension Point|Future Hypothesis"
+    r"|Explicitly Out of Scope|Mixed|Phase \d+ delegates to MVP Normative scope)\b"
+)
+
+# Headings that come in pairs and must be siblings.
+PAIRED_HEADINGS = {"Good", "Bad", "Preferred", "Avoid"}
 
 failures: list[str] = []
 
@@ -74,6 +88,20 @@ def check_links(path: Path, text: str) -> None:
             fail(path, f"broken link -> {target}")
 
 
+# Repository paths written as `docs/...` code spans. These are not Markdown links, so
+# they are invisible to link checking and rot silently when files move.
+BARE_PATH = re.compile(r"`((?:docs|scripts|apps|packages|services|infra)/[\w./-]+\.\w+)`")
+
+
+def check_bare_paths(path: Path, text: str) -> None:
+    for m in BARE_PATH.finditer(text):
+        target = m.group(1)
+        if "*" in target:
+            continue
+        if not (ROOT / target).exists():
+            fail(path, f"bare path reference does not exist -> {target}")
+
+
 def check_headings(path: Path, text: str) -> None:
     rel = path.relative_to(ROOT).as_posix()
     if rel in HEADING_EXEMPT:
@@ -112,8 +140,40 @@ def check_scope(path: Path, text: str) -> None:
     if rel.endswith("README.md"):
         return
     head = "\n".join(text.split("\n")[:15])
-    if not re.search(r"\*\*Scope classification:\*\*", head):
+    m = re.search(r"\*\*Scope classification:\*\*\s*(.+?)\s*$", head, re.M)
+    if not m:
         fail(path, "missing scope classification header (ADR-0010)")
+        return
+    value = m.group(1).strip()
+    if not VALID_SCOPE.match(value):
+        fail(
+            path,
+            f"scope classification {value!r} is not in the ADR-0010 vocabulary "
+            "(MVP Normative | Reserved Extension Point | Future Hypothesis | "
+            "Explicitly Out of Scope | Mixed — ...)",
+        )
+
+
+def check_paired_headings(path: Path, text: str) -> None:
+    """Good/Bad and Preferred/Avoid must be siblings, not parent and child."""
+    parent_level: int | None = None
+    pairs: dict[int, list[tuple[str, int]]] = {}
+    for ln, level, title in headings(text):
+        label = title.strip().rstrip(":")
+        if label in PAIRED_HEADINGS:
+            if parent_level is not None:
+                pairs.setdefault(parent_level, []).append((label, level))
+        else:
+            parent_level = level
+    for group in pairs.values():
+        levels = {lv for _, lv in group}
+        if len(levels) > 1:
+            fail(
+                path,
+                "paired example headings are at differing levels "
+                f"({', '.join(f'{n}=H{lv}' for n, lv in group)}); they must be siblings",
+            )
+            return
 
 
 def main() -> int:
@@ -126,7 +186,9 @@ def main() -> int:
         text = path.read_text(encoding="utf-8")
         rel = path.relative_to(ROOT).as_posix()
         check_links(path, text)
+        check_bare_paths(path, text)
         check_headings(path, text)
+        check_paired_headings(path, text)
         check_scope(path, text)
         if rel.startswith("docs/adr/") and not rel.endswith("README.md"):
             check_adr(path, text)
