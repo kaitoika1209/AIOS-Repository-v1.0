@@ -3374,6 +3374,86 @@ memory_revisions
 
 ---
 
+## Memory Revision Conceptual DDL
+
+```sql
+CREATE TABLE memory_revisions (
+    memory_revision_id          uuid PRIMARY KEY,
+    organization_id             uuid NOT NULL,
+    memory_id                   uuid NOT NULL,
+    revision_number             integer NOT NULL,
+    revision_status             text NOT NULL,
+
+    title                       text NOT NULL,
+    summary                     text NOT NULL,
+    content                     text NOT NULL,
+    source_references           jsonb NOT NULL DEFAULT '[]'::jsonb,
+
+    created_by_actor_type       text NOT NULL,
+    created_by_actor_id         uuid NOT NULL,
+    created_by_membership_id    uuid NULL,
+
+    content_hash                text NOT NULL,
+    source_revision_id          uuid NULL,
+
+    created_at                  timestamptz NOT NULL,
+    updated_at                  timestamptz NOT NULL,
+    locked_at                   timestamptz NULL,
+
+    CONSTRAINT uq_memory_revisions_organization_revision
+        UNIQUE (
+            organization_id,
+            memory_revision_id
+        ),
+
+    CONSTRAINT fk_memory_revisions_memory
+        FOREIGN KEY (
+            organization_id,
+            memory_id
+        )
+        REFERENCES memories (
+            organization_id,
+            memory_id
+        ),
+
+    CONSTRAINT ck_memory_revisions_actor_type
+        CHECK (
+            created_by_actor_type IN (
+                'HumanMember',
+                'AI',
+                'System'
+            )
+        ),
+
+    CONSTRAINT ck_memory_revisions_membership
+        CHECK (
+            created_by_actor_type <> 'HumanMember'
+            OR created_by_membership_id IS NOT NULL
+        )
+);
+```
+
+`created_by_actor_type` exists because the first revision of a Memory is written
+by the Secretary, not by a human. It is the only revision table whose author may
+be a non-Human Principal, and it is why the column pair is an actor reference
+rather than an identity plus membership: an AI Principal holds no Membership.
+
+`created_by_membership_id` is therefore required only for a Human author, which
+the check constraint enforces.
+
+`source_references` records what the generated content was derived from. Its
+contents are provenance, not Evidence in the Knowledge sense — that remains a
+Future Hypothesis.
+
+The foreign key is composite on `(organization_id, memory_id)`, so a revision
+cannot reference a Memory in another Organization.
+
+Editing a Memory in `Generated` updates the current revision in place rather
+than creating a new one. Reopening a `Rejected` Memory creates the next
+revision, which is what preserves the rejected content as review evidence.
+
+---
+
 ## Memory Revision Status Values
 
 Recommended values:

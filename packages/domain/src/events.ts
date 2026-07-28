@@ -15,6 +15,7 @@ import type {
   DecisionId,
   IdentityId,
   MembershipId,
+  MemoryId,
   OrganizationId,
   WorkId,
 } from "@aios/types";
@@ -30,9 +31,13 @@ export interface DomainEventBase {
    */
   readonly aggregateVersion: number;
   readonly occurredAt: Date;
-  /** The Human Identity whose authority produced this event. */
+  /** The Identity whose authority produced this event. */
   readonly actorIdentityId: IdentityId;
-  readonly actorMembershipId: MembershipId;
+  /**
+   * Null only when the actor is an AI or System Principal, neither of which
+   * holds a Membership. Memory generation is the case that requires it.
+   */
+  readonly actorMembershipId: MembershipId | null;
 }
 
 export interface WorkCreated extends DomainEventBase {
@@ -119,6 +124,39 @@ export interface DecisionWithdrawn extends DomainEventBase {
   readonly reason: string;
 }
 
+export interface MemoryGenerated extends DomainEventBase {
+  readonly type: "MemoryGenerated";
+  readonly memoryId: MemoryId;
+  readonly sourceWorkId: WorkId;
+}
+
+export interface MemorySubmittedForReview extends DomainEventBase {
+  readonly type: "MemorySubmittedForReview";
+  readonly memoryId: MemoryId;
+  readonly sourceWorkId: WorkId;
+  readonly revisionNumber: number;
+}
+
+export interface MemoryApproved extends DomainEventBase {
+  readonly type: "MemoryApproved";
+  readonly memoryId: MemoryId;
+  readonly sourceWorkId: WorkId;
+  readonly revisionNumber: number;
+}
+
+export interface MemoryRejected extends DomainEventBase {
+  readonly type: "MemoryRejected";
+  readonly memoryId: MemoryId;
+  readonly sourceWorkId: WorkId;
+  readonly revisionNumber: number;
+}
+
+export type MemoryEvent =
+  | MemoryGenerated
+  | MemorySubmittedForReview
+  | MemoryApproved
+  | MemoryRejected;
+
 export type WorkEvent =
   | WorkCreated
   | WorkStarted
@@ -134,7 +172,7 @@ export type DecisionEvent =
   | DecisionRejected
   | DecisionWithdrawn;
 
-export type DomainEvent = WorkEvent | DecisionEvent;
+export type DomainEvent = WorkEvent | DecisionEvent | MemoryEvent;
 
 /**
  * Outcome-bearing Decision events, which the Application Layer projects onto
@@ -170,3 +208,9 @@ export const stampDecision = (
   aggregateVersion: number,
   events: readonly Unstamped<DecisionEvent>[],
 ): readonly DecisionEvent[] => withVersion<DecisionEvent>(aggregateVersion, events);
+
+/** Stamp a Memory command's events with the version the Aggregate reached. */
+export const stampMemory = (
+  aggregateVersion: number,
+  events: readonly Unstamped<MemoryEvent>[],
+): readonly MemoryEvent[] => withVersion<MemoryEvent>(aggregateVersion, events);

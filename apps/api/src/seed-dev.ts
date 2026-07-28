@@ -22,6 +22,14 @@ export const SEED = {
   organizationName: "Acme Product Team",
   members: [
     {
+      subject: "olivia",
+      displayName: "Olivia (Owner)",
+      email: "olivia@example.test",
+      identityId: "0a105eed-0000-4000-8000-00000000a10b",
+      membershipId: "0a105eed-0000-4000-8000-00000000b10b",
+      role: "OrganizationOwner",
+    },
+    {
       subject: "alice",
       displayName: "Alice (Member)",
       email: "alice@example.test",
@@ -40,6 +48,12 @@ export const SEED = {
   ],
 } as const;
 
+/** Matches SECRETARY_IDENTITY_ID in app.ts. */
+const SECRETARY = {
+  identityId: "0a105eed-0000-4000-8000-00000000c001",
+  displayName: "Secretary",
+};
+
 const DEV_PROVIDER = "dev";
 const DEV_ISSUER = "https://dev.local";
 
@@ -47,6 +61,17 @@ export const seed = async (pool: Pool): Promise<void> => {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+
+    // The Secretary needs an identity row so generated Memory can be attributed
+    // to it. It has no authentication subject and no Membership: it can never
+    // sign in and holds no Human authority.
+    await client.query(
+      `INSERT INTO human_identities
+         (identity_id, status, display_name, version, created_at, updated_at)
+       VALUES ($1, 'Active', $2, 1, now(), now())
+       ON CONFLICT (identity_id) DO NOTHING`,
+      [SECRETARY.identityId, SECRETARY.displayName],
+    );
 
     for (const member of SEED.members) {
       await client.query(

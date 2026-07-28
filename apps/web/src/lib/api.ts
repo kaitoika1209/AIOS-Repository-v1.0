@@ -19,6 +19,7 @@ const ORGANIZATION_ID =
 export const DEV_USERS = [
   { subject: "alice", label: "Alice", role: "Member" },
   { subject: "raj", label: "Raj", role: "Reviewer" },
+  { subject: "olivia", label: "Olivia", role: "OrganizationOwner" },
 ] as const;
 
 export type DevUser = (typeof DEV_USERS)[number];
@@ -53,6 +54,30 @@ export interface Decision {
     outcome: string;
     rationale: string;
     selectedOptionId: string | null;
+    reviewedAt: string;
+  }[];
+  version: number;
+}
+
+export interface Memory {
+  memoryId: string;
+  sourceWorkId: string;
+  status: string;
+  revisionNumber: number;
+  title: string;
+  summary: string;
+  content: string;
+  sourceReferences: string[];
+  authoredBy: string;
+  provenance: {
+    generationPolicyVersion: number;
+    generatedBySystemPrincipalId: string;
+    generatedAt: string;
+  };
+  reviewHistory: {
+    revisionNumber: number;
+    outcome: string;
+    note: string;
     reviewedAt: string;
   }[];
   version: number;
@@ -169,6 +194,43 @@ export const api = {
       subject,
       body: JSON.stringify({ rationale }),
     }),
+
+  memoryForWork: (subject: string, workId: string) =>
+    call<{ memory: Memory | null }>(`/memories/by-work/${workId}`, {
+      method: "GET",
+      subject,
+    }),
+
+  editMemory: (
+    subject: string,
+    memoryId: string,
+    body: { title?: string; summary?: string; content?: string },
+  ) =>
+    call<Memory>(`/memories/${memoryId}`, {
+      method: "PATCH",
+      subject,
+      body: JSON.stringify(body),
+    }),
+
+  submitMemory: (subject: string, memoryId: string) =>
+    call<Memory>(`/memories/${memoryId}/submit`, { method: "POST", subject }),
+
+  approveMemory: (subject: string, memoryId: string, note: string) =>
+    call<Memory>(`/memories/${memoryId}/approve`, {
+      method: "POST",
+      subject,
+      body: JSON.stringify({ note }),
+    }),
+
+  rejectMemory: (subject: string, memoryId: string, note: string) =>
+    call<Memory>(`/memories/${memoryId}/reject`, {
+      method: "POST",
+      subject,
+      body: JSON.stringify({ note }),
+    }),
+
+  reopenMemory: (subject: string, memoryId: string) =>
+    call<Memory>(`/memories/${memoryId}/reopen`, { method: "POST", subject }),
 
   startRevision: (subject: string, decisionId: string) =>
     call<Decision>(`/decisions/${decisionId}/revisions`, { method: "POST", subject }),

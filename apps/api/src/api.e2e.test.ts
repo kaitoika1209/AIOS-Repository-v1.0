@@ -20,8 +20,9 @@ import { Pool } from "pg";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { createApp, dependenciesFor } from "./app.js";
+import { SECRETARY_IDENTITY_ID, createApp, dependenciesFor } from "./app.js";
 import { drainOutbox } from "./outbox-worker.js";
+import { StubMemoryGenerator } from "./stub-memory-generator.js";
 import { DEV_ISSUER, DEV_PROVIDER, DevAuthAdapter } from "./dev-auth.js";
 
 const url = process.env["DATABASE_URL"];
@@ -45,6 +46,7 @@ const SUSPENDED_ORG = "66666666-6666-6666-6666-666666666666";
 const MEMBER = { identity: "33333333-3333-3333-3333-333333333333", membership: "44444444-4444-4444-4444-444444444444", subject: "member-1" };
 const REVIEWER = { identity: "77777777-7777-7777-7777-777777777777", membership: "88888888-8888-8888-8888-888888888888", subject: "reviewer-1" };
 const OUTSIDER = { identity: "99999999-9999-9999-9999-999999999999", membership: "aaaaaaaa-9999-9999-9999-999999999999", subject: "outsider-1" };
+const OWNER = { identity: "bbbbbbbb-1111-1111-1111-111111111111", membership: "cccccccc-1111-1111-1111-111111111111", subject: "owner-1" };
 
 suite("AIOS API", () => {
   let pool: Pool;
@@ -86,11 +88,19 @@ suite("AIOS API", () => {
     try {
       await client.query(
         `TRUNCATE decision_revisions, decisions, work_items, outbox_messages,
+                  memory_revisions, memories,
                   membership_role_assignments, memberships,
                   authentication_subjects, organizations, human_identities CASCADE`,
       );
 
-      for (const who of [MEMBER, REVIEWER, OUTSIDER]) {
+      await client.query(
+        `INSERT INTO human_identities
+           (identity_id, status, display_name, version, created_at, updated_at)
+         VALUES ($1, 'Active', 'Secretary', 1, now(), now())`,
+        [SECRETARY_IDENTITY_ID],
+      );
+
+      for (const who of [MEMBER, REVIEWER, OUTSIDER, OWNER]) {
         await client.query(
           `INSERT INTO human_identities
              (identity_id, status, display_name, version, created_at, updated_at)
@@ -122,6 +132,7 @@ suite("AIOS API", () => {
       for (const [who, org, role] of [
         [MEMBER, ORG, "Member"],
         [REVIEWER, ORG, "Reviewer"],
+        [OWNER, ORG, "OrganizationOwner"],
         [OUTSIDER, OTHER_ORG, "Member"],
       ] as const) {
         await client.query(
@@ -491,6 +502,165 @@ suite("AIOS API", () => {
       } finally {
         client.release();
       }
+    });
+  });
+  describe("Memory (ADR-0008)", () => {
+    const memoryOptions = {
+      memory: {
+        generator: new StubMemoryGenerator(),
+        secretaryIdentityId: SECRETARY_IDENTITY_ID,
+        systemPrincipalId: "memory-generator",
+      },
+    };
+
+    const completedWork = async () => {
+      const work = await createWork("Ship the beta");
+      await request(server()).post(`/works/${work.workId}/start`).set(as(MEMBER)).expect(201);
+      await request(server())
+        .post(`/works/${work.workId}/complete`)
+        .set(as(MEMBER))
+        .send({ completionSummary: "Beta shipped on Friday" })
+        .expect(201);
+      return work;
+    };
+
+    it("generates a Memory draft from WorkCompleted", async () => {
+      const work = await completedWork();
+
+      const before = await request(server())
+        .get(`/memories/by-work/${work.workId}`)
+        .set(as(MEMBER))
+        .expect(200);
+      expect(before.body.memory).toBeNull();
+
+      await drainOutbox(pool, dependenciesFor(pool), 20, memoryOptions);
+
+      const after = await request(server())
+        .get(`/memories/by-work/${work.workId}`)
+        .set(as(MEMBER))
+        .expect(200);
+
+      expect(after.body.memory).toMatchObject({
+        status: "Generated",
+        sourceWorkId: work.workId,
+        title: "Ship the beta",
+        authoredBy: "AI",
+      });
+      expect(after.body.memory.summary).toContain("Beta shipped");
+      expect(after.body.memory.provenance.generationPolicyVersion).toBe(1);
+    });
+
+    it("produces one Memory even when WorkCompleted is redelivered", async () => {
+      const work = await completedWork();
+      await drainOutbox(pool, dependenciesFor(pool), 20, memoryOptions);
+
+      const client = await pool.connect();
+      try {
+        await client.query(
+          `UPDATE outbox_messages SET status = 'Pending', published_at = NULL
+            WHERE event_type = 'WorkCompleted'`,
+        );
+      } finally {
+        client.release();
+      }
+
+      const again = await drainOutbox(pool, dependenciesFor(pool), 20, memoryOptions);
+      expect(again.failed).toBe(0);
+
+      const all = await request(server()).get("/memories").set(as(MEMBER)).expect(200);
+      expect(all.body.items.filter((m: { sourceWorkId: string }) => m.sourceWorkId === work.workId)).toHaveLength(1);
+    });
+
+    const draftFor = async () => {
+      const work = await completedWork();
+      await drainOutbox(pool, dependenciesFor(pool), 20, memoryOptions);
+      const memory = await request(server())
+        .get(`/memories/by-work/${work.workId}`)
+        .set(as(MEMBER))
+        .expect(200);
+      return memory.body.memory as { memoryId: string; version: number };
+    };
+
+    it("a human corrects the draft, then submits it for review", async () => {
+      const draft = await draftFor();
+
+      const edited = await request(server())
+        .patch(`/memories/${draft.memoryId}`)
+        .set(as(MEMBER))
+        .send({ summary: "We shipped, and learned to cut scope earlier." })
+        .expect(200);
+      expect(edited.body.summary).toContain("cut scope earlier");
+      expect(edited.body.revisionNumber).toBe(1);
+
+      const submitted = await request(server())
+        .post(`/memories/${draft.memoryId}/submit`)
+        .set(as(MEMBER))
+        .expect(201);
+      expect(submitted.body.status).toBe("InReview");
+    });
+
+    it("a Member cannot approve; a Reviewer can, and approval is terminal", async () => {
+      const draft = await draftFor();
+      await request(server()).post(`/memories/${draft.memoryId}/submit`).set(as(MEMBER)).expect(201);
+
+      await request(server())
+        .post(`/memories/${draft.memoryId}/approve`)
+        .set(as(MEMBER))
+        .send({ note: "looks fine" })
+        .expect(403);
+
+      const approved = await request(server())
+        .post(`/memories/${draft.memoryId}/approve`)
+        .set(as(REVIEWER))
+        .send({ note: "Accurate" })
+        .expect(201);
+      expect(approved.body.status).toBe("Approved");
+
+      // Approved Memory is immutable.
+      await request(server())
+        .patch(`/memories/${draft.memoryId}`)
+        .set(as(MEMBER))
+        .send({ summary: "rewritten" })
+        .expect(409);
+    });
+
+    it("rejection can be reopened, and the rejected revision survives", async () => {
+      const draft = await draftFor();
+      await request(server()).post(`/memories/${draft.memoryId}/submit`).set(as(MEMBER)).expect(201);
+
+      await request(server())
+        .post(`/memories/${draft.memoryId}/reject`)
+        .set(as(REVIEWER))
+        .send({ note: "Missing the decision rationale" })
+        .expect(201);
+
+      // memory.reopen is not a Member permission — authorization.md grants a
+      // Member only "edit Generated Memory" and "submit Memory for review".
+      await request(server())
+        .post(`/memories/${draft.memoryId}/reopen`)
+        .set(as(MEMBER))
+        .expect(403);
+
+      const reopened = await request(server())
+        .post(`/memories/${draft.memoryId}/reopen`)
+        .set(as(OWNER))
+        .expect(201);
+
+      expect(reopened.body.status).toBe("Generated");
+      expect(reopened.body.revisionNumber).toBe(2);
+      expect(reopened.body.reviewHistory).toHaveLength(1);
+      expect(reopened.body.reviewHistory[0]).toMatchObject({
+        outcome: "Rejected",
+        revisionNumber: 1,
+      });
+    });
+
+    it("does not expose a Memory from another Organization", async () => {
+      const draft = await draftFor();
+      await request(server())
+        .get(`/memories/${draft.memoryId}`)
+        .set(as(OUTSIDER, OTHER_ORG))
+        .expect(404);
     });
   });
 });

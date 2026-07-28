@@ -3,11 +3,16 @@ import { notFound } from "next/navigation";
 import { ApiError, api, currentUser } from "../../../lib/api";
 import {
   approveDecision,
+  approveMemory,
   completeWork,
+  editMemory,
+  reopenMemory,
   rejectDecision,
+  rejectMemory,
   requestDecision,
   startRevision,
   startWork,
+  submitMemory,
 } from "../../actions";
 import { ActionForm } from "../../ui";
 
@@ -35,6 +40,7 @@ export default async function WorkPage({
   }
 
   const decisions = (await api.listDecisionsForWork(user.subject, workId)).items;
+  const memory = (await api.memoryForWork(user.subject, workId)).memory;
   const openDecision = decisions.find((d) => d.status === "InReview");
   const rejected = decisions.find((d) => d.status === "Rejected");
 
@@ -171,6 +177,123 @@ export default async function WorkPage({
             <input type="hidden" name="workId" value={work.workId} />
             <input type="hidden" name="decisionId" value={rejected.decisionId} />
           </ActionForm>
+        </div>
+      )}
+
+      {work.status === "Completed" && memory === null && (
+        <div className="card">
+          <h2>Memory</h2>
+          <p className="hint">
+            Completing this Work durably requested a Memory draft. Generation runs
+            asynchronously — reload in a moment.
+          </p>
+        </div>
+      )}
+
+      {memory && (
+        <div className="card">
+          <h2>Memory</h2>
+          <div className="row" style={{ marginBottom: ".8rem" }}>
+            <span className="badge">{memory.status}</span>
+            <span className="badge">rev {memory.revisionNumber}</span>
+            <span className="badge">
+              drafted by {memory.authoredBy === "AI" ? "the Secretary" : "a human"}
+            </span>
+          </div>
+
+          <h3>Summary</h3>
+          <p style={{ marginTop: 0 }}>{memory.summary}</p>
+
+          <details>
+            <summary className="small muted" style={{ cursor: "pointer" }}>
+              Full draft
+            </summary>
+            <pre
+              className="small"
+              style={{ whiteSpace: "pre-wrap", marginTop: ".6rem" }}
+            >
+              {memory.content}
+            </pre>
+          </details>
+
+          {memory.status === "Generated" && (
+            <>
+              <h3 style={{ marginTop: "1.2rem" }}>Correct the draft</h3>
+              <p className="hint">
+                The Secretary drafted this. A human corrects it before review —
+                AI proposes, humans decide.
+              </p>
+              <ActionForm action={editMemory} submitLabel="Save correction" variant="secondary">
+                <input type="hidden" name="workId" value={work.workId} />
+                <input type="hidden" name="memoryId" value={memory.memoryId} />
+                <textarea name="summary" defaultValue={memory.summary} />
+              </ActionForm>
+
+              <h3 style={{ marginTop: "1.2rem" }}>Submit for review</h3>
+              <ActionForm action={submitMemory} submitLabel="Submit for review">
+                <input type="hidden" name="workId" value={work.workId} />
+                <input type="hidden" name="memoryId" value={memory.memoryId} />
+              </ActionForm>
+            </>
+          )}
+
+          {memory.status === "InReview" && (
+            <>
+              {user.role === "Member" ? (
+                <p className="hint">
+                  Only a Reviewer or the Owner may approve. Switch to Raj.
+                </p>
+              ) : null}
+              <h3 style={{ marginTop: "1.2rem" }}>Approve</h3>
+              <ActionForm action={approveMemory} submitLabel="Approve Memory">
+                <input type="hidden" name="workId" value={work.workId} />
+                <input type="hidden" name="memoryId" value={memory.memoryId} />
+                <input type="text" name="note" placeholder="Anything to note?" />
+              </ActionForm>
+
+              <h3 style={{ marginTop: "1.2rem" }}>Reject</h3>
+              <ActionForm action={rejectMemory} submitLabel="Reject" variant="danger">
+                <input type="hidden" name="workId" value={work.workId} />
+                <input type="hidden" name="memoryId" value={memory.memoryId} />
+                <input type="text" name="note" placeholder="What is missing?" />
+              </ActionForm>
+            </>
+          )}
+
+          {memory.status === "Rejected" && (
+            <>
+              <h3 style={{ marginTop: "1.2rem" }}>Reopen for revision</h3>
+              <p className="hint">
+                Reopening creates a new revision. The rejected one stays as review
+                evidence. Only the Owner may reopen.
+              </p>
+              <ActionForm action={reopenMemory} submitLabel="Reopen" variant="secondary">
+                <input type="hidden" name="workId" value={work.workId} />
+                <input type="hidden" name="memoryId" value={memory.memoryId} />
+              </ActionForm>
+            </>
+          )}
+
+          {memory.status === "Approved" && (
+            <p className="hint">
+              This Memory is the organization&apos;s record of the Work. It is
+              immutable — and it is not Knowledge.
+            </p>
+          )}
+
+          {memory.reviewHistory.length > 0 && (
+            <>
+              <h3 style={{ marginTop: "1.2rem" }}>Review history</h3>
+              <ul className="list small muted">
+                {memory.reviewHistory.map((r) => (
+                  <li key={r.revisionNumber}>
+                    rev {r.revisionNumber}: {r.outcome}
+                    {r.note ? ` — ${r.note}` : ""}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </div>
       )}
 

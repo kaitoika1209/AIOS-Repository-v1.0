@@ -16,16 +16,40 @@ import type { DomainEvent } from "@aios/domain";
 import type { OutboxPort } from "@aios/application";
 
 /**
- * Aggregate a given event belongs to. `aggregate_type` and `aggregate_id` are
- * part of the stream-position uniqueness constraint, so they must be derived
- * consistently rather than guessed per call site.
+ * Aggregate a given event belongs to.
+ *
+ * `aggregate_type` and `aggregate_id` form part of the stream-position
+ * uniqueness constraint, so the mapping is exhaustive over the event union
+ * rather than inferred from which fields happen to be present. Adding an event
+ * without mapping it is then a compile error, not a null-constraint violation
+ * at publish time.
  */
 const aggregateOf = (
   event: DomainEvent,
-): { type: "Work" | "Decision"; id: string } =>
-  "workId" in event && !("decisionId" in event && event.type.startsWith("Decision"))
-    ? { type: "Work", id: event.workId }
-    : { type: "Decision", id: (event as { decisionId: string }).decisionId };
+): { type: "Work" | "Decision" | "Memory"; id: string } => {
+  switch (event.type) {
+    case "WorkCreated":
+    case "WorkStarted":
+    case "WorkDecisionRequested":
+    case "WorkDecisionOutcomeRecorded":
+    case "WorkCompleted":
+    case "WorkCancelled":
+      return { type: "Work", id: event.workId };
+
+    case "DecisionCreated":
+    case "DecisionSubmitted":
+    case "DecisionApproved":
+    case "DecisionRejected":
+    case "DecisionWithdrawn":
+      return { type: "Decision", id: event.decisionId };
+
+    case "MemoryGenerated":
+    case "MemorySubmittedForReview":
+    case "MemoryApproved":
+    case "MemoryRejected":
+      return { type: "Memory", id: event.memoryId };
+  }
+};
 
 export class PostgresOutbox implements OutboxPort {
   constructor(
@@ -80,6 +104,7 @@ export class PostgresOutbox implements OutboxPort {
           event.occurredAt,
           new Date(),
           this.correlationId,
+          // Membership is null when the actor is an AI or System Principal.
           JSON.stringify({
             identityId: event.actorIdentityId,
             membershipId: event.actorMembershipId,

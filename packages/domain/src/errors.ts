@@ -15,6 +15,8 @@ export type DomainErrorCode =
   | "WORK_IMMUTABLE"
   | "DECISION_INVALID_TRANSITION"
   | "DECISION_IMMUTABLE"
+  | "MEMORY_INVALID_TRANSITION"
+  | "MEMORY_IMMUTABLE"
   | "CROSS_ORGANIZATION_REFERENCE"
   | "HUMAN_AUTHORITY_REQUIRED"
   | "VERSION_CONFLICT"
@@ -45,13 +47,17 @@ export class DomainError extends Error {
  */
 export class InvalidTransitionError extends DomainError {
   constructor(
-    aggregate: "Work" | "Decision",
+    aggregate: "Work" | "Decision" | "Memory",
     from: string,
     command: string,
     allowed: readonly string[],
   ) {
     super(
-      aggregate === "Work" ? "WORK_INVALID_TRANSITION" : "DECISION_INVALID_TRANSITION",
+      aggregate === "Work"
+        ? "WORK_INVALID_TRANSITION"
+        : aggregate === "Decision"
+          ? "DECISION_INVALID_TRANSITION"
+          : "MEMORY_INVALID_TRANSITION",
       `${aggregate} cannot accept ${command} from state ${from}.`,
       { aggregate, from, command, allowedFrom: allowed },
     );

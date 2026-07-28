@@ -50,19 +50,23 @@ AIOS is built on the following principles:
 
 ## Project Status
 
-AIOS is in early implementation. The architectural blueprint is substantially
-complete, and the Work → Decision slice runs end to end — browser to HTTP API to
-PostgreSQL, including the asynchronous Outbox projection that unblocks Work after
-a Decision is approved. Authentication is a development stub rather than Clerk,
-and Organizations and Members are created by a seed script rather than an
-invitation flow.
+AIOS is in early implementation. The **MVP loop runs end to end**: create Work,
+record a blocking Decision, complete the Work, and have a human review and
+approve the resulting organizational Memory — browser to HTTP API to PostgreSQL,
+with the Outbox carrying the asynchronous steps.
+
+Two things are deliberately stubbed. Authentication is a development header
+rather than Clerk, and Memory drafts are produced by a deterministic generator
+rather than a language model — it repeats what the Work recorded and invents
+nothing. Organizations and Members come from a seed script; the invitation flow
+is not built yet.
 
 Current progress:
 
 - ✅ Product Vision
 - ✅ Domain Architecture
 - ✅ Technical Specification
-- 🚧 Foundation Development — Work and Decision, end to end; Memory not started
+- 🚧 Foundation Development — Work → Decision → Memory, end to end
 
 Current objective:
 
@@ -84,7 +88,7 @@ The target layout is defined in
 .
 ├── apps/
 │   ├── api/           NestJS, ADR-0014 routes, Outbox worker
-│   └── web/           Next.js, minimal Work and Decision UI
+│   └── web/           Next.js, minimal Work, Decision, and Memory UI
 ├── packages/
 │   ├── types/         shared vocabulary and catalogues
 │   ├── domain/        Work and Decision aggregates, no framework
@@ -132,10 +136,12 @@ pnpm --filter @aios/api dev                # API on :3001
 pnpm --filter @aios/web dev                # UI on :3000
 ```
 
-The UI has an identity switcher because authority differs by role: Alice is a
-Member and can create and complete Work; Raj is a Reviewer and is the only one
-who can approve a Decision. Switching between them is how the human-authority
-boundary becomes visible.
+The UI has an identity switcher because authority differs by role. Alice is a
+Member and can create Work, complete it, and correct a generated Memory draft.
+Raj is a Reviewer and is the only one who can approve a Decision or a Memory.
+Olivia is the Owner. Switching between them is how the human-authority boundary
+becomes visible — including that the Secretary drafts a Memory but can never
+approve its own draft.
 
 Database-backed tests are skipped unless `DATABASE_URL` is set, so
 `pnpm run test` stays runnable without a database.

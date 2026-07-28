@@ -13,11 +13,17 @@
 
 import type {
   DecisionId,
+  MemoryId,
   OrganizationId,
   Permission,
   WorkId,
 } from "@aios/types";
-import type { DecisionState, DomainEvent, WorkState } from "@aios/domain";
+import type {
+  DecisionState,
+  DomainEvent,
+  MemoryState,
+  WorkState,
+} from "@aios/domain";
 
 export interface Clock {
   now(): Date;
@@ -26,6 +32,7 @@ export interface Clock {
 export interface IdGenerator {
   workId(): WorkId;
   decisionId(): DecisionId;
+  memoryId(): MemoryId;
   /**
    * Identifies one Decision revision.
    *
@@ -72,6 +79,21 @@ export interface DecisionRepository {
  * Events are appended in the same transaction as the state change. A separate
  * publisher delivers them at least once.
  */
+export interface MemoryRepository {
+  findById(
+    organizationId: OrganizationId,
+    memoryId: MemoryId,
+  ): Promise<MemoryState | null>;
+  /** At most one active Memory exists per Work; the database enforces it. */
+  findActiveByWork(
+    organizationId: OrganizationId,
+    workId: WorkId,
+  ): Promise<MemoryState | null>;
+  insert(memory: MemoryState): Promise<void>;
+  update(memory: MemoryState, expectedVersion: number): Promise<void>;
+  listByOrganization(organizationId: OrganizationId): Promise<readonly MemoryState[]>;
+}
+
 export interface OutboxPort {
   append(events: readonly DomainEvent[]): Promise<void>;
 }
@@ -92,6 +114,7 @@ export interface UnitOfWork {
 export interface RepositoryBundle {
   readonly work: WorkRepository;
   readonly decisions: DecisionRepository;
+  readonly memories: MemoryRepository;
   readonly outbox: OutboxPort;
 }
 

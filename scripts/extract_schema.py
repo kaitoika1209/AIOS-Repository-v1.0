@@ -41,6 +41,7 @@ TABLE_ORDER = [
     "decisions",
     "decision_revisions",
     "memories",
+    "memory_revisions",
     "outbox_messages",
     "processed_events",
 ]

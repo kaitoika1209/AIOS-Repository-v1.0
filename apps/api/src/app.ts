@@ -12,11 +12,13 @@ import { Module, type INestApplication } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { Pool } from "pg";
 
-import { DecisionId, WorkId } from "@aios/types";
+import { DecisionId, MemoryId, WorkId } from "@aios/types";
 import type { Clock, IdGenerator, UseCaseDependencies } from "@aios/application";
 import { PostgresUnitOfWork } from "@aios/persistence";
 
 import { DecisionController } from "./decision.controller.js";
+import { MemoryController } from "./memory.controller.js";
+import { StubMemoryGenerator } from "./stub-memory-generator.js";
 import { DevAuthAdapter } from "./dev-auth.js";
 import { DomainExceptionFilter } from "./http-errors.js";
 import { PrincipalResolver } from "./principal-resolver.js";
@@ -24,6 +26,16 @@ import { startOutboxWorker } from "./outbox-worker.js";
 import { RequestContextGuard, type AuthAdapter } from "./request-context.js";
 import { USE_CASE_DEPENDENCIES } from "./tokens.js";
 import { WorkController } from "./work.controller.js";
+
+/**
+ * The Secretary credited with generated Memory drafts.
+ *
+ * Seeded as a Human Identity row for now because `authentication_subjects` and
+ * `human_identities` are the only identity tables that exist; the AI Principal
+ * model that ADR-0011 describes is not yet persisted. The Memory records it as
+ * an AI author regardless, so the attribution a reviewer sees is correct.
+ */
+export const SECRETARY_IDENTITY_ID = "0a105eed-0000-4000-8000-00000000c001";
 
 class SystemClock implements Clock {
   now(): Date {
@@ -41,6 +53,9 @@ class UuidGenerator implements IdGenerator {
   }
   decisionId(): DecisionId {
     return DecisionId(randomUUID());
+  }
+  memoryId(): MemoryId {
+    return MemoryId(randomUUID());
   }
   revisionId(): string {
     return randomUUID();
@@ -64,7 +79,7 @@ export const createApp = async (options: AppOptions): Promise<INestApplication> 
   const resolver = new PrincipalResolver(options.pool);
 
   @Module({
-    controllers: [WorkController, DecisionController],
+    controllers: [WorkController, DecisionController, MemoryController],
     providers: [{ provide: USE_CASE_DEPENDENCIES, useValue: deps }],
   })
   class AppModule {}
@@ -83,9 +98,16 @@ export const buildDevApp = async (connectionString: string) => {
   const pool = new Pool({ connectionString });
   const app = await createApp({ pool, auth: new DevAuthAdapter() });
 
-  // ADR-0007's asynchronous half. Production runs this as a separate worker;
-  // in development it polls in-process so a blocked Work actually unblocks.
-  const stop = startOutboxWorker(pool, dependenciesFor(pool));
+  // The asynchronous halves of ADR-0007 and ADR-0008. Production runs these as
+  // a separate worker; in development they poll in-process so a blocked Work
+  // unblocks and a completed Work produces its Memory draft.
+  const stop = startOutboxWorker(pool, dependenciesFor(pool), 500, {
+    memory: {
+      generator: new StubMemoryGenerator(),
+      secretaryIdentityId: SECRETARY_IDENTITY_ID,
+      systemPrincipalId: "memory-generator",
+    },
+  });
   app.enableShutdownHooks();
   process.once("beforeExit", stop);
 

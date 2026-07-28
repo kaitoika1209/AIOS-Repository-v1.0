@@ -172,3 +172,75 @@ export const startRevision = async (
 export const openWork = async (formData: FormData): Promise<void> => {
   redirect(`/works/${String(formData.get("workId"))}`);
 };
+
+/**
+ * Memory review actions.
+ *
+ * Written out rather than produced by a factory: a "use server" module may only
+ * export async functions, so a returned closure is rejected at build time.
+ */
+const memoryContext = async (formData: FormData) => ({
+  subject: (await currentUser()).subject,
+  workId: String(formData.get("workId")),
+  memoryId: String(formData.get("memoryId")),
+  note: String(formData.get("note") ?? "").trim(),
+});
+
+export const editMemory = async (
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> => {
+  const { subject, workId, memoryId } = await memoryContext(formData);
+  const summary = String(formData.get("summary") ?? "").trim();
+
+  if (summary.length === 0) {
+    return { error: { code: "VALIDATION_FAILED", message: "A summary is required." } };
+  }
+
+  const result = await run(() => api.editMemory(subject, memoryId, { summary }));
+  if (result.error === undefined) revalidatePath(`/works/${workId}`);
+  return result;
+};
+
+export const submitMemory = async (
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> => {
+  const { subject, workId, memoryId } = await memoryContext(formData);
+  const result = await run(() => api.submitMemory(subject, memoryId));
+  if (result.error === undefined) revalidatePath(`/works/${workId}`);
+  return result;
+};
+
+export const approveMemory = async (
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> => {
+  const { subject, workId, memoryId, note } = await memoryContext(formData);
+  const result = await run(() => api.approveMemory(subject, memoryId, note));
+  if (result.error === undefined) revalidatePath(`/works/${workId}`);
+  return result;
+};
+
+export const rejectMemory = async (
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> => {
+  const { subject, workId, memoryId, note } = await memoryContext(formData);
+  if (note.length === 0) {
+    return { error: { code: "VALIDATION_FAILED", message: "A note is required." } };
+  }
+  const result = await run(() => api.rejectMemory(subject, memoryId, note));
+  if (result.error === undefined) revalidatePath(`/works/${workId}`);
+  return result;
+};
+
+export const reopenMemory = async (
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> => {
+  const { subject, workId, memoryId } = await memoryContext(formData);
+  const result = await run(() => api.reopenMemory(subject, memoryId));
+  if (result.error === undefined) revalidatePath(`/works/${workId}`);
+  return result;
+};

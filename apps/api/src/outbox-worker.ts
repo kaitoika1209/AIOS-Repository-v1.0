@@ -19,6 +19,8 @@ import type { Pool } from "pg";
 import { DecisionId, IdentityId, MembershipId, OrganizationId, WorkId } from "@aios/types";
 import {
   applyDecisionOutcomeUseCase,
+  generateMemoryUseCase,
+  type MemoryGenerator,
   type UseCaseDependencies,
 } from "@aios/application";
 import { DomainError } from "@aios/domain";
@@ -26,14 +28,17 @@ import { DomainError } from "@aios/domain";
 interface OutboxRow {
   outbox_id: string;
   event_type: string;
+  aggregate_id: string;
+  aggregate_version: number;
   payload: {
-    decisionId: string;
-    relatedWorkId: string;
-    revisionNumber: number;
-    submittedSnapshotId: string | null;
+    decisionId?: string;
+    relatedWorkId?: string;
+    workId?: string;
+    revisionNumber?: number;
+    submittedSnapshotId?: string | null;
     organizationId: string;
     actorIdentityId: string;
-    actorMembershipId: string;
+    actorMembershipId: string | null;
   };
 }
 
@@ -67,10 +72,20 @@ export interface DrainResult {
  * Returns counts rather than throwing, so a single poisonous message cannot
  * stop the loop. A failed message stays `Failed` for operational recovery.
  */
+export interface ConsumerOptions {
+  /** Present once Memory generation is wired; absent leaves WorkCompleted unhandled. */
+  readonly memory?: {
+    readonly generator: MemoryGenerator;
+    readonly secretaryIdentityId: string;
+    readonly systemPrincipalId: string;
+  };
+}
+
 export const drainOutbox = async (
   pool: Pool,
   deps: UseCaseDependencies,
   batchSize = 20,
+  options: ConsumerOptions = {},
 ): Promise<DrainResult> => {
   const client = await pool.connect();
   let rows: OutboxRow[];
@@ -78,7 +93,7 @@ export const drainOutbox = async (
   try {
     await client.query("BEGIN");
     const claimed = await client.query<OutboxRow>(
-      `SELECT outbox_id, event_type, payload
+      `SELECT outbox_id, event_type, aggregate_id, aggregate_version, payload
          FROM outbox_messages
         WHERE status = 'Pending'
           AND next_attempt_at <= now()
@@ -110,6 +125,49 @@ export const drainOutbox = async (
   let failed = 0;
 
   for (const row of rows) {
+    // WorkCompleted is the durable trigger for Memory generation (ADR-0008).
+    if (row.event_type === "WorkCompleted" && options.memory !== undefined) {
+      try {
+        await generateMemoryUseCase(
+          deps,
+          options.memory.generator,
+          {
+            principal: systemPrincipal(OrganizationId(row.payload.organizationId)),
+            now: new Date(),
+          },
+          {
+            organizationId: OrganizationId(row.payload.organizationId),
+            workId: WorkId(row.aggregate_id),
+            // The Work state at completion is the source snapshot; the Outbox
+            // row's stream position identifies it uniquely (ADR-0012).
+            sourceSnapshotId: row.outbox_id,
+            sourceSnapshotHash: `work:${row.aggregate_id}@${row.aggregate_version}`,
+            secretaryIdentityId: IdentityId(options.memory.secretaryIdentityId),
+            systemPrincipalId: options.memory.systemPrincipalId,
+          },
+        );
+        applied += 1;
+        await client.query(
+          `UPDATE outbox_messages SET status = 'Published', published_at = now()
+            WHERE outbox_id = $1`,
+          [row.outbox_id],
+        );
+      } catch (error) {
+        failed += 1;
+        await client.query(
+          `UPDATE outbox_messages
+              SET status = 'Failed', last_error_code = $2, last_error_message = $3
+            WHERE outbox_id = $1`,
+          [
+            row.outbox_id,
+            error instanceof DomainError ? error.code : "UNEXPECTED",
+            error instanceof Error ? error.message.slice(0, 500) : "unknown",
+          ],
+        );
+      }
+      continue;
+    }
+
     if (!OUTCOME_EVENTS.includes(row.event_type)) {
       // Nothing subscribes to it yet; publishing is still complete.
       await client.query(
@@ -130,13 +188,13 @@ export const drainOutbox = async (
         },
         {
           organizationId: OrganizationId(payload.organizationId),
-          workId: WorkId(payload.relatedWorkId),
-          decisionId: DecisionId(payload.decisionId),
-          revisionNumber: payload.revisionNumber,
+          workId: WorkId(payload.relatedWorkId!),
+          decisionId: DecisionId(payload.decisionId!),
+          revisionNumber: payload.revisionNumber!,
           submittedSnapshotId: payload.submittedSnapshotId ?? "",
           outcome: outcomeOf(row.event_type),
           resolvedByIdentityId: IdentityId(payload.actorIdentityId),
-          resolvedByMembershipId: MembershipId(payload.actorMembershipId),
+          resolvedByMembershipId: MembershipId(payload.actorMembershipId ?? ""),
         },
       );
       applied += 1;
@@ -189,13 +247,14 @@ export const startOutboxWorker = (
   pool: Pool,
   deps: UseCaseDependencies,
   intervalMs = 500,
+  options: ConsumerOptions = {},
 ): (() => void) => {
   let stopped = false;
 
   const tick = async (): Promise<void> => {
     if (stopped) return;
     try {
-      await drainOutbox(pool, deps);
+      await drainOutbox(pool, deps, 20, options);
     } catch (error) {
       console.error("Outbox worker error", error);
     }
