@@ -50,15 +50,16 @@ AIOS is built on the following principles:
 
 ## Project Status
 
-AIOS is currently in the design and specification stage. This repository contains the
-architectural blueprint; application code has not started yet.
+AIOS is in early implementation. The architectural blueprint is substantially
+complete; the Work and Decision slice exists as code, without an HTTP surface or
+user interface yet.
 
 Current progress:
 
 - ✅ Product Vision
 - ✅ Domain Architecture
 - ✅ Technical Specification
-- 🚧 Foundation Development
+- 🚧 Foundation Development — domain and application layers for Work and Decision
 
 Current objective:
 
@@ -79,13 +80,13 @@ The target layout is defined in
 ```text
 .
 ├── apps/
-│   ├── api/           (scaffold)
-│   └── web/           (scaffold)
+│   ├── api/           (planned) NestJS, ADR-0014 routes
+│   └── web/           (planned) Next.js
 ├── packages/
-│   ├── types/         shared vocabulary — implemented
-│   ├── domain/        (scaffold)
-│   ├── shared/        (scaffold)
-│   └── config/        (scaffold)
+│   ├── types/         shared vocabulary and catalogues
+│   ├── domain/        Work and Decision aggregates, no framework
+│   ├── application/   use cases, ports, permission evaluation
+│   └── persistence/   PostgreSQL adapters (ADR-0015)
 ├── services/          (planned)
 ├── infra/             (planned)
 ├── docs/
@@ -147,7 +148,7 @@ behind each choice.
 | UI | Tailwind CSS + shadcn/ui |
 | Backend | NestJS |
 | Database | PostgreSQL |
-| ORM | Prisma |
+| Database Access | `pg` with hand-written SQL (ADR-0015) |
 | AI Runtime | LangGraph |
 | Model Provider | OpenAI (the application remains provider-agnostic) |
 | Authentication | Clerk |

@@ -26,7 +26,13 @@ export interface Clock {
 export interface IdGenerator {
   workId(): WorkId;
   decisionId(): DecisionId;
-  /** Identifies one locked Decision revision snapshot. */
+  /**
+   * Identifies one locked Decision revision snapshot.
+   *
+   * Must be a UUID: `work_items.completion_gate_submitted_snapshot_id` and the
+   * matching blocking-reference column are typed `uuid` in the schema, so an
+   * opaque non-UUID string is rejected at write time.
+   */
   snapshotId(): string;
 }
 

@@ -50,8 +50,10 @@ export interface WorkState {
   readonly completionGate: CompletionGate;
   readonly blockingReference: BlockingReference | null;
   readonly createdByIdentityId: IdentityId;
+  readonly createdByMembershipId: MembershipId;
   readonly startedAt: Date | null;
   readonly completedAt: Date | null;
+  readonly completedByIdentityId: IdentityId | null;
   readonly completionSummary: string | null;
   readonly cancelledAt: Date | null;
   readonly version: AggregateVersion;
@@ -160,8 +162,10 @@ export const createWork = (
     completionGate: gateNotRequired(),
     blockingReference: null,
     createdByIdentityId: actor.identityId,
+    createdByMembershipId: actor.membershipId,
     startedAt: null,
     completedAt: null,
+    completedByIdentityId: null,
     completionSummary: null,
     cancelledAt: null,
     version: 1 as AggregateVersion,
@@ -387,6 +391,7 @@ export const completeWork = (
     ...work,
     status: "Completed",
     completedAt: ctx.now,
+    completedByIdentityId: actor.identityId,
     completionSummary: summary,
     version: nextVersion(work.version),
   };

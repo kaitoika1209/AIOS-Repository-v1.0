@@ -31,6 +31,7 @@ scope. Accepted ADRs are the highest authority in this repository — see
 | [0012](0012-define-memory-source-snapshot-and-data-governance.md) | Define Memory Source Snapshot and Data-Governance Semantics | Accepted | 2026-07-26 |
 | [0013](0013-bind-clerk-as-authentication-provider.md) | Bind Clerk as an Authentication Provider Without Ceding Identity Ownership | Proposed | 2026-07-28 |
 | [0014](0014-adopt-rest-with-explicit-command-sub-resources.md) | Adopt REST with Explicit Command Sub-Resources and Header-Scoped Tenancy | Proposed | 2026-07-28 |
+| [0015](0015-use-documented-ddl-and-direct-sql-for-persistence.md) | Keep the Documented DDL Authoritative and Use Direct SQL for Persistence | Proposed | 2026-07-28 |
 
 ---
 

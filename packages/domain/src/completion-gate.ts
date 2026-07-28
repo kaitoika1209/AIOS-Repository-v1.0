@@ -13,7 +13,12 @@
 
 import type { DecisionId, IdentityId } from "@aios/types";
 
-/** Identifies one submitted Decision revision. All three parts must match. */
+/**
+ * Identifies one submitted Decision revision. All three parts must match.
+ *
+ * `submittedSnapshotId` is opaque to the domain but must be a UUID, because the
+ * persistence schema types the corresponding columns as `uuid`.
+ */
 export interface BlockingReference {
   readonly decisionId: DecisionId;
   readonly revisionNumber: number;

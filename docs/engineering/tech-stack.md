@@ -99,15 +99,20 @@ Database
 
 ---
 
-### ORM
+### Database Access
 
-- Prisma
+- `pg` (the PostgreSQL driver) with hand-written SQL
 
 #### Why
 
-- Type safety
-- Migration management
-- Excellent developer experience
+- The documented DDL stays the single schema source, verified in CI
+- Optimistic concurrency, tenant scoping, and Outbox claims stay explicit
+- CHECK constraints, composite foreign keys, and partial unique indexes remain
+  fully expressed
+
+Prisma was previously listed here. It is **not** used in the MVP — see
+[ADR-0015](../adr/0015-use-documented-ddl-and-direct-sql-for-persistence.md),
+which resolves this against the persistence architecture's SQL-first guidance.
 
 ---
 
