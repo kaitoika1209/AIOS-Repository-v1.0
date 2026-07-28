@@ -20,6 +20,7 @@ import { DecisionController } from "./decision.controller.js";
 import { DevAuthAdapter } from "./dev-auth.js";
 import { DomainExceptionFilter } from "./http-errors.js";
 import { PrincipalResolver } from "./principal-resolver.js";
+import { startOutboxWorker } from "./outbox-worker.js";
 import { RequestContextGuard, type AuthAdapter } from "./request-context.js";
 import { USE_CASE_DEPENDENCIES } from "./tokens.js";
 import { WorkController } from "./work.controller.js";
@@ -51,12 +52,14 @@ export interface AppOptions {
   readonly auth: AuthAdapter;
 }
 
+export const dependenciesFor = (pool: Pool): UseCaseDependencies => ({
+  uow: new PostgresUnitOfWork(pool),
+  clock: new SystemClock(),
+  ids: new UuidGenerator(),
+});
+
 export const createApp = async (options: AppOptions): Promise<INestApplication> => {
-  const deps: UseCaseDependencies = {
-    uow: new PostgresUnitOfWork(options.pool),
-    clock: new SystemClock(),
-    ids: new UuidGenerator(),
-  };
+  const deps = dependenciesFor(options.pool);
 
   const resolver = new PrincipalResolver(options.pool);
 
@@ -76,5 +79,15 @@ export const createApp = async (options: AppOptions): Promise<INestApplication> 
   return app;
 };
 
-export const buildDevApp = async (connectionString: string) =>
-  createApp({ pool: new Pool({ connectionString }), auth: new DevAuthAdapter() });
+export const buildDevApp = async (connectionString: string) => {
+  const pool = new Pool({ connectionString });
+  const app = await createApp({ pool, auth: new DevAuthAdapter() });
+
+  // ADR-0007's asynchronous half. Production runs this as a separate worker;
+  // in development it polls in-process so a blocked Work actually unblocks.
+  const stop = startOutboxWorker(pool, dependenciesFor(pool));
+  app.enableShutdownHooks();
+  process.once("beforeExit", stop);
+
+  return app;
+};

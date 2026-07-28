@@ -35,3 +35,7 @@ pnpm-debug.log*
 __pycache__/
 *.pyc
 build/
+
+# Next.js
+.next/
+next-env.d.ts

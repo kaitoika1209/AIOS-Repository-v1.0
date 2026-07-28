@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "tsc --build",
-    "dev": "node --experimental-strip-types src/main.ts",
+    "dev": "tsx src/main.ts",
+    "seed": "tsx src/seed-dev.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -27,6 +28,7 @@
     "@types/node": "^22.10.2",
     "supertest": "^7.0.0",
     "@types/supertest": "^6.0.2",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   }

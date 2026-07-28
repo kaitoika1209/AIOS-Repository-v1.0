@@ -11,6 +11,7 @@ import {
   Inject,
   Body,
   Controller,
+  Get,
   Param,
   Post,
   Req,
@@ -21,6 +22,7 @@ import { DecisionId, WorkId, type DecisionStatus } from "@aios/types";
 import {
   approveDecisionUseCase,
   createDecisionUseCase,
+  listDecisionsForWorkUseCase,
   rejectDecisionUseCase,
   startRevisionUseCase,
   submitBlockingDecisionUseCase,
@@ -95,6 +97,19 @@ export class DecisionController {
     @Inject(USE_CASE_DEPENDENCIES)
     private readonly deps: UseCaseDependencies,
   ) {}
+
+  @Get("by-work/:workId")
+  async listForWork(
+    @Req() request: Request,
+    @Param("workId") workId: string,
+  ): Promise<{ items: DecisionResponse[] }> {
+    const items = await listDecisionsForWorkUseCase(
+      this.deps,
+      contextOf(request),
+      WorkId(workId),
+    );
+    return { items: items.map(present) };
+  }
 
   @Post()
   async create(

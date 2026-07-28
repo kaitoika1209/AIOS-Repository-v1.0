@@ -20,7 +20,8 @@ import { Pool } from "pg";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { createApp } from "./app.js";
+import { createApp, dependenciesFor } from "./app.js";
+import { drainOutbox } from "./outbox-worker.js";
 import { DEV_ISSUER, DEV_PROVIDER, DevAuthAdapter } from "./dev-auth.js";
 
 const url = process.env["DATABASE_URL"];
@@ -387,6 +388,86 @@ suite("AIOS API", () => {
         revisionNumber: 1,
         rationale: "Needs more data",
       });
+    });
+  });
+
+  describe("Outbox worker (ADR-0007 asynchronous half)", () => {
+    const blockAndApprove = async () => {
+      const work = await createWork();
+      await request(server()).post(`/works/${work.workId}/start`).set(as(MEMBER)).expect(201);
+      const decision = await request(server())
+        .post("/decisions")
+        .set(as(MEMBER))
+        .send({
+          relatedWorkId: work.workId,
+          title: "Launch timing",
+          question: "Ship on Friday?",
+          options: [{ optionId: "yes", summary: "Yes" }],
+          isBlocking: true,
+        })
+        .expect(201);
+      await request(server())
+        .post(`/decisions/${decision.body.decisionId}/submit`)
+        .set(as(MEMBER))
+        .expect(201);
+      await request(server())
+        .post(`/decisions/${decision.body.decisionId}/approve`)
+        .set(as(REVIEWER))
+        .send({ selectedOptionId: "yes", rationale: "Risk accepted" })
+        .expect(201);
+      return work;
+    };
+
+    it("projects an approved outcome onto the Work completion gate", async () => {
+      const work = await blockAndApprove();
+
+      const before = await request(server())
+        .get(`/works/${work.workId}`)
+        .set(as(MEMBER))
+        .expect(200);
+      expect(before.body.status).toBe("WaitingForDecision");
+
+      const result = await drainOutbox(pool, dependenciesFor(pool));
+      expect(result.applied).toBeGreaterThanOrEqual(1);
+
+      const after = await request(server())
+        .get(`/works/${work.workId}`)
+        .set(as(MEMBER))
+        .expect(200);
+      expect(after.body.status).toBe("InProgress");
+      expect(after.body.completionGate).toBe("Satisfied");
+    });
+
+    it("completes the slice: the human still completes the Work explicitly", async () => {
+      const work = await blockAndApprove();
+      await drainOutbox(pool, dependenciesFor(pool));
+
+      const completed = await request(server())
+        .post(`/works/${work.workId}/complete`)
+        .set(as(MEMBER))
+        .send({ completionSummary: "Shipped" })
+        .expect(201);
+      expect(completed.body.status).toBe("Completed");
+    });
+
+    it("treats redelivery as already applied, not as a failure", async () => {
+      await blockAndApprove();
+      await drainOutbox(pool, dependenciesFor(pool));
+
+      // Re-queue every published message: at-least-once delivery means the
+      // consumer must tolerate seeing them again.
+      const client = await pool.connect();
+      try {
+        await client.query(
+          `UPDATE outbox_messages SET status = 'Pending', published_at = NULL`,
+        );
+      } finally {
+        client.release();
+      }
+
+      const again = await drainOutbox(pool, dependenciesFor(pool));
+      expect(again.failed).toBe(0);
+      expect(again.alreadyApplied).toBeGreaterThanOrEqual(1);
     });
   });
 

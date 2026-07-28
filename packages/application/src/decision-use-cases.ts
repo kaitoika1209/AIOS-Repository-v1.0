@@ -266,3 +266,11 @@ export const applyDecisionOutcomeUseCase = async (
     await tx.outbox.append(events);
     return state;
   });
+
+/** Decisions attached to one Work, Organization-scoped. */
+export const listDecisionsForWorkUseCase = async (
+  deps: UseCaseDependencies,
+  ctx: WorkCommandContext,
+  workId: WorkId,
+): Promise<readonly DecisionState[]> =>
+  deps.uow.transaction((tx) => tx.decisions.listByWork(ctx.organizationId, workId));

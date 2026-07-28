@@ -51,16 +51,18 @@ AIOS is built on the following principles:
 ## Project Status
 
 AIOS is in early implementation. The architectural blueprint is substantially
-complete, and the Work → Decision slice runs end to end over HTTP against
-PostgreSQL. There is no user interface yet, and authentication uses a
-development stub rather than Clerk.
+complete, and the Work → Decision slice runs end to end — browser to HTTP API to
+PostgreSQL, including the asynchronous Outbox projection that unblocks Work after
+a Decision is approved. Authentication is a development stub rather than Clerk,
+and Organizations and Members are created by a seed script rather than an
+invitation flow.
 
 Current progress:
 
 - ✅ Product Vision
 - ✅ Domain Architecture
 - ✅ Technical Specification
-- 🚧 Foundation Development — Work and Decision through the HTTP API; no user interface yet
+- 🚧 Foundation Development — Work and Decision, end to end; Memory not started
 
 Current objective:
 
@@ -81,8 +83,8 @@ The target layout is defined in
 ```text
 .
 ├── apps/
-│   ├── api/           NestJS, ADR-0014 routes
-│   └── web/           (planned) Next.js
+│   ├── api/           NestJS, ADR-0014 routes, Outbox worker
+│   └── web/           Next.js, minimal Work and Decision UI
 ├── packages/
 │   ├── types/         shared vocabulary and catalogues
 │   ├── domain/        Work and Decision aggregates, no framework
@@ -120,13 +122,20 @@ pnpm run check:docs
 
 Copy [`.env.example`](.env.example) to `.env` before running the applications.
 
-To run the API against a local PostgreSQL database:
+To run the whole slice against a local PostgreSQL database:
 
 ```bash
-python3 scripts/extract_schema.py
+python3 scripts/extract_schema.py          # documented DDL → build/schema.sql
 psql "$DATABASE_URL" -f build/schema.sql
-pnpm --filter @aios/api dev
+pnpm --filter @aios/api seed               # one Organization, two Members
+pnpm --filter @aios/api dev                # API on :3001
+pnpm --filter @aios/web dev                # UI on :3000
 ```
+
+The UI has an identity switcher because authority differs by role: Alice is a
+Member and can create and complete Work; Raj is a Reviewer and is the only one
+who can approve a Decision. Switching between them is how the human-authority
+boundary becomes visible.
 
 Database-backed tests are skipped unless `DATABASE_URL` is set, so
 `pnpm run test` stays runnable without a database.
