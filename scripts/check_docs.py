@@ -9,7 +9,9 @@ Enforces the mechanical rules defined in docs/document-governance.md:
   3. every document under docs/architecture/ and docs/product/ declares a scope
      classification header, using only the closed ADR-0010 vocabulary;
   4. each Markdown file has exactly one H1 and no heading-level skips;
-  5. paired example headings (Good/Bad, Preferred/Avoid) sit at the same level.
+  5. paired example headings (Good/Bad, Preferred/Avoid) sit at the same level;
+  6. the ADR-0014 route catalogue stays one-to-one with the ADR-0010 permission
+     catalogue in authorization.md.
 
 Run from the repository root:
 
@@ -176,11 +178,36 @@ def check_paired_headings(path: Path, text: str) -> None:
             return
 
 
+PERMISSION = re.compile(r"`((?:work|decision|memory|events)\.[a-z_]+)`")
+ROUTE_ROW = re.compile(r"\| `((?:work|decision|memory|events)\.[a-z_]+)` \|")
+
+AUTHZ_DOC = "docs/architecture/authorization.md"
+ROUTE_ADR = "docs/adr/0014-adopt-rest-with-explicit-command-sub-resources.md"
+
+
+def check_route_catalogue() -> None:
+    """ADR-0014 requires exactly one route per permission, and vice versa."""
+    authz = ROOT / AUTHZ_DOC
+    adr = ROOT / ROUTE_ADR
+    if not (authz.exists() and adr.exists()):
+        return
+    permissions = set(PERMISSION.findall(authz.read_text(encoding="utf-8")))
+    routed = set(ROUTE_ROW.findall(adr.read_text(encoding="utf-8")))
+    for missing in sorted(permissions - routed):
+        failures.append(f"{ROUTE_ADR}: permission {missing!r} has no route (ADR-0014)")
+    for extra in sorted(routed - permissions):
+        failures.append(
+            f"{ROUTE_ADR}: route for {extra!r} has no permission in {AUTHZ_DOC} (ADR-0014)"
+        )
+
+
 def main() -> int:
     files = markdown_files()
     if not files:
         print("no Markdown files found", file=sys.stderr)
         return 1
+
+    check_route_catalogue()
 
     for path in files:
         text = path.read_text(encoding="utf-8")

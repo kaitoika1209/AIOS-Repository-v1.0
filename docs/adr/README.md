@@ -29,6 +29,8 @@ scope. Accepted ADRs are the highest authority in this repository — see
 | [0010](0010-classify-blueprint-scope-and-implementation-authority.md) | Classify Blueprint Scope and Implementation Authority | Accepted | 2026-07-26 |
 | [0011](0011-bound-secretary-to-context-owned-assistance-ports.md) | Bind the Secretary to Context-Owned AI Assistance Ports | Accepted | 2026-07-26 |
 | [0012](0012-define-memory-source-snapshot-and-data-governance.md) | Define Memory Source Snapshot and Data-Governance Semantics | Accepted | 2026-07-26 |
+| [0013](0013-bind-clerk-as-authentication-provider.md) | Bind Clerk as an Authentication Provider Without Ceding Identity Ownership | Proposed | 2026-07-28 |
+| [0014](0014-adopt-rest-with-explicit-command-sub-resources.md) | Adopt REST with Explicit Command Sub-Resources and Header-Scoped Tenancy | Proposed | 2026-07-28 |
 
 ---
 
@@ -42,6 +44,7 @@ New to the architecture? Read in this order:
 4. **0010** — what is actually approved for implementation versus explored on paper.
 5. **0006**, **0004** — how events and external calls stay reliable.
 6. **0007**, **0008**, **0009**, **0011**, **0012** — specific mechanisms.
+7. **0013**, **0014** — how requests enter the system: authentication and the API surface.
 
 ---
 
