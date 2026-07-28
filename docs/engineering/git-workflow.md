@@ -8,7 +8,7 @@ The workflow is designed to keep development simple, predictable, and easy to re
 
 ---
 
-# Branch Strategy
+## Branch Strategy
 
 AIOS follows a lightweight Git workflow.
 
@@ -23,7 +23,7 @@ All development should be performed in feature branches.
 
 ---
 
-# Branch Naming
+## Branch Naming
 
 Use lowercase with hyphens.
 
@@ -38,7 +38,7 @@ feature/secretary-ai
 
 ---
 
-# Commit Messages
+## Commit Messages
 
 Follow the Conventional Commits specification.
 
@@ -60,7 +60,7 @@ chore: update dependencies
 
 ---
 
-# Commit Guidelines
+## Commit Guidelines
 
 Each commit should represent a single logical change.
 
@@ -68,7 +68,7 @@ Avoid mixing unrelated changes in the same commit.
 
 ---
 
-# Merging
+## Merging
 
 Merge through Pull Requests.
 
@@ -76,7 +76,7 @@ Do not commit directly to `main`.
 
 ---
 
-# Versioning
+## Versioning
 
 AIOS follows Semantic Versioning.
 

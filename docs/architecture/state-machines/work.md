@@ -1,4 +1,10 @@
 # Work State Machine
+
+> **Scope classification:** MVP Normative  
+> **MVP implementation authority:** Yes  
+> **Promotion requirement:** Not applicable  
+> **Authority rank:** see [Document Governance](../../document-governance.md)
+
 > **Document status:** Proposed  
 > **Blueprint version:** 0.2.1  
 > **Applies to:** Work Aggregate
@@ -17,7 +23,7 @@ The central rule is:
 > A Decision may permit Work to continue or become eligible for completion, but only an explicit Work command may complete the Work.
 Decision approval never completes Work automatically.
 ---
-# Scope
+## Scope
 This document defines the business lifecycle of one Work Aggregate.
 It does not define:
 - the internal lifecycle of a Decision;
@@ -29,7 +35,7 @@ It does not define:
 - archival and retention policy.
 Archival is treated as an orthogonal visibility or retention concern in the MVP, not as a Work lifecycle state.
 ---
-# State Summary
+## State Summary
 | State | Meaning | Business editing | Terminal |
 |---|---|---:|---:|
 | `Draft` | Work has been created but has not started | Yes | No |
@@ -39,7 +45,7 @@ Archival is treated as an orthogonal visibility or retention concern in the MVP,
 | `Cancelled` | Work was explicitly stopped without completion | No | Yes |
 The MVP does not support reopening `Completed` or `Cancelled` Work.
 ---
-# Lifecycle
+## Lifecycle
 ```mermaid
 stateDiagram-v2
     [*] --> Draft
@@ -57,10 +63,10 @@ stateDiagram-v2
 The recorded outcome determines whether the completion gate is satisfied.
 Returning to `InProgress` does not imply that the Work may be completed.
 ---
-# State Definitions
-## Draft
+## State Definitions
+### Draft
 `Draft` means the Work exists but active execution has not begun.
-### Allowed Actions
+#### Allowed Actions
 An authorized Human Member may:
 - edit the title;
 - edit the description;
@@ -76,16 +82,16 @@ The Secretary may:
 - propose an intended outcome; and
 - organize initial information.
 The Secretary cannot start or cancel the Work.
-### State Rules
+#### State Rules
 - `startedAt` is absent.
 - `completedAt` is absent.
 - `cancelledAt` is absent.
 - No blocking Decision may be pending.
 - A Draft is not eligible for Memory generation.
 ---
-## InProgress
+### InProgress
 `InProgress` means the Work is actively being performed.
-### Allowed Actions
+#### Allowed Actions
 An authorized Human Member may:
 - update permitted Work details;
 - update assignments and participants;
@@ -103,16 +109,16 @@ The Secretary may:
 - prepare Decision context; and
 - suggest next actions.
 The Secretary cannot request a binding approval, complete the Work, or cancel the Work without an explicit human command.
-### State Rules
+#### State Rules
 - `startedAt` is present and immutable.
 - No unresolved blocking Decision is pending.
 - The Work may still have an unsatisfied completion gate after a rejected or withdrawn Decision.
 - Completion is permitted only when all local completion guards pass.
 ---
-## WaitingForDecision
+### WaitingForDecision
 `WaitingForDecision` means the Work is blocked by exactly one unresolved Decision.
 The Work remains active, but completion is prohibited while the blocking Decision is unresolved.
-### Allowed Actions
+#### Allowed Actions
 An authorized Human Member may:
 - view and update non-authoritative context;
 - add supporting information to the related Decision through the Decision use case;
@@ -120,20 +126,20 @@ An authorized Human Member may:
 - cancel the Work; and
 - view the Decision review status.
 A System Principal may record the resolved Decision outcome only in response to a valid Decision domain or integration event.
-### Prohibited Actions
+#### Prohibited Actions
 The Work cannot:
 - be completed;
 - request a second blocking Decision;
 - replace the current blocking Decision silently; or
 - infer a Decision result from AI output.
-### State Rules
+#### State Rules
 - A `blockingDecisionId` is present.
 - The corresponding completion gate is `Pending`.
 - Only one unresolved blocking Decision may exist for the Work in the MVP.
 - The Decision and Work must belong to the same Organization.
 - The Work returns to `InProgress` only after an explicit Decision outcome is recorded.
 ---
-## Completed
+### Completed
 `Completed` means an authorized Human Member explicitly confirmed that the Work reached its completion condition.
 Completion is a business fact.
 It is not inferred from:
@@ -143,14 +149,14 @@ It is not inferred from:
 - task progress;
 - external event delivery; or
 - Memory generation success.
-### Allowed Actions
+#### Allowed Actions
 Users may:
 - view the Work;
 - view related Decisions;
 - view the resulting Memory process;
 - add non-mutating audit annotations where supported; and
 - hide or archive the Work through a separate retention or view mechanism.
-### State Rules
+#### State Rules
 - `completedAt` is present and immutable.
 - `completedBy` identifies the Human Member who completed the Work.
 - `cancelledAt` is absent.
@@ -160,15 +166,15 @@ Users may:
 - Memory generation is requested durably after completion.
 Memory generation failure does not reopen or invalidate the Work.
 ---
-## Cancelled
+### Cancelled
 `Cancelled` means an authorized Human Member explicitly stopped the Work without completing it.
-### Allowed Actions
+#### Allowed Actions
 Users may:
 - view the Work;
 - view the cancellation reason;
 - view related Decisions and history; and
 - hide or archive the Work through a separate retention or view mechanism.
-### State Rules
+#### State Rules
 - `cancelledAt` is present and immutable.
 - `cancelledBy` identifies the Human Member who cancelled the Work.
 - A cancellation reason is required.
@@ -177,51 +183,51 @@ Users may:
 - Cancellation does not trigger Memory generation in the MVP.
 A future roadmap phase may define a separate learning process for cancelled Work.
 ---
-# Commands and Transitions
-## Create Work
-### Transition
+## Commands and Transitions
+### Create Work
+#### Transition
 ```text
 [*] → Draft
 ```
-### Preconditions
+#### Preconditions
 - The Organization exists.
 - The acting Human Member is active in the Organization.
 - The acting Human Member has permission to create Work.
 - Required initial fields are valid.
-### Effects
+#### Effects
 - Create the Work in `Draft`.
 - Record the creator and Organization.
 - Emit `WorkCreated`.
 ---
-## Start Work
-### Transition
+### Start Work
+#### Transition
 ```text
 Draft → InProgress
 ```
-### Preconditions
+#### Preconditions
 - The actor is an authorized Human Member.
 - The Work has an intended outcome.
 - Any required assignment or ownership fields are present.
 - The command uses the expected Aggregate version.
-### Effects
+#### Effects
 - Set `startedAt`.
 - Record the actor.
 - Emit `WorkStarted`.
 `startedAt` cannot later be changed.
 ---
-## Request Blocking Decision
-### Transition
+### Request Blocking Decision
+#### Transition
 ```text
 InProgress → WaitingForDecision
 ```
-### Preconditions
+#### Preconditions
 - The actor is an authorized Human Member.
 - No unresolved blocking Decision already exists.
 - The coordinated Decision use case has submitted the blocking Decision revision and produced a valid `decisionId`, `revisionNumber`, and `submittedSnapshotId`.
 - The Decision belongs to the same Organization.
 - The Decision is related to this Work.
 - The Decision is `InReview`; a Draft Decision never blocks Work.
-### Effects
+#### Effects
 - Store the active blocking reference (`decisionId`, `revisionNumber`, and `submittedSnapshotId`).
 - Set the completion gate to `Pending` with the same reference.
 - Record the requesting actor.
@@ -229,22 +235,22 @@ InProgress → WaitingForDecision
 The Application Layer coordinates creation or selection of the related Decision.
 The Work Aggregate does not create or approve the Decision internally.
 ---
-## Record Decision Outcome
-### Transition
+### Record Decision Outcome
+#### Transition
 ```text
 WaitingForDecision → InProgress
 ```
-### Supported Outcomes
+#### Supported Outcomes
 - `Approved`
 - `Rejected`
 - `Withdrawn`
-### Preconditions
+#### Preconditions
 - The supplied `decisionId`, `revisionNumber`, and `submittedSnapshotId` match the active blocking reference.
 - The completion gate is `Pending`.
 - The outcome comes from an authoritative Decision event.
 - The Decision belongs to the same Organization.
 - The event has not already been applied.
-### Effects
+#### Effects
 For `Approved`:
 - record the Decision outcome as `Approved`;
 - mark the completion gate `Satisfied`; and
@@ -262,12 +268,12 @@ In all cases:
 A rejected or withdrawn outcome does not permit completion when approval remains required.
 The Work may request a new blocking Decision from `InProgress`.
 ---
-## Complete Work
-### Transition
+### Complete Work
+#### Transition
 ```text
 InProgress → Completed
 ```
-### Preconditions
+#### Preconditions
 - The actor is an authorized Human Member.
 - The Work is currently `InProgress`.
 - No blocking Decision is pending.
@@ -276,7 +282,7 @@ InProgress → Completed
   - satisfied by an Approved Decision.
 - Required local completion data is present.
 - The command uses the expected Aggregate version.
-### Effects
+#### Effects
 - Set `completedAt`.
 - Set `completedBy`.
 - Make business content immutable.
@@ -284,19 +290,19 @@ InProgress → Completed
 - Persist the event through the Transactional Outbox.
 Completion remains explicit even when a related Decision has been approved.
 ---
-## Cancel Work
-### Transition
+### Cancel Work
+#### Transition
 ```text
 Draft → Cancelled
 InProgress → Cancelled
 WaitingForDecision → Cancelled
 ```
-### Preconditions
+#### Preconditions
 - The actor is an authorized Human Member.
 - The Work is not already terminal.
 - A cancellation reason is provided.
 - The command uses the expected Aggregate version.
-### Effects
+#### Effects
 - Set `cancelledAt`.
 - Set `cancelledBy`.
 - Preserve the cancellation reason.
@@ -306,7 +312,7 @@ WaitingForDecision → Cancelled
 Cancelling a Work does not cancel or withdraw a related Decision automatically.
 The Application Layer must coordinate any separate Decision action explicitly.
 ---
-# Allowed Transition Table
+## Allowed Transition Table
 | From | Command | To | Primary Guard |
 |---|---|---|---|
 | `[*]` | Create Work | `Draft` | Authorized creator |
@@ -319,7 +325,7 @@ The Application Layer must coordinate any separate Decision action explicitly.
 | `WaitingForDecision` | Cancel Work | `Cancelled` | Human actor and reason |
 No other business state transitions are permitted in the MVP.
 ---
-# Completion Gate
+## Completion Gate
 The Work Aggregate maintains a local completion-gate snapshot sufficient to protect Work completion.
 Possible values are:
 ```text
@@ -333,7 +339,7 @@ The Decision Aggregate remains authoritative for Decision content, review histor
 The Work snapshot exists only to enforce Work-local transition rules without querying another Aggregate from inside the Work Aggregate.
 The Application Layer updates the snapshot from authoritative Decision events and must match the complete submitted-revision reference, not `decisionId` alone.
 ---
-# Relationship to Decision
+## Relationship to Decision
 A Work may have multiple related Decisions over time.
 For the MVP:
 - only one unresolved blocking Decision may exist at a time;
@@ -373,7 +379,7 @@ It cannot be completed while the required approval remains unsatisfied.
 
 A new revision may reuse the same `decisionId`, but its `revisionNumber` and `submittedSnapshotId` form a new blocking reference. An outcome from an earlier revision cannot update that gate.
 ---
-# Relationship to Memory
+## Relationship to Memory
 Successful Work completion starts the Memory generation process.
 The sequence is:
 ```text
@@ -405,45 +411,45 @@ Memory generation failure:
 - must be visible operationally; and
 - may be retried safely.
 ---
-# Aggregate Invariants
+## Aggregate Invariants
 The Work Aggregate must always enforce the following local invariants.
-## Identity and Ownership
+### Identity and Ownership
 - Every Work has exactly one `workId`.
 - Every Work belongs to exactly one Organization.
 - Organization ownership cannot change after creation.
 - Every Work has exactly one creator.
 - The creator reference cannot change.
-## State
+### State
 - The Work is in exactly one lifecycle state.
 - Only transitions listed in this document are valid.
 - Terminal Work cannot return to a non-terminal state.
 - Every successful transition records actor and timestamp.
 - State timestamps are immutable after being set.
-## Decision Gate
+### Decision Gate
 - At most one blocking Decision is pending at a time.
 - `WaitingForDecision` requires a pending completion gate.
 - A pending completion gate requires a `blockingDecisionId`.
 - `InProgress` cannot retain a pending completion gate.
 - A Decision outcome may be recorded only for the matching pending Decision.
 - The same Decision outcome event cannot be applied twice.
-## Completion
+### Completion
 - Only `InProgress` Work may become `Completed`.
 - A pending completion gate prohibits completion.
 - An unsatisfied required gate prohibits completion.
 - Only an authorized Human Member may complete Work.
 - `completedAt` and `completedBy` are set together.
 - Completed Work has no cancellation timestamp.
-## Cancellation
+### Cancellation
 - Only non-terminal Work may be cancelled.
 - A cancellation reason is required.
 - `cancelledAt` and `cancelledBy` are set together.
 - Cancelled Work has no completion timestamp.
-## Immutability
+### Immutability
 - Completed and Cancelled Work are read-only for business data.
 - Audit annotations must not alter historical business content.
 - Organization, creator, completion record, and cancellation record are immutable.
 ---
-# Cross-Aggregate Preconditions
+## Cross-Aggregate Preconditions
 The following rules are required but are not enforced by the Work Aggregate alone:
 - the Organization exists;
 - the acting Member is active;
@@ -462,7 +468,7 @@ These rules are enforced through a combination of:
 - coordinated process logic.
 They must not be mislabeled as Work Aggregate invariants.
 ---
-# Domain Events
+## Domain Events
 The Work Aggregate may emit:
 - `WorkCreated`
 - `WorkStarted`
@@ -488,7 +494,7 @@ Each event must include:
 `WorkCompleted` must contain immutable version and snapshot locators sufficient to build the canonical generation source without querying mutable Work or Decision drafts.
 The Application Layer maps it to `Integration / WorkCompleted / 1` in the same Work transaction. That Integration Event is the only registered MVP Memory-generation trigger; no separate `MemoryGenerationRequested` event is emitted.
 ---
-# Concurrency and Idempotency
+## Concurrency and Idempotency
 The implementation must use optimistic concurrency or an equivalent mechanism.
 Each state-changing command must include or validate an expected Aggregate version.
 When concurrent commands conflict:
@@ -502,14 +508,14 @@ In particular:
 - retrying the same completion command must not emit another completion event; and
 - out-of-order Decision events must be rejected or ignored safely.
 ---
-# Authority Model
-## Human Member
+## Authority Model
+### Human Member
 Only an authorized Human Member may:
 - start Work;
 - request a binding blocking Decision;
 - complete Work; or
 - cancel Work.
-## Secretary
+### Secretary
 The Secretary is an AI Principal.
 It may:
 - draft;
@@ -526,7 +532,7 @@ It may not:
 - complete Work;
 - cancel Work; or
 - impersonate a Human Member.
-## System Principal
+### System Principal
 A System Principal may perform technical processing such as:
 - applying an authoritative Decision outcome;
 - dispatching outbox events;
@@ -537,8 +543,8 @@ Audit records must distinguish:
 - the Human Member who made the Decision; and
 - the System Principal that applied its technical consequence.
 ---
-# Failure Semantics
-## Decision Outcome Processing Failure
+## Failure Semantics
+### Decision Outcome Processing Failure
 If an authoritative Decision is resolved but the Work update fails:
 - the Decision remains resolved;
 - the Work remains in `WaitingForDecision` until processing succeeds;
@@ -546,19 +552,19 @@ If an authoritative Decision is resolved but the Work update fails:
 - duplicate application is prevented; and
 - the failure is visible to operations.
 The system must not infer that the Work is completed.
-## Work Completion Processing Failure
+### Work Completion Processing Failure
 If the Work completion transaction fails:
 - the Work remains `InProgress`;
 - no `WorkCompleted` event is committed; and
 - no Memory generation request is valid.
-## Memory Generation Failure
+### Memory Generation Failure
 If Memory generation fails after Work completion:
 - the Work remains `Completed`;
 - the failure is recorded outside the Work lifecycle;
 - retry is permitted; and
 - the user can see that Memory is not yet available.
 ---
-# Audit Requirements
+## Audit Requirements
 Every Work must preserve:
 - Work identifier;
 - Organization identifier;
@@ -579,8 +585,8 @@ Every Work must preserve:
 Audit history must distinguish human, AI, and system actions.
 Historical records must not be silently overwritten.
 ---
-# Acceptance Scenarios
-## Complete Work Without a Decision
+## Acceptance Scenarios
+### Complete Work Without a Decision
 ```text
 Given Work is InProgress
 And no completion approval is required
@@ -589,7 +595,7 @@ Then Work becomes Completed
 And WorkCompleted is recorded once
 And Memory generation is requested durably
 ```
-## Approved Decision Does Not Complete Work
+### Approved Decision Does Not Complete Work
 ```text
 Given Work is WaitingForDecision
 When the blocking Decision is approved
@@ -598,14 +604,14 @@ Then Work becomes InProgress
 And the completion gate becomes Satisfied
 But Work is not Completed
 ```
-## Explicit Completion After Approval
+### Explicit Completion After Approval
 ```text
 Given Work is InProgress
 And its required completion gate is Satisfied
 When an authorized Human Member completes the Work
 Then Work becomes Completed
 ```
-## Rejected Decision Blocks Completion
+### Rejected Decision Blocks Completion
 ```text
 Given Work is WaitingForDecision
 When the blocking Decision is rejected
@@ -614,14 +620,14 @@ Then Work becomes InProgress
 And the completion gate becomes Unsatisfied
 And completing the Work is rejected
 ```
-## Duplicate Completion Delivery
+### Duplicate Completion Delivery
 ```text
 Given Work has already become Completed
 When WorkCompleted is delivered again
 Then no duplicate active Memory is created
 And Work state remains Completed
 ```
-## Memory Generation Failure
+### Memory Generation Failure
 ```text
 Given Work is Completed
 When Memory generation fails
@@ -630,7 +636,7 @@ And the failure is visible
 And generation may be retried safely
 ```
 ---
-# Related Documents
+## Related Documents
 - `docs/architecture/overview.md`
 - `docs/product/mvp.md`
 - `docs/product/roadmap.md`

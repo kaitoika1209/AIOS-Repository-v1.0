@@ -27,7 +27,7 @@ The architecture therefore needs one classification model that distinguishes cur
 
 ### MVP Normative
 
-An MVP Normative requirement is implementable and verifiable in the current release. Its authoritative source is identified by the document-governance hierarchy.
+An MVP Normative requirement is implementable and verifiable in the current release. Its authoritative source is identified by the document-governance hierarchy defined in [Document Governance](../document-governance.md).
 
 The MVP Normative domain slice ends at Human-reviewed Memory. It includes Organization-scoped Human Membership, Secretary assistance, Work, Decision, Work-to-Memory generation, Memory review, authorization, persistence, reliable local event processing, audit, tenant isolation, and the minimum production baseline accepted for the MVP.
 
@@ -136,6 +136,7 @@ Costs:
 
 ## Related documents
 
+- [Document Governance](../document-governance.md)
 - [Architecture Overview](../architecture/overview.md)
 - [Domain Model](../architecture/domain-model.md)
 - [MVP Domain Model](../architecture/mvp-domain-model.md)

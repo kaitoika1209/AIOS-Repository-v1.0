@@ -10,7 +10,7 @@ Names should communicate intent rather than implementation.
 
 ---
 
-# General Principles
+## General Principles
 
 Choose names that describe business concepts.
 
@@ -22,7 +22,7 @@ When in doubt, choose clarity over brevity.
 
 ---
 
-# Language
+## Language
 
 All source code, identifiers, and documentation should use English.
 
@@ -30,13 +30,13 @@ Business terminology should follow the AIOS domain model.
 
 ---
 
-# Naming Rules
+## Naming Rules
 
-## Classes
+### Classes
 
 Use singular nouns.
 
-### Good
+#### Good
 
 ```text
 Work
@@ -49,7 +49,7 @@ Workflow
 Capability
 ```
 
-### Bad
+#### Bad
 
 ```text
 Works
@@ -61,13 +61,13 @@ Thing
 
 ---
 
-## Interfaces
+### Interfaces
 
 Use descriptive names.
 
 Avoid prefixing interfaces with "I".
 
-### Good
+#### Good
 
 ```text
 WorkRepository
@@ -75,7 +75,7 @@ NotificationService
 StorageProvider
 ```
 
-### Bad
+#### Bad
 
 ```text
 IWorkRepository
@@ -84,11 +84,11 @@ IData
 
 ---
 
-## Value Objects
+### Value Objects
 
 Describe exactly what the value represents.
 
-### Good
+#### Good
 
 ```text
 WorkId
@@ -99,13 +99,13 @@ DecisionStatus
 
 ---
 
-## Enums
+### Enums
 
 Use singular nouns.
 
 Enum values should be descriptive.
 
-### Good
+#### Good
 
 ```typescript
 enum WorkStatus {
@@ -118,13 +118,13 @@ enum WorkStatus {
 
 ---
 
-## Methods
+### Methods
 
 Methods should describe behavior.
 
 Use verbs.
 
-### Good
+#### Good
 
 ```text
 createWork()
@@ -134,7 +134,7 @@ archive()
 assignMember()
 ```
 
-### Bad
+#### Bad
 
 ```text
 doWork()
@@ -146,11 +146,11 @@ run()
 
 ---
 
-## Variables
+### Variables
 
 Use meaningful names.
 
-### Good
+#### Good
 
 ```text
 work
@@ -159,7 +159,7 @@ member
 decision
 ```
 
-### Bad
+#### Bad
 
 ```text
 obj
@@ -171,11 +171,11 @@ item
 
 ---
 
-## Boolean Variables
+### Boolean Variables
 
 Boolean names should read naturally.
 
-### Good
+#### Good
 
 ```text
 isCompleted
@@ -184,7 +184,7 @@ canApprove
 shouldNotify
 ```
 
-### Bad
+#### Bad
 
 ```text
 completed
@@ -194,7 +194,7 @@ approveFlag
 
 ---
 
-# Events
+## Events
 
 Events describe something that has already happened.
 
@@ -212,7 +212,7 @@ MemberInvited
 
 ---
 
-# Commands
+## Commands
 
 Commands represent an intention.
 
@@ -229,7 +229,7 @@ GenerateMemory
 
 ---
 
-# Queries
+## Queries
 
 Queries retrieve information.
 
@@ -253,7 +253,7 @@ SearchKnowledge
 
 ---
 
-# Repositories
+## Repositories
 
 Repositories are named after the aggregate they manage.
 
@@ -267,7 +267,7 @@ KnowledgeRepository
 
 ---
 
-# Services
+## Services
 
 Services describe business capabilities.
 
@@ -281,7 +281,7 @@ KnowledgePromotionService
 
 Avoid generic names.
 
-### Bad
+#### Bad
 
 ```text
 Manager
@@ -292,7 +292,7 @@ Util
 
 ---
 
-# Files
+## Files
 
 File names should match the primary exported type.
 
@@ -310,7 +310,7 @@ Use lowercase with hyphens where appropriate.
 
 ---
 
-# API Endpoints
+## API Endpoints
 
 Use nouns instead of verbs.
 
@@ -334,7 +334,7 @@ Avoid:
 
 ---
 
-# Database Tables
+## Database Tables
 
 Use plural nouns.
 
@@ -365,7 +365,7 @@ member_id
 
 ---
 
-# Names to Avoid
+## Names to Avoid
 
 Avoid vague or generic names.
 
@@ -390,7 +390,7 @@ If a better name cannot be found, the responsibility is probably unclear.
 
 ---
 
-# Consistency
+## Consistency
 
 The same concept should always use the same name throughout the project.
 

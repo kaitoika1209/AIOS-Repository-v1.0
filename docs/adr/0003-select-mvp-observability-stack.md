@@ -1,14 +1,14 @@
 # ADR-0003: Select the MVP Observability and Operations Stack
 
-- Status: Accepted
-- Date: 2026-07-26
-- Blueprint Version: v0.2.0
-- Decision Owner: Platform Operations
-- Review Trigger: before production launch, when monthly observability cost exceeds the approved limit, or when a second production region is introduced
+**Status:** Accepted  
+**Date:** 2026-07-26  
+**Blueprint Version:** 0.2.0  
+**Decision Owner:** Platform Operations  
+**Review Trigger:** before production launch, when monthly observability cost exceeds the approved limit, or when a second production region is introduced
 
 ---
 
-# Context
+## Context
 
 The AIOS observability architecture defines portable contracts for structured logs, metrics, traces, audit, alerting, and incident response.
 
@@ -20,7 +20,7 @@ This ADR selects an implementation stack. It does not make CloudWatch concepts p
 
 ---
 
-# Decision
+## Decision
 
 The MVP production observability stack is:
 
@@ -45,7 +45,7 @@ Application code depends on AIOS telemetry ports and the versioned operational l
 
 ---
 
-# Region and Availability
+## Region and Availability
 
 The MVP primary AWS Region is `ap-northeast-1` (Tokyo).
 
@@ -65,7 +65,7 @@ Before AIOS claims multi-region availability, a later ADR MUST select an externa
 
 ---
 
-# Retention
+## Retention
 
 The architecture document remains canonical for AIOS retention intent.
 
@@ -93,7 +93,7 @@ Provider constraints are recorded against the official service documentation:
 
 ---
 
-# Cost Guardrails
+## Cost Guardrails
 
 The initial monthly observability budgets, excluding authoritative PostgreSQL storage and ordinary application compute, are:
 
@@ -121,7 +121,7 @@ A sustained need above the limit requires an ADR update or a documented capacity
 
 ---
 
-# Security and Tenant Isolation
+## Security and Tenant Isolation
 
 Production telemetry uses least-privilege IAM roles and named Human access with MFA.
 
@@ -142,7 +142,7 @@ No external telemetry exporter or vendor support integration receives production
 
 ---
 
-# Failure Behavior
+## Failure Behavior
 
 CloudWatch failure MUST NOT roll back a valid Domain transaction or report an authoritative command as failed after it committed.
 
@@ -159,7 +159,7 @@ When CloudWatch Alarms or SNS delivery is unavailable:
 
 ---
 
-# Operational Ownership
+## Operational Ownership
 
 Responsibilities may be combined by the small team, but they cannot be unowned.
 
@@ -177,29 +177,29 @@ The production readiness checklist MUST verify these owners, alert destinations,
 
 ---
 
-# Alternatives Considered
+## Alternatives Considered
 
-## Self-Managed Prometheus and Grafana
+### Self-Managed Prometheus and Grafana
 
 Rejected for the MVP because a one-to-three-person team would own additional storage, upgrades, backup, access control, and availability concerns before the product has validated its workload.
 
-## Managed Prometheus and Managed Grafana
+### Managed Prometheus and Managed Grafana
 
 Deferred because they add cost and operational surfaces without a current requirement that CloudWatch metrics and dashboards cannot satisfy.
 
-## External Error-Tracking or Observability SaaS
+### External Error-Tracking or Observability SaaS
 
 Deferred because it introduces another processor of production telemetry, a separate retention contract, regional decisions, and additional cost.
 
-## Remote Tracing in the MVP
+### Remote Tracing in the MVP
 
 Deferred because the modular monolith can diagnose the initial workflow with correlation identifiers, structured logs, PostgreSQL operational state, and bounded metrics. OpenTelemetry propagation is retained so remote traces can be enabled without changing Domain or Application contracts.
 
 ---
 
-# Consequences
+## Consequences
 
-## Positive
+### Positive
 
 - The MVP has a concrete, cost-bounded implementation.
 - Managed services reduce the operational load on a small team.
@@ -207,7 +207,7 @@ Deferred because the modular monolith can diagnose the initial workflow with cor
 - Vendor-specific code remains behind Infrastructure Layer adapters.
 - Retention and regional limitations are explicit rather than hidden.
 
-## Negative
+### Negative
 
 - CloudWatch metric rollups can remain available longer than the 30-day active AIOS query window.
 - A regional AWS failure can remove both service availability and same-region observability.
@@ -217,9 +217,9 @@ Deferred because the modular monolith can diagnose the initial workflow with cor
 
 ---
 
-# Related Documents
+## Related Documents
 
-- `observability-and-operations.md`
-- `docs/architecture/persistence-and-data-model.md`
-- `docs/architecture/events-and-outbox.md`
-- `README.md`
+- [Observability and Operations](../architecture/observability-and-operations.md)
+- [Persistence and Data Model](../architecture/persistence-and-data-model.md)
+- [Events and Outbox](../architecture/events-and-outbox.md)
+- [README](../../README.md)

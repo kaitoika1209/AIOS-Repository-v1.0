@@ -33,7 +33,7 @@ It represents the ubiquitous language of AIOS.
 
 ---
 
-# Core Philosophy
+## Core Philosophy
 
 AIOS is an organizational operating system.
 
@@ -53,7 +53,7 @@ This continuous learning cycle enables organizations to improve over time while 
 
 ---
 
-# Conceptual Flow
+## Conceptual Flow
 
 ```text
 Organization
@@ -87,9 +87,9 @@ Each concept has a distinct responsibility and lifecycle.
 
 ---
 
-# Core Domain Concepts
+## Core Domain Concepts
 
-## Organization
+### Organization
 
 Represents the tenant, business-ownership, authorization, and data-isolation boundary.
 
@@ -113,7 +113,7 @@ Organization is not a single transactional consistency boundary. Each Aggregate 
 
 ---
 
-## Member
+### Member
 
 Represents a human participant.
 
@@ -130,7 +130,7 @@ Members are responsible for organizational judgment.
 
 ---
 
-## Secretary
+### Secretary
 
 Represents an AI participant.
 
@@ -146,7 +146,7 @@ The Secretary never replaces human authority.
 
 ---
 
-## Work
+### Work
 
 Represents organizational activity.
 
@@ -164,7 +164,7 @@ Completed Work generates Memory.
 
 ---
 
-## Decision
+### Decision
 
 Represents an organizational question together with its answer.
 
@@ -181,7 +181,7 @@ Multiple Decisions may exist within one Work.
 
 ---
 
-## Memory
+### Memory
 
 Represents verified historical experience.
 
@@ -199,7 +199,7 @@ Memory is not reusable Knowledge.
 
 ---
 
-## Evidence (Future — Outside MVP)
+### Evidence (Future — Outside MVP)
 
 Represents traceable support for Knowledge.
 
@@ -220,7 +220,7 @@ Knowledge always remains connected to organizational history.
 
 ---
 
-## Knowledge (Future — Outside MVP)
+### Knowledge (Future — Outside MVP)
 
 Represents reusable organizational understanding.
 
@@ -241,7 +241,7 @@ Knowledge always references Evidence.
 
 ---
 
-## Capability (Future — Outside MVP)
+### Capability (Future — Outside MVP)
 
 Represents organizational competence.
 
@@ -260,7 +260,7 @@ Capabilities provide a way to organize organizational Knowledge.
 
 ---
 
-# Aggregate Relationships
+## Aggregate Relationships
 
 The following conceptual relationships exist.
 
@@ -288,7 +288,7 @@ Aggregates never directly modify one another.
 
 ---
 
-# Learning Model
+## Learning Model
 
 The organizational learning cycle is:
 
@@ -343,7 +343,7 @@ Improved organizational performance
 
 ---
 
-# Traceability
+## Traceability
 
 AIOS preserves complete traceability.
 
@@ -368,7 +368,7 @@ Traceability enables:
 
 ---
 
-# AI Participation
+## AI Participation
 
 The Secretary participates throughout the organizational lifecycle.
 
@@ -401,7 +401,7 @@ Human Members remain responsible for authoritative decisions.
 
 ---
 
-# Domain Boundaries
+## Domain Boundaries
 
 Each Aggregate has a single responsibility.
 
@@ -417,7 +417,7 @@ No Aggregate assumes another Aggregate's responsibility.
 
 ---
 
-# Domain Events
+## Domain Events
 
 The canonical MVP learning facts are:
 
@@ -445,17 +445,17 @@ Events coordinate implemented Aggregates while preserving independence.
 
 ---
 
-# Design Principles
+## Design Principles
 
 The AIOS domain model follows these principles.
 
-## Single Responsibility
+### Single Responsibility
 
 Each Aggregate owns one business concept.
 
 ---
 
-## Explicit Authority
+### Explicit Authority
 
 Human authority is never implicit.
 
@@ -463,7 +463,7 @@ AI recommendations never become authoritative automatically.
 
 ---
 
-## Historical Integrity
+### Historical Integrity
 
 Historical records are preserved.
 
@@ -471,7 +471,7 @@ Approved Memory and Published Knowledge are immutable.
 
 ---
 
-## Explainability
+### Explainability
 
 Knowledge is supported by traceable Evidence.
 
@@ -479,13 +479,13 @@ Every recommendation can be explained.
 
 ---
 
-## Organizational Learning
+### Organizational Learning
 
 Organizations continuously improve by converting experience into reusable Knowledge.
 
 ---
 
-## Evolution without Rewriting
+### Evolution without Rewriting
 
 Knowledge evolves through revisions.
 
@@ -493,7 +493,7 @@ Historical revisions remain preserved.
 
 ---
 
-## Organization Isolation
+### Organization Isolation
 
 Every Organization-owned business Aggregate belongs to exactly one Organization and preserves its Organization identity.
 
@@ -503,7 +503,7 @@ Cross-Organization references, reads, and modifications are denied by default un
 
 ---
 
-# Future Extensions
+## Future Extensions
 
 The domain model intentionally supports future concepts such as:
 
@@ -521,7 +521,7 @@ These extensions should preserve the existing Aggregate boundaries.
 
 ---
 
-# Related Documents
+## Related Documents
 
 - `docs/architecture/overview.md`
 - `docs/architecture/authorization.md`

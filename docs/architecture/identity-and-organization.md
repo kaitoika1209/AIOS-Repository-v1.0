@@ -1,5 +1,10 @@
 # Identity and Organization Architecture
 
+> **Scope classification:** MVP Normative  
+> **MVP implementation authority:** Yes  
+> **Promotion requirement:** Not applicable  
+> **Authority rank:** see [Document Governance](../document-governance.md)
+
 **Status:** Draft  
 **Phase:** MVP  
 **Architecture:** Modular Monolith  
@@ -7,7 +12,7 @@
 
 ---
 
-# Purpose
+## Purpose
 
 This document defines how AIOS represents:
 
@@ -39,7 +44,7 @@ Authorization determines what that participant may do.
 
 ---
 
-# Goals
+## Goals
 
 The architecture must ensure that:
 
@@ -58,7 +63,7 @@ The architecture must ensure that:
 
 ---
 
-# Non-Goals
+## Non-Goals
 
 This document does not define:
 
@@ -84,7 +89,7 @@ Those concerns belong to authentication, infrastructure, or future-phase designs
 
 ---
 
-# Core Model
+## Core Model
 
 The MVP distinguishes the following concepts:
 
@@ -110,7 +115,7 @@ These concepts are related but not interchangeable.
 
 ---
 
-# Conceptual Relationships
+## Conceptual Relationships
 
 ```text
 Human Identity
@@ -137,7 +142,7 @@ A Membership belongs to exactly:
 
 ---
 
-# Identity Versus Organization
+## Identity Versus Organization
 
 A Human Identity represents a person.
 
@@ -163,7 +168,7 @@ The same person may have different authority in different Organizations.
 
 ---
 
-# Identity Versus Principal
+## Identity Versus Principal
 
 An Identity is a durable internal representation.
 
@@ -186,7 +191,7 @@ The same Human Identity may produce different principals depending on the select
 
 ---
 
-# Membership Versus Principal
+## Membership Versus Principal
 
 A Membership represents a durable relationship between a Human Identity and an Organization.
 
@@ -212,7 +217,7 @@ Active Membership
 
 ---
 
-# Principal Versus Actor Reference
+## Principal Versus Actor Reference
 
 A Principal represents who is currently executing.
 
@@ -245,7 +250,7 @@ The System must not be recorded as the Human who made the original decision.
 
 ---
 
-# Stable Identity
+## Stable Identity
 
 Every Human Identity has a stable internal identifier.
 
@@ -268,7 +273,7 @@ Domain history must reference the stable internal identity.
 
 ---
 
-# Human Identity Record
+## Human Identity Record
 
 A conceptual Human Identity record contains:
 
@@ -287,7 +292,7 @@ Authentication-provider references are modeled separately.
 
 ---
 
-# Human Identity Status
+## Human Identity Status
 
 Recommended MVP statuses:
 
@@ -299,13 +304,13 @@ Disabled
 
 ---
 
-## Active
+### Active
 
 The identity may authenticate and participate through active Memberships.
 
 ---
 
-## Disabled
+### Disabled
 
 The identity may not create new authenticated Human principals.
 
@@ -322,7 +327,7 @@ Disabling an Identity does not delete:
 
 ---
 
-# Authentication Subject Reference
+## Authentication Subject Reference
 
 AIOS may integrate with one or more external identity providers.
 
@@ -352,7 +357,7 @@ UNIQUE (
 
 ---
 
-# Identity Provider Independence
+## Identity Provider Independence
 
 Domain Aggregates must not store external identity provider subject identifiers.
 
@@ -374,7 +379,7 @@ Internal audit identity must remain stable.
 
 ---
 
-# Email Is Not Identity
+## Email Is Not Identity
 
 Email addresses must not be used as permanent identity keys.
 
@@ -395,7 +400,7 @@ identityId
 
 ---
 
-# Display Name Is Not Identity
+## Display Name Is Not Identity
 
 Display names are presentation data.
 
@@ -411,7 +416,7 @@ The authoritative identity remains the stable identifier.
 
 ---
 
-# Organization
+## Organization
 
 An Organization is the primary business isolation boundary in AIOS.
 
@@ -429,7 +434,7 @@ Examples:
 
 ---
 
-# Organization Record
+## Organization Record
 
 A conceptual Organization contains:
 
@@ -447,7 +452,7 @@ Organization
 
 ---
 
-# Organization Status
+## Organization Status
 
 Recommended MVP statuses:
 
@@ -461,7 +466,7 @@ Archived
 
 ---
 
-## Active Organization
+### Active Organization
 
 An Active Organization may:
 
@@ -474,7 +479,7 @@ An Active Organization may:
 
 ---
 
-## Suspended Organization
+### Suspended Organization
 
 A Suspended Organization does not permit ordinary business mutations.
 
@@ -489,7 +494,7 @@ Suspension rules must fail closed.
 
 ---
 
-## Archived Organization
+### Archived Organization
 
 An Archived Organization is read-only.
 
@@ -505,7 +510,7 @@ Historical data remains retained according to policy.
 
 ---
 
-# Organization Identity
+## Organization Identity
 
 Organization names are not unique identity keys.
 
@@ -521,7 +526,7 @@ URLs, slugs, or display names must resolve to that identifier before protected c
 
 ---
 
-# Organization Context
+## Organization Context
 
 Every protected request executes within exactly one Organization context.
 
@@ -538,7 +543,7 @@ A request must not operate across multiple Organizations.
 
 ---
 
-# Multi-Organization Humans
+## Multi-Organization Humans
 
 A Human Identity may belong to multiple Organizations.
 
@@ -559,7 +564,7 @@ The org-beta Membership grants no permission inside the org-alpha request.
 
 ---
 
-# Organization Context Selection
+## Organization Context Selection
 
 Organization context may be selected through:
 
@@ -572,7 +577,7 @@ The selected Organization must be validated against active Membership.
 
 ---
 
-# Organization Context Prohibitions
+## Organization Context Prohibitions
 
 The following are prohibited:
 
@@ -584,7 +589,7 @@ The following are prohibited:
 
 ---
 
-# Membership
+## Membership
 
 A Membership represents the relationship between one Human Identity and one Organization.
 
@@ -594,7 +599,7 @@ Membership is also not a role.
 
 ---
 
-# Membership Record
+## Membership Record
 
 A conceptual Membership contains:
 
@@ -616,7 +621,7 @@ Membership
 
 ---
 
-# Membership Status
+## Membership Status
 
 Recommended MVP statuses:
 
@@ -632,7 +637,7 @@ Revoked
 
 ---
 
-## Invited
+### Invited
 
 The Human has been invited but has not completed activation.
 
@@ -640,7 +645,7 @@ An Invited Membership grants no business authority.
 
 ---
 
-## Active
+### Active
 
 The Human may produce a HumanMemberPrincipal for that Organization.
 
@@ -653,7 +658,7 @@ Authority still depends on:
 
 ---
 
-## Suspended
+### Suspended
 
 The Membership is temporarily inactive.
 
@@ -663,7 +668,7 @@ The Membership may later return to Active through an authorized Human action.
 
 ---
 
-## Revoked
+### Revoked
 
 The Membership is permanently inactive.
 
@@ -675,7 +680,7 @@ A later re-entry should normally create a new Membership lifecycle or explicit r
 
 ---
 
-# Membership Uniqueness
+## Membership Uniqueness
 
 The MVP permits only one current Membership relationship for one Human Identity within one Organization.
 
@@ -692,7 +697,7 @@ Historical lifecycle changes are represented through status and events.
 
 ---
 
-# Membership Does Not Own Human Identity
+## Membership Does Not Own Human Identity
 
 Revoking a Membership does not disable the Human Identity globally.
 
@@ -708,7 +713,7 @@ The Human may continue operating in org-beta.
 
 ---
 
-# Identity Disablement
+## Identity Disablement
 
 Disabling the Human Identity affects every Organization Membership.
 
@@ -730,7 +735,7 @@ Organization.Status = Active
 
 ---
 
-# Human Member Principal
+## Human Member Principal
 
 A Human Member Principal is created only when all required identity facts are valid.
 
@@ -748,7 +753,7 @@ HumanMemberPrincipal
 
 ---
 
-# Human Principal Validity
+## Human Principal Validity
 
 A Human Member Principal is valid only when:
 
@@ -776,7 +781,7 @@ Failure of any condition results in denial.
 
 ---
 
-# Role Assignment
+## Role Assignment
 
 Roles are assigned within a Membership.
 
@@ -796,7 +801,7 @@ A Membership may hold multiple roles.
 
 ---
 
-# Role Scope
+## Role Scope
 
 Every role assignment is scoped to one Membership and therefore one Organization.
 
@@ -816,7 +821,7 @@ membership-456 in org-alpha has Reviewer
 
 ---
 
-# Role Assignment Record
+## Role Assignment Record
 
 A conceptual Role Assignment contains:
 
@@ -837,7 +842,7 @@ Only active Role Assignments grant permissions.
 
 ---
 
-# Membership and Role Separation
+## Membership and Role Separation
 
 Membership answers:
 
@@ -855,7 +860,7 @@ These are separate decisions.
 
 ---
 
-# Organization Owner
+## Organization Owner
 
 Every active Organization must have at least one active OrganizationOwner.
 
@@ -873,7 +878,7 @@ Ownership is not stored as an unaudited Boolean on the Human Identity.
 
 ---
 
-# Last Owner Invariant
+## Last Owner Invariant
 
 An operation must not remove, suspend, or revoke the final active Owner when the Organization remains Active.
 
@@ -893,7 +898,7 @@ The Organization must first:
 
 ---
 
-# Owner Is Still Human
+## Owner Is Still Human
 
 OrganizationOwner is a Human role.
 
@@ -911,7 +916,7 @@ Owner status does not permit Secretary or System impersonation.
 
 ---
 
-# Secretary Principal
+## Secretary Principal
 
 The Secretary is an advisory AI principal.
 
@@ -925,7 +930,7 @@ It is not:
 
 ---
 
-# Organization-Scoped Secretary
+## Organization-Scoped Secretary
 
 Secretary execution is scoped to one Organization.
 
@@ -946,7 +951,7 @@ The Secretary Runtime is not a domain owner. It may invoke only typed, context-o
 
 ---
 
-# Secretary Identity Rules
+## Secretary Identity Rules
 
 The Secretary:
 
@@ -959,7 +964,7 @@ The Secretary:
 
 ---
 
-# Secretary Contribution Attribution
+## Secretary Contribution Attribution
 
 A Secretary Contribution should record:
 
@@ -980,7 +985,7 @@ This preserves both:
 
 ---
 
-# System Principal
+## System Principal
 
 A System Principal represents trusted internal automation.
 
@@ -1005,7 +1010,7 @@ A System Principal is not:
 
 ---
 
-# System Principal Record
+## System Principal Record
 
 A conceptual System Principal contains:
 
@@ -1023,7 +1028,7 @@ System capabilities are defined by Authorization architecture.
 
 ---
 
-# System Organization Scope
+## System Organization Scope
 
 A System Principal may technically serve multiple Organizations.
 
@@ -1044,7 +1049,7 @@ The same execution cannot load data from org-beta.
 
 ---
 
-# Actor Reference
+## Actor Reference
 
 Domain history uses a stable ActorReference.
 
@@ -1071,7 +1076,7 @@ System
 
 ---
 
-# Human Actor Reference
+## Human Actor Reference
 
 For Human actions:
 
@@ -1086,7 +1091,7 @@ The Membership reference records which Organization relationship was used.
 
 ---
 
-# Secretary Actor Reference
+## Secretary Actor Reference
 
 For advisory Secretary actions:
 
@@ -1101,7 +1106,7 @@ Secretary attribution must never use a Human identityId as the actorId.
 
 ---
 
-# System Actor Reference
+## System Actor Reference
 
 For operational System actions:
 
@@ -1121,7 +1126,7 @@ The source Human authority remains available through:
 
 ---
 
-# Actor Snapshot
+## Actor Snapshot
 
 A display name snapshot may be stored for historical readability.
 
@@ -1137,7 +1142,7 @@ The stable actor identifier remains authoritative.
 
 ---
 
-# Historical Identity Preservation
+## Historical Identity Preservation
 
 Historical records must remain understandable when:
 
@@ -1152,7 +1157,7 @@ Past actions must not be rewritten.
 
 ---
 
-# Aggregate Boundaries
+## Aggregate Boundaries
 
 The MVP uses separate Aggregate boundaries for:
 
@@ -1168,7 +1173,7 @@ This prevents one Organization Aggregate from becoming excessively large.
 
 ---
 
-# Human Identity Aggregate
+## Human Identity Aggregate
 
 The Human Identity Aggregate owns:
 
@@ -1187,7 +1192,7 @@ It does not own:
 
 ---
 
-# Organization Aggregate
+## Organization Aggregate
 
 The Organization Aggregate owns:
 
@@ -1202,7 +1207,7 @@ It does not contain all Membership entities.
 
 ---
 
-# Membership Aggregate
+## Membership Aggregate
 
 The Membership Aggregate owns:
 
@@ -1221,7 +1226,7 @@ It does not own:
 
 ---
 
-# Why Membership Is a Separate Aggregate
+## Why Membership Is a Separate Aggregate
 
 Organizations may contain many Members.
 
@@ -1237,7 +1242,7 @@ A separate Membership Aggregate allows independent changes while preserving Orga
 
 ---
 
-# Cross-Aggregate Coordination
+## Cross-Aggregate Coordination
 
 Application Services coordinate Identity, Organization, and Membership.
 
@@ -1263,7 +1268,7 @@ Aggregates never invoke one another directly.
 
 ---
 
-# Aggregate References
+## Aggregate References
 
 Cross-Aggregate relationships use identifiers.
 
@@ -1283,7 +1288,7 @@ Aggregates do not hold direct object references to one another.
 
 ---
 
-# Transaction Boundary Principle
+## Transaction Boundary Principle
 
 One command should normally mutate one Aggregate.
 
@@ -1304,7 +1309,7 @@ Exceptional bootstrap workflows may coordinate multiple new Aggregates in one Po
 
 ---
 
-# Organization Bootstrap
+## Organization Bootstrap
 
 Creating a new Organization requires an initial Human Owner.
 
@@ -1336,7 +1341,7 @@ This prevents an active Organization from being created without an Owner.
 
 ---
 
-# Organization Bootstrap Invariant
+## Organization Bootstrap Invariant
 
 The following state must never become externally visible:
 
@@ -1352,7 +1357,7 @@ It does not merge Aggregate boundaries.
 
 ---
 
-# Identity and Organization Invariants
+## Identity and Organization Invariants
 
 The following invariants must always hold:
 
@@ -1374,7 +1379,7 @@ The following invariants must always hold:
 
 ---
 
-# Trust Boundaries
+## Trust Boundaries
 
 The following data must come from trusted infrastructure:
 
@@ -1390,7 +1395,7 @@ Business command payloads must not be trusted to supply these values.
 
 ---
 
-# Payload Prohibitions
+## Payload Prohibitions
 
 Protected command payloads must not permit arbitrary values for:
 
@@ -1418,7 +1423,7 @@ Creation commands may contain business data only.
 
 ---
 
-# Domain Resource Ownership
+## Domain Resource Ownership
 
 Work, Decision, and Memory store:
 
@@ -1442,7 +1447,7 @@ The specific domain Aggregate determines which references are required.
 
 ---
 
-# Identity Deletion Principle
+## Identity Deletion Principle
 
 Hard deletion of Human Identity is not part of the MVP.
 
@@ -1458,7 +1463,7 @@ Privacy-driven erasure requires a separate compliant anonymization design.
 
 ---
 
-# Organization Deletion Principle
+## Organization Deletion Principle
 
 Hard deletion of Organization is not part of the MVP.
 
@@ -1477,7 +1482,7 @@ Retention and eventual deletion require a separate compliance policy.
 
 ---
 
-# Guiding Principles
+## Guiding Principles
 
 Identity architecture answers:
 
@@ -1499,7 +1504,7 @@ The Domain Model answers:
 
 > Is the command valid in the current business state?
 
-# Human Identity Lifecycle
+## Human Identity Lifecycle
 
 The Human Identity lifecycle is intentionally simple in the MVP.
 
@@ -1517,7 +1522,7 @@ It does not represent Organization membership.
 
 ---
 
-# Human Identity State Machine
+## Human Identity State Machine
 
 ```text
 Create Identity
@@ -1536,7 +1541,7 @@ Reactivation may be introduced through an explicit administrative command if req
 
 ---
 
-# Create Human Identity
+## Create Human Identity
 
 A Human Identity may be created when:
 
@@ -1553,7 +1558,7 @@ identityId
 
 ---
 
-# Create Human Identity Command
+## Create Human Identity Command
 
 Conceptual command:
 
@@ -1570,7 +1575,7 @@ The command must not allow the client to choose the internal identityId unless t
 
 ---
 
-# Create Human Identity Rules
+## Create Human Identity Rules
 
 Creation requires:
 
@@ -1584,7 +1589,7 @@ Creation does not automatically grant Organization membership.
 
 ---
 
-# Human Identity Created Event
+## Human Identity Created Event
 
 ```text
 HumanIdentityCreated
@@ -1601,7 +1606,7 @@ The event must not expose authentication secrets.
 
 ---
 
-# Update Human Identity Profile
+## Update Human Identity Profile
 
 A Human may update non-authoritative profile information such as:
 
@@ -1614,7 +1619,7 @@ Profile changes do not change domain identity.
 
 ---
 
-# Update Human Identity Command
+## Update Human Identity Command
 
 ```text
 UpdateHumanIdentityProfile
@@ -1628,7 +1633,7 @@ Authorization must verify that the Human may update the target identity.
 
 ---
 
-# Human Identity Profile Updated Event
+## Human Identity Profile Updated Event
 
 ```text
 HumanIdentityProfileUpdated
@@ -1642,7 +1647,7 @@ Sensitive previous values should not be copied into broadly distributed event pa
 
 ---
 
-# Link Authentication Subject
+## Link Authentication Subject
 
 A trusted external authentication subject may be linked to an existing Human Identity.
 
@@ -1658,7 +1663,7 @@ LinkAuthenticationSubject
 
 ---
 
-# Link Rules
+## Link Rules
 
 The authentication subject must:
 
@@ -1669,7 +1674,7 @@ The authentication subject must:
 
 ---
 
-# Authentication Subject Linked Event
+## Authentication Subject Linked Event
 
 ```text
 AuthenticationSubjectLinked
@@ -1684,7 +1689,7 @@ The event may use a protected or hashed representation when raw subject identifi
 
 ---
 
-# Unlink Authentication Subject
+## Unlink Authentication Subject
 
 An authentication subject may be unlinked when:
 
@@ -1697,7 +1702,7 @@ The system must not unlink the final usable authentication method without an exp
 
 ---
 
-# Disable Human Identity
+## Disable Human Identity
 
 Disabling a Human Identity prevents creation of new Human Member Principals across all Organizations.
 
@@ -1712,7 +1717,7 @@ DisableHumanIdentity
 
 ---
 
-# Disable Human Identity Rules
+## Disable Human Identity Rules
 
 Disablement requires:
 
@@ -1725,7 +1730,7 @@ The system must not disable a Human Identity if doing so would leave an Active O
 
 ---
 
-# Human Identity Disabled Event
+## Human Identity Disabled Event
 
 ```text
 HumanIdentityDisabled
@@ -1739,7 +1744,7 @@ Historical actions remain valid.
 
 ---
 
-# Identity Disablement Effects
+## Identity Disablement Effects
 
 After disablement:
 
@@ -1764,7 +1769,7 @@ Memberships may later be separately suspended or revoked for administrative clar
 
 ---
 
-# Identity Reactivation
+## Identity Reactivation
 
 Identity reactivation is optional in the MVP.
 
@@ -1781,7 +1786,7 @@ Reactivation does not automatically reactivate Suspended or Revoked Memberships.
 
 ---
 
-# Organization Lifecycle
+## Organization Lifecycle
 
 Recommended Organization states:
 
@@ -1795,7 +1800,7 @@ Archived
 
 ---
 
-# Organization State Machine
+## Organization State Machine
 
 ```text
 Create Organization
@@ -1823,7 +1828,7 @@ An Archived Organization does not return to Active in the MVP.
 
 ---
 
-# Create Organization
+## Create Organization
 
 Organization creation is a coordinated bootstrap workflow.
 
@@ -1835,7 +1840,7 @@ It creates:
 
 ---
 
-# Create Organization Command
+## Create Organization Command
 
 ```text
 CreateOrganization
@@ -1851,7 +1856,7 @@ The payload must not select another person as the initial Owner.
 
 ---
 
-# Organization Bootstrap Transaction
+## Organization Bootstrap Transaction
 
 ```text
 BEGIN
@@ -1883,7 +1888,7 @@ COMMIT
 
 ---
 
-# Organization Created Event
+## Organization Created Event
 
 ```text
 OrganizationCreated
@@ -1895,7 +1900,7 @@ OrganizationCreated
 
 ---
 
-# Initial Membership Created Event
+## Initial Membership Created Event
 
 ```text
 MembershipCreated
@@ -1908,7 +1913,7 @@ MembershipCreated
 
 ---
 
-# Initial Owner Assigned Event
+## Initial Owner Assigned Event
 
 ```text
 OrganizationOwnerAssigned
@@ -1921,7 +1926,7 @@ OrganizationOwnerAssigned
 
 ---
 
-# Rename Organization
+## Rename Organization
 
 Conceptual command:
 
@@ -1940,7 +1945,7 @@ The Organization Aggregate validates:
 
 ---
 
-# Organization Renamed Event
+## Organization Renamed Event
 
 ```text
 OrganizationRenamed
@@ -1955,7 +1960,7 @@ Organization name changes do not change organizationId.
 
 ---
 
-# Suspend Organization
+## Suspend Organization
 
 Suspension temporarily blocks ordinary business mutations.
 
@@ -1970,7 +1975,7 @@ SuspendOrganization
 
 ---
 
-# Suspension Rules
+## Suspension Rules
 
 Suspension requires:
 
@@ -1982,7 +1987,7 @@ Suspension requires:
 
 ---
 
-# Organization Suspended Event
+## Organization Suspended Event
 
 ```text
 OrganizationSuspended
@@ -1994,7 +1999,7 @@ OrganizationSuspended
 
 ---
 
-# Suspension Effects
+## Suspension Effects
 
 While Suspended:
 
@@ -2011,7 +2016,7 @@ Operational processing may continue only when required to preserve consistency o
 
 ---
 
-# Reactivate Organization
+## Reactivate Organization
 
 Conceptual command:
 
@@ -2031,7 +2036,7 @@ Reactivation requires:
 
 ---
 
-# Organization Reactivated Event
+## Organization Reactivated Event
 
 ```text
 OrganizationReactivated
@@ -2043,7 +2048,7 @@ OrganizationReactivated
 
 ---
 
-# Archive Organization
+## Archive Organization
 
 Archival makes the Organization read-only.
 
@@ -2058,7 +2063,7 @@ ArchiveOrganization
 
 ---
 
-# Archive Rules
+## Archive Rules
 
 Archival requires:
 
@@ -2077,7 +2082,7 @@ Recommended MVP rule:
 
 ---
 
-# Organization Archived Event
+## Organization Archived Event
 
 ```text
 OrganizationArchived
@@ -2089,7 +2094,7 @@ OrganizationArchived
 
 ---
 
-# Archive Effects
+## Archive Effects
 
 After archival:
 
@@ -2112,7 +2117,7 @@ Background mutation
 
 ---
 
-# Membership Lifecycle
+## Membership Lifecycle
 
 Recommended Membership states:
 
@@ -2128,7 +2133,7 @@ Revoked
 
 ---
 
-# Membership State Machine
+## Membership State Machine
 
 ```text
 Invite Human
@@ -2176,7 +2181,7 @@ The MVP may model invitation expiry as Revoked with a specific reason.
 
 ---
 
-# Invite Human to Organization
+## Invite Human to Organization
 
 An authorized Human may invite another person to an Organization.
 
@@ -2193,7 +2198,7 @@ InviteHumanToOrganization
 
 ---
 
-# Invitation Workflow
+## Invitation Workflow
 
 ```text
 Authorized Human
@@ -2219,7 +2224,7 @@ Persist and publish invitation event
 
 ---
 
-# Invitation Rules
+## Invitation Rules
 
 Invitation requires:
 
@@ -2233,7 +2238,7 @@ Invitation requires:
 
 ---
 
-# Existing Identity Invitation
+## Existing Identity Invitation
 
 If the invitee already has a Human Identity:
 
@@ -2245,7 +2250,7 @@ The invitation must not create a duplicate Human Identity.
 
 ---
 
-# Unknown Identity Invitation
+## Unknown Identity Invitation
 
 If the invitee does not yet have a Human Identity:
 
@@ -2258,7 +2263,7 @@ The pending email reference is not yet an authoritative Human Identity.
 
 ---
 
-# Membership Invited Event
+## Membership Invited Event
 
 ```text
 MembershipInvited
@@ -2273,7 +2278,7 @@ MembershipInvited
 
 ---
 
-# Invitation Delivery
+## Invitation Delivery
 
 Invitation email delivery is asynchronous.
 
@@ -2293,7 +2298,7 @@ Delivery may be retried.
 
 ---
 
-# Accept Invitation
+## Accept Invitation
 
 Conceptual command:
 
@@ -2307,7 +2312,7 @@ The authenticated Human must match the intended invitation recipient according t
 
 ---
 
-# Acceptance Rules
+## Acceptance Rules
 
 Acceptance requires:
 
@@ -2322,7 +2327,7 @@ Acceptance requires:
 
 ---
 
-# Invitation Identity Matching
+## Invitation Identity Matching
 
 Matching may use:
 
@@ -2335,7 +2340,7 @@ Unverified email alone must not grant Membership.
 
 ---
 
-# Invitation Acceptance Transaction
+## Invitation Acceptance Transaction
 
 ```text
 BEGIN
@@ -2363,7 +2368,7 @@ COMMIT
 
 ---
 
-# Membership Activated Event
+## Membership Activated Event
 
 ```text
 MembershipActivated
@@ -2378,7 +2383,7 @@ Activation makes the Membership eligible to produce a Human Member Principal.
 
 ---
 
-# Resend Invitation
+## Resend Invitation
 
 Conceptual command:
 
@@ -2398,7 +2403,7 @@ It must not create another Membership.
 
 ---
 
-# Revoke Invitation
+## Revoke Invitation
 
 Conceptual command:
 
@@ -2413,7 +2418,7 @@ The Membership must be Invited.
 
 ---
 
-# Invitation Revoked Event
+## Invitation Revoked Event
 
 ```text
 MembershipInvitationRevoked
@@ -2426,7 +2431,7 @@ MembershipInvitationRevoked
 
 ---
 
-# Suspend Membership
+## Suspend Membership
 
 Suspension temporarily removes authority in one Organization.
 
@@ -2441,7 +2446,7 @@ SuspendMembership
 
 ---
 
-# Suspension Rules
+## Suspension Rules
 
 Suspension requires:
 
@@ -2453,7 +2458,7 @@ Suspension requires:
 
 ---
 
-# Membership Suspended Event
+## Membership Suspended Event
 
 ```text
 MembershipSuspended
@@ -2467,7 +2472,7 @@ MembershipSuspended
 
 ---
 
-# Suspension Effects
+## Suspension Effects
 
 After Membership suspension:
 
@@ -2480,7 +2485,7 @@ After Membership suspension:
 
 ---
 
-# Reactivate Membership
+## Reactivate Membership
 
 Conceptual command:
 
@@ -2502,7 +2507,7 @@ Reactivation requires:
 
 ---
 
-# Membership Reactivated Event
+## Membership Reactivated Event
 
 ```text
 MembershipReactivated
@@ -2516,7 +2521,7 @@ MembershipReactivated
 
 ---
 
-# Revoke Membership
+## Revoke Membership
 
 Revocation permanently removes future Organization authority.
 
@@ -2531,7 +2536,7 @@ RevokeMembership
 
 ---
 
-# Revocation Rules
+## Revocation Rules
 
 Revocation requires:
 
@@ -2544,7 +2549,7 @@ Revocation requires:
 
 ---
 
-# Membership Revoked Event
+## Membership Revoked Event
 
 ```text
 MembershipRevoked
@@ -2558,7 +2563,7 @@ MembershipRevoked
 
 ---
 
-# Revocation Effects
+## Revocation Effects
 
 After revocation:
 
@@ -2583,7 +2588,7 @@ Revocation does not delete the Human Identity.
 
 ---
 
-# Membership Reinstatement
+## Membership Reinstatement
 
 The MVP should not silently change Revoked back to Active.
 
@@ -2603,7 +2608,7 @@ The selected implementation must preserve prior revocation history.
 
 ---
 
-# Recommended MVP Reinstatement Rule
+## Recommended MVP Reinstatement Rule
 
 Use explicit reinstatement of the same Membership only when:
 
@@ -2617,7 +2622,7 @@ Otherwise, create a new Membership record.
 
 ---
 
-# Role Assignment Lifecycle
+## Role Assignment Lifecycle
 
 Role assignments have two effective states:
 
@@ -2631,7 +2636,7 @@ The lifecycle is append-only from an audit perspective.
 
 ---
 
-# Assign Role
+## Assign Role
 
 Conceptual command:
 
@@ -2644,7 +2649,7 @@ AssignOrganizationRole
 
 ---
 
-# Role Assignment Rules
+## Role Assignment Rules
 
 Assignment requires:
 
@@ -2659,7 +2664,7 @@ Assignment requires:
 
 ---
 
-# Role Assigned Event
+## Role Assigned Event
 
 ```text
 OrganizationRoleAssigned
@@ -2674,7 +2679,7 @@ OrganizationRoleAssigned
 
 ---
 
-# Revoke Role
+## Revoke Role
 
 Conceptual command:
 
@@ -2688,7 +2693,7 @@ RevokeOrganizationRole
 
 ---
 
-# Role Revocation Rules
+## Role Revocation Rules
 
 Revocation requires:
 
@@ -2700,7 +2705,7 @@ Revocation requires:
 
 ---
 
-# Role Revoked Event
+## Role Revoked Event
 
 ```text
 OrganizationRoleRevoked
@@ -2716,7 +2721,7 @@ OrganizationRoleRevoked
 
 ---
 
-# Role Replacement
+## Role Replacement
 
 Changing a Member from one role set to another is modeled as:
 
@@ -2732,7 +2737,7 @@ There is no direct mutable role-array replacement without audit events.
 
 ---
 
-# Owner Assignment
+## Owner Assignment
 
 Assigning OrganizationOwner requires stronger authorization than ordinary role assignment.
 
@@ -2746,7 +2751,7 @@ An Admin cannot create a new Owner unless explicitly permitted by future policy.
 
 ---
 
-# Owner Assigned Event
+## Owner Assigned Event
 
 ```text
 OrganizationOwnerAssigned
@@ -2761,7 +2766,7 @@ This may be a specialized event in addition to the generic role-assignment event
 
 ---
 
-# Owner Removal
+## Owner Removal
 
 Removing Owner authority requires:
 
@@ -2773,7 +2778,7 @@ Removing Owner authority requires:
 
 ---
 
-# Ownership Transfer
+## Ownership Transfer
 
 Ownership transfer is an Application Layer workflow.
 
@@ -2784,7 +2789,7 @@ It coordinates:
 
 ---
 
-# Transfer Ownership Command
+## Transfer Ownership Command
 
 ```text
 TransferOrganizationOwnership
@@ -2797,7 +2802,7 @@ TransferOrganizationOwnership
 
 ---
 
-# Ownership Transfer Preconditions
+## Ownership Transfer Preconditions
 
 The Application Service verifies:
 
@@ -2811,7 +2816,7 @@ The Application Service verifies:
 
 ---
 
-# Ownership Transfer Transaction
+## Ownership Transfer Transaction
 
 ```text
 BEGIN
@@ -2842,7 +2847,7 @@ This is an exceptional multi-Aggregate coordination workflow.
 
 ---
 
-# Ownership Transferred Event
+## Ownership Transferred Event
 
 ```text
 OrganizationOwnershipTransferred
@@ -2857,7 +2862,7 @@ OrganizationOwnershipTransferred
 
 ---
 
-# Self-Removal Rules
+## Self-Removal Rules
 
 A Human may be allowed to leave an Organization.
 
@@ -2873,7 +2878,7 @@ The Human may act only on their own current Membership.
 
 ---
 
-# Leave Organization Preconditions
+## Leave Organization Preconditions
 
 Leaving requires:
 
@@ -2884,7 +2889,7 @@ Leaving requires:
 
 ---
 
-# Member Left Event
+## Member Left Event
 
 ```text
 MemberLeftOrganization
@@ -2899,7 +2904,7 @@ The resulting Membership status is Revoked.
 
 ---
 
-# Assignment Consequences
+## Assignment Consequences
 
 Membership suspension or revocation may leave business-resource assignments unresolved.
 
@@ -2913,7 +2918,7 @@ The Membership Aggregate does not directly update those resources.
 
 ---
 
-# Assignment Reconciliation
+## Assignment Reconciliation
 
 Membership lifecycle events may trigger asynchronous reconciliation.
 
@@ -2932,7 +2937,7 @@ Assignment Reconciliation Handler
 
 ---
 
-# No Automatic Business Reassignment
+## No Automatic Business Reassignment
 
 The System must not silently assign a new Human to Work or review responsibilities.
 
@@ -2947,7 +2952,7 @@ The System may:
 
 ---
 
-# Membership Status and Existing Resources
+## Membership Status and Existing Resources
 
 A suspended or revoked Member may remain referenced in historical or current domain records.
 
@@ -2963,7 +2968,7 @@ The domain may restrict completion or new action until reassignment.
 
 ---
 
-# Invitation Token Model
+## Invitation Token Model
 
 Invitation tokens are infrastructure credentials.
 
@@ -2989,7 +2994,7 @@ Tokens must be:
 
 ---
 
-# Invitation Token Events
+## Invitation Token Events
 
 Raw invitation tokens must not appear in Domain Events or logs.
 
@@ -3003,9 +3008,9 @@ only.
 
 ---
 
-# Commands Summary
+## Commands Summary
 
-## Human Identity Commands
+### Human Identity Commands
 
 ```text
 CreateHumanIdentity
@@ -3023,7 +3028,7 @@ ReactivateHumanIdentity
 
 ---
 
-## Organization Commands
+### Organization Commands
 
 ```text
 CreateOrganization
@@ -3039,7 +3044,7 @@ ArchiveOrganization
 
 ---
 
-## Membership Commands
+### Membership Commands
 
 ```text
 InviteHumanToOrganization
@@ -3061,7 +3066,7 @@ LeaveOrganization
 
 ---
 
-## Role Commands
+### Role Commands
 
 ```text
 AssignOrganizationRole
@@ -3073,9 +3078,9 @@ TransferOrganizationOwnership
 
 ---
 
-# Domain Events Summary
+## Domain Events Summary
 
-## Human Identity Events
+### Human Identity Events
 
 ```text
 HumanIdentityCreated
@@ -3093,7 +3098,7 @@ HumanIdentityReactivated
 
 ---
 
-## Organization Events
+### Organization Events
 
 ```text
 OrganizationCreated
@@ -3109,7 +3114,7 @@ OrganizationArchived
 
 ---
 
-## Membership Events
+### Membership Events
 
 ```text
 MembershipInvited
@@ -3129,7 +3134,7 @@ MemberLeftOrganization
 
 ---
 
-## Role Events
+### Role Events
 
 ```text
 OrganizationRoleAssigned
@@ -3143,7 +3148,7 @@ OrganizationOwnershipTransferred
 
 ---
 
-# Command Actor Requirements
+## Command Actor Requirements
 
 All identity and Organization lifecycle commands require a Human principal except:
 
@@ -3159,7 +3164,7 @@ The Secretary may not execute identity, Membership, Organization, or role comman
 
 ---
 
-# Secretary Prohibition
+## Secretary Prohibition
 
 The Secretary may never:
 
@@ -3176,7 +3181,7 @@ These operations require Human or trusted identity infrastructure authority.
 
 ---
 
-# System Operational Scope
+## System Operational Scope
 
 The System may:
 
@@ -3196,7 +3201,7 @@ The System may not independently decide:
 
 ---
 
-# Event Causation Rules
+## Event Causation Rules
 
 Operational events must preserve original causation.
 
@@ -3216,7 +3221,7 @@ The System delivery event does not become the source of Membership authority.
 
 ---
 
-# Identity Event Privacy
+## Identity Event Privacy
 
 Identity events should minimize personal data.
 
@@ -3238,7 +3243,7 @@ Avoid including:
 
 ---
 
-# Lifecycle Idempotency
+## Lifecycle Idempotency
 
 Every lifecycle command must be idempotent at the Application Layer.
 
@@ -3264,7 +3269,7 @@ A different command attempting an invalid repeated transition is handled by the 
 
 ---
 
-# Lifecycle Concurrency
+## Lifecycle Concurrency
 
 Identity, Organization, and Membership Aggregates use optimistic concurrency.
 
@@ -3280,7 +3285,7 @@ Failed writes reload and revalidate the complete command.
 
 ---
 
-# Last Owner Concurrency
+## Last Owner Concurrency
 
 The Last Owner Invariant spans multiple Membership Aggregates.
 
@@ -3297,7 +3302,7 @@ The implementation must prevent concurrent removals from producing zero active O
 
 ---
 
-# Owner Invariant Transaction
+## Owner Invariant Transaction
 
 Conceptual flow:
 
@@ -3323,7 +3328,7 @@ The count must be based on the same transaction snapshot.
 
 ---
 
-# Organization Archive Coordination
+## Organization Archive Coordination
 
 Archival may require coordination with Work query services.
 
@@ -3337,7 +3342,7 @@ The Organization Aggregate then validates its own lifecycle transition.
 
 ---
 
-# Identity Disablement Coordination
+## Identity Disablement Coordination
 
 Disabling a Human Identity may affect multiple Organizations.
 
@@ -3353,7 +3358,7 @@ Other conditions produce administrative warnings or follow-up work.
 
 ---
 
-# Lifecycle Consistency Model
+## Lifecycle Consistency Model
 
 Identity, Organization, and Membership state changes are strongly consistent within their transaction.
 
@@ -3375,7 +3380,7 @@ This temporary condition is valid and recoverable.
 
 ---
 
-# Part 2 Design Summary
+## Part 2 Design Summary
 
 The lifecycle model guarantees:
 
@@ -3394,7 +3399,7 @@ Identity and Membership changes establish who may participate.
 
 Authorization still determines which commands that participant may execute.
 
-# Application Workflows
+## Application Workflows
 
 Identity and Organization use cases are coordinated by Application Services.
 
@@ -3414,7 +3419,7 @@ Business lifecycle rules remain inside the relevant Aggregates.
 
 ---
 
-# Standard Human Command Flow
+## Standard Human Command Flow
 
 A protected Human command follows this sequence:
 
@@ -3456,7 +3461,7 @@ Failure at any identity, Organization, Membership, or authorization step stops t
 
 ---
 
-# Principal Resolution
+## Principal Resolution
 
 Principal Resolution converts trusted authentication evidence into an internal execution identity.
 
@@ -3464,7 +3469,7 @@ The resolver must never trust business command payload fields for principal iden
 
 ---
 
-# Principal Resolver Interface
+## Principal Resolver Interface
 
 A conceptual interface:
 
@@ -3495,7 +3500,7 @@ OrganizationContextRequired
 
 ---
 
-# Human Principal Resolution
+## Human Principal Resolution
 
 Human principal resolution performs:
 
@@ -3537,7 +3542,7 @@ Construct HumanMemberPrincipal
 
 ---
 
-# Human Principal Resolution Result
+## Human Principal Resolution Result
 
 A Human Member Principal should contain:
 
@@ -3557,7 +3562,7 @@ The principal should not include mutable role or permission snapshots unless the
 
 ---
 
-# Principal Identifier
+## Principal Identifier
 
 The principalId identifies one authenticated execution identity.
 
@@ -3581,7 +3586,7 @@ identityId
 
 ---
 
-# Multiple Authentication Subjects
+## Multiple Authentication Subjects
 
 One Human Identity may have multiple linked authentication subjects.
 
@@ -3599,7 +3604,7 @@ They do not create separate Human identities.
 
 ---
 
-# Ambiguous Subject Resolution
+## Ambiguous Subject Resolution
 
 One external subject must never resolve to multiple Human Identities.
 
@@ -3617,7 +3622,7 @@ The system must not guess which identity is correct.
 
 ---
 
-# Disabled Identity Resolution
+## Disabled Identity Resolution
 
 When the mapped Human Identity is Disabled:
 
@@ -3635,7 +3640,7 @@ The failure should be recorded as a security-relevant event.
 
 ---
 
-# Organization Context Resolution
+## Organization Context Resolution
 
 Every protected Human request must resolve exactly one Organization context.
 
@@ -3650,7 +3655,7 @@ The context determines:
 
 ---
 
-# Organization Context Sources
+## Organization Context Sources
 
 Organization context may be selected through:
 
@@ -3670,7 +3675,7 @@ A raw Organization identifier in a business payload is not trusted.
 
 ---
 
-# Organization-Scoped Route Example
+## Organization-Scoped Route Example
 
 ```text
 POST /organizations/{organizationId}/work
@@ -3687,7 +3692,7 @@ The Application Layer must still verify:
 
 ---
 
-# Session-Selected Organization
+## Session-Selected Organization
 
 A session may remember a selected Organization.
 
@@ -3703,7 +3708,7 @@ Each protected request must verify that the Membership remains Active.
 
 ---
 
-# Organization Context Resolver Interface
+## Organization Context Resolver Interface
 
 ```text
 OrganizationContextResolver
@@ -3732,7 +3737,7 @@ AmbiguousContext
 
 ---
 
-# Organization Context Record
+## Organization Context Record
 
 ```text
 OrganizationContext
@@ -3748,7 +3753,7 @@ Role and permission resolution may occur after this context is established.
 
 ---
 
-# Missing Organization Context
+## Missing Organization Context
 
 When a Human belongs to multiple Organizations and no Organization is selected:
 
@@ -3766,7 +3771,7 @@ The system must not choose an Organization automatically based on:
 
 ---
 
-# Single Membership Convenience
+## Single Membership Convenience
 
 The UI may automatically suggest the only available Organization.
 
@@ -3774,7 +3779,7 @@ The server must still resolve and validate it explicitly.
 
 ---
 
-# Organization Switching
+## Organization Switching
 
 Switching Organization changes the current execution context.
 
@@ -3791,7 +3796,7 @@ It does not mutate Organization or Membership Aggregates.
 
 ---
 
-# Organization Switch Rules
+## Organization Switch Rules
 
 Switching requires:
 
@@ -3804,7 +3809,7 @@ The switch does not combine roles from the previous Organization.
 
 ---
 
-# Resource Organization Verification
+## Resource Organization Verification
 
 After loading a target resource, the Application Service must verify:
 
@@ -3818,7 +3823,7 @@ Repositories should also require Organization scope to prevent accidental disclo
 
 ---
 
-# Principal Resolution for Secretary
+## Principal Resolution for Secretary
 
 Secretary execution must originate from trusted AIOS infrastructure.
 
@@ -3839,7 +3844,7 @@ Invoke Context-Owned AI Assistance Port
 
 ---
 
-# Secretary Principal Context
+## Secretary Principal Context
 
 ```text
 SecretaryPrincipal
@@ -3860,7 +3865,7 @@ The Secretary principal must not contain Human roles.
 
 ---
 
-# Secretary Principal Requirements
+## Secretary Principal Requirements
 
 Secretary resolution requires:
 
@@ -3873,7 +3878,7 @@ Secretary resolution requires:
 
 ---
 
-# Principal Resolution for System Workers
+## Principal Resolution for System Workers
 
 System principals are resolved through trusted internal workload identity.
 
@@ -3892,7 +3897,7 @@ SystemPrincipal
 
 ---
 
-# System Principal Requirements
+## System Principal Requirements
 
 System resolution requires:
 
@@ -3907,7 +3912,7 @@ A public request may never construct a System principal.
 
 ---
 
-# Application Service: Create Organization
+## Application Service: Create Organization
 
 Organization creation is an exceptional coordinated workflow.
 
@@ -3941,7 +3946,7 @@ Commit
 
 ---
 
-# Create Organization Transaction
+## Create Organization Transaction
 
 ```text
 BEGIN
@@ -3975,7 +3980,7 @@ The transaction must fail entirely if any bootstrap step fails.
 
 ---
 
-# Create Organization Result
+## Create Organization Result
 
 Recommended result:
 
@@ -3990,7 +3995,7 @@ CreateOrganizationResult
 
 ---
 
-# Application Service: Invite Human
+## Application Service: Invite Human
 
 Invitation may target an existing or unknown Human Identity.
 
@@ -4021,7 +4026,7 @@ Persist and Publish Invitation Event
 
 ---
 
-# Invitee Resolution
+## Invitee Resolution
 
 The Application Service may resolve invitees by:
 
@@ -4033,7 +4038,7 @@ It must not disclose unrelated identity information.
 
 ---
 
-# Existing Membership Outcomes
+## Existing Membership Outcomes
 
 When an existing Membership is found:
 
@@ -4055,7 +4060,7 @@ The Application Service must not create duplicate Memberships.
 
 ---
 
-# Invitation Transaction
+## Invitation Transaction
 
 ```text
 BEGIN
@@ -4089,7 +4094,7 @@ Invitation delivery occurs after commit.
 
 ---
 
-# Application Service: Accept Invitation
+## Application Service: Accept Invitation
 
 Invitation acceptance coordinates authentication evidence and Membership activation.
 
@@ -4117,7 +4122,7 @@ Persist and Commit
 
 ---
 
-# Identity Creation During Acceptance
+## Identity Creation During Acceptance
 
 When no Human Identity exists, acceptance may coordinate:
 
@@ -4129,7 +4134,7 @@ These changes may be committed atomically.
 
 ---
 
-# Acceptance Transaction
+## Acceptance Transaction
 
 ```text
 BEGIN
@@ -4169,7 +4174,7 @@ COMMIT
 
 ---
 
-# Invitation Token Consumption
+## Invitation Token Consumption
 
 The token must become unusable in the same transaction that activates the Membership.
 
@@ -4189,7 +4194,7 @@ Expired
 
 ---
 
-# Duplicate Invitation Acceptance
+## Duplicate Invitation Acceptance
 
 When the same command is retried after successful acceptance:
 
@@ -4200,7 +4205,7 @@ When the same command is retried after successful acceptance:
 
 ---
 
-# Application Service: Suspend Membership
+## Application Service: Suspend Membership
 
 ```text
 Authorized Owner or Admin
@@ -4229,7 +4234,7 @@ Persist and Commit
 
 ---
 
-# Suspension Transaction
+## Suspension Transaction
 
 ```text
 BEGIN
@@ -4259,7 +4264,7 @@ COMMIT
 
 ---
 
-# Application Service: Revoke Membership
+## Application Service: Revoke Membership
 
 Revocation follows the same security pattern as suspension but has permanent authority consequences.
 
@@ -4274,7 +4279,7 @@ Only the Last Owner condition is a blocking cross-Aggregate invariant in the MVP
 
 ---
 
-# Application Service: Transfer Ownership
+## Application Service: Transfer Ownership
 
 Ownership transfer coordinates two Membership Aggregates.
 
@@ -4308,7 +4313,7 @@ Commit
 
 ---
 
-# Ownership Transfer Atomicity
+## Ownership Transfer Atomicity
 
 The following must commit atomically:
 
@@ -4322,7 +4327,7 @@ No intermediate zero-Owner state may become visible.
 
 ---
 
-# Application Service: Disable Human Identity
+## Application Service: Disable Human Identity
 
 Identity disablement may affect multiple Organizations.
 
@@ -4351,7 +4356,7 @@ Persist and Publish Event
 
 ---
 
-# Disablement Query Responsibility
+## Disablement Query Responsibility
 
 The Human Identity Aggregate does not query Memberships.
 
@@ -4359,7 +4364,7 @@ The Application Service uses a Membership query service to determine whether dis
 
 ---
 
-# Disablement Transaction Strategy
+## Disablement Transaction Strategy
 
 When one Identity is an Owner in multiple Organizations, consistent protection may require:
 
@@ -4372,7 +4377,7 @@ A very large number of Memberships may require a controlled administrative workf
 
 ---
 
-# Repository Interfaces
+## Repository Interfaces
 
 Repositories persist Aggregate Roots.
 
@@ -4380,7 +4385,7 @@ They do not decide authorization or lifecycle rules.
 
 ---
 
-# Human Identity Repository
+## Human Identity Repository
 
 Conceptual interface:
 
@@ -4404,7 +4409,7 @@ Identity lookup by authentication subject is trusted infrastructure functionalit
 
 ---
 
-# Organization Repository
+## Organization Repository
 
 ```text
 OrganizationRepository
@@ -4420,7 +4425,7 @@ Protected Application Services should avoid globally listing Organizations witho
 
 ---
 
-# Membership Repository
+## Membership Repository
 
 ```text
 MembershipRepository
@@ -4449,7 +4454,7 @@ CountActiveOwners(
 
 ---
 
-# Role Assignment Persistence
+## Role Assignment Persistence
 
 Role Assignments may be persisted:
 
@@ -4460,7 +4465,7 @@ They must not be exposed as independently mutable Aggregate Roots.
 
 ---
 
-# Authentication Subject Repository
+## Authentication Subject Repository
 
 Authentication subject mappings may be managed through the Human Identity Repository or a dedicated infrastructure repository.
 
@@ -4480,7 +4485,7 @@ Uniqueness must be enforced by the database.
 
 ---
 
-# Invitation Repository
+## Invitation Repository
 
 Invitation credentials belong to Infrastructure.
 
@@ -4504,7 +4509,7 @@ Raw token values must not be persisted when a secure hash is sufficient.
 
 ---
 
-# Query Services
+## Query Services
 
 Cross-Aggregate reads use query services.
 
@@ -4526,7 +4531,7 @@ They do not mutate domain state.
 
 ---
 
-# Organization Ownership Query Service
+## Organization Ownership Query Service
 
 ```text
 OrganizationOwnershipQueryService
@@ -4545,7 +4550,7 @@ These queries support Application Layer coordination.
 
 ---
 
-# Authorization-Aware Identity Directory
+## Authorization-Aware Identity Directory
 
 An identity directory may help authorized Admins invite existing Humans.
 
@@ -4561,7 +4566,7 @@ The MVP may omit an internal identity directory and use email invitations only.
 
 ---
 
-# Transaction Boundaries
+## Transaction Boundaries
 
 Transaction ownership belongs to Application Services.
 
@@ -4569,7 +4574,7 @@ Aggregates do not begin, commit, or roll back transactions.
 
 ---
 
-# Single-Aggregate Transaction
+## Single-Aggregate Transaction
 
 Used for:
 
@@ -4601,7 +4606,7 @@ COMMIT
 
 ---
 
-# Coordinated Creation Transaction
+## Coordinated Creation Transaction
 
 Used for:
 
@@ -4626,7 +4631,7 @@ This pattern remains exceptional.
 
 ---
 
-# Multi-Membership Coordination Transaction
+## Multi-Membership Coordination Transaction
 
 Used for:
 
@@ -4652,7 +4657,7 @@ COMMIT
 
 ---
 
-# Long-Running Operations
+## Long-Running Operations
 
 The following must occur outside long-running transactions:
 
@@ -4667,7 +4672,7 @@ Only short persistence work remains inside transactions.
 
 ---
 
-# Transactional Outbox Events
+## Transactional Outbox Events
 
 Identity and Organization Domain Events are persisted through the same Transactional Outbox used by other AIOS modules.
 
@@ -4687,7 +4692,7 @@ OrganizationRoleAssigned
 
 ---
 
-# Identity Event Consumers
+## Identity Event Consumers
 
 Possible asynchronous consumers include:
 
@@ -4709,7 +4714,7 @@ Each consumer must be idempotent.
 
 ---
 
-# External Identity Provider Integration
+## External Identity Provider Integration
 
 AIOS may delegate authentication to an external Identity Provider.
 
@@ -4726,7 +4731,7 @@ AIOS remains authoritative for:
 
 ---
 
-# Identity Provider Responsibilities
+## Identity Provider Responsibilities
 
 An external provider may manage:
 
@@ -4741,7 +4746,7 @@ AIOS must not assume the provider knows AIOS Organization authority.
 
 ---
 
-# AIOS Responsibilities
+## AIOS Responsibilities
 
 AIOS manages:
 
@@ -4756,7 +4761,7 @@ AIOS manages:
 
 ---
 
-# Login Resolution Flow
+## Login Resolution Flow
 
 ```text
 Human Authenticates with Provider
@@ -4784,7 +4789,7 @@ Organization context is resolved separately.
 
 ---
 
-# Just-in-Time Identity Creation
+## Just-in-Time Identity Creation
 
 The MVP may support just-in-time Human Identity creation.
 
@@ -4799,7 +4804,7 @@ JIT identity creation must not automatically create Organization Membership with
 
 ---
 
-# Identity Linking
+## Identity Linking
 
 A Human may link an additional authentication method.
 
@@ -4813,7 +4818,7 @@ The linking workflow should require:
 
 ---
 
-# Identity Merge
+## Identity Merge
 
 Merging duplicate Human Identities is outside the MVP.
 
@@ -4829,7 +4834,7 @@ Duplicate identity conflicts require controlled administrative resolution.
 
 ---
 
-# Provider Subject Change
+## Provider Subject Change
 
 When an external provider changes a subject identifier:
 
@@ -4842,7 +4847,7 @@ Domain records remain unchanged.
 
 ---
 
-# Provider Outage
+## Provider Outage
 
 An Identity Provider outage may prevent new Human authentication.
 
@@ -4857,7 +4862,7 @@ System Workers may continue through their own trusted internal identities.
 
 ---
 
-# Session Management Integration
+## Session Management Integration
 
 Sessions are infrastructure concerns but must honor current identity state.
 
@@ -4874,7 +4879,7 @@ selectedOrganizationId
 
 ---
 
-# Session Validation
+## Session Validation
 
 Protected requests should validate:
 
@@ -4898,7 +4903,7 @@ Role and permission checks occur separately.
 
 ---
 
-# Session Invalidation Triggers
+## Session Invalidation Triggers
 
 Sessions should be invalidated or rejected after:
 
@@ -4918,7 +4923,7 @@ AuthenticationSubjectUnlinked
 
 ---
 
-# Session Invalidation Handler
+## Session Invalidation Handler
 
 ```text
 Identity or Membership Event
@@ -4937,7 +4942,7 @@ The handler is asynchronous and idempotent.
 
 ---
 
-# Revalidation Safety
+## Revalidation Safety
 
 Because invalidation may be delayed, every protected command must still validate current authoritative status.
 
@@ -4947,7 +4952,7 @@ It does not replace current-state validation.
 
 ---
 
-# Organization Suspension and Sessions
+## Organization Suspension and Sessions
 
 When an Organization is Suspended:
 
@@ -4960,7 +4965,7 @@ The Human Identity itself remains Active.
 
 ---
 
-# Audit Architecture
+## Audit Architecture
 
 Identity and Organization changes require durable auditability.
 
@@ -4977,7 +4982,7 @@ The audit trail must distinguish:
 
 ---
 
-# Identity Audit Record
+## Identity Audit Record
 
 Recommended fields:
 
@@ -5001,7 +5006,7 @@ occurredAt
 
 ---
 
-# Audit Examples
+## Audit Examples
 
 Auditable operations include:
 
@@ -5020,7 +5025,7 @@ Auditable operations include:
 
 ---
 
-# Historical Role Explanation
+## Historical Role Explanation
 
 Role assignment history must answer:
 
@@ -5042,7 +5047,7 @@ This supports later explanation of authorization decisions.
 
 ---
 
-# Audit and Domain Events
+## Audit and Domain Events
 
 Domain Events record committed business facts.
 
@@ -5052,7 +5057,7 @@ They may be correlated but should not be treated as identical records.
 
 ---
 
-# Privacy Principles
+## Privacy Principles
 
 Identity data must be limited to what AIOS needs.
 
@@ -5069,7 +5074,7 @@ Key principles:
 
 ---
 
-# Personal Data Classification
+## Personal Data Classification
 
 Likely personal data includes:
 
@@ -5093,7 +5098,7 @@ Access should be limited by policy.
 
 ---
 
-# Domain Event Privacy
+## Domain Event Privacy
 
 Broadly consumed events should prefer identifiers over personal data.
 
@@ -5118,7 +5123,7 @@ Consumers may load authorized display data when required.
 
 ---
 
-# Email Handling
+## Email Handling
 
 Email addresses should be:
 
@@ -5132,7 +5137,7 @@ Normalization must not incorrectly collapse distinct provider-specific addresses
 
 ---
 
-# Actor Display
+## Actor Display
 
 User interfaces may resolve current display names from identityId.
 
@@ -5149,7 +5154,7 @@ The historical action remains attributed.
 
 ---
 
-# Privacy Erasure
+## Privacy Erasure
 
 Hard deletion of Identity records is not defined in the MVP.
 
@@ -5165,7 +5170,7 @@ Such processing requires legal and compliance design.
 
 ---
 
-# Data Export
+## Data Export
 
 Identity or Organization data export is outside the core MVP lifecycle.
 
@@ -5180,7 +5185,7 @@ A future export must enforce:
 
 ---
 
-# Assignment Reconciliation
+## Assignment Reconciliation
 
 Membership lifecycle changes may affect Work, Decision, and Memory assignments.
 
@@ -5188,7 +5193,7 @@ These consequences are handled asynchronously.
 
 ---
 
-# Reconciliation Event Sources
+## Reconciliation Event Sources
 
 Relevant events include:
 
@@ -5208,7 +5213,7 @@ OrganizationRoleRevoked
 
 ---
 
-# Assignment Reconciliation Flow
+## Assignment Reconciliation Flow
 
 ```text
 MembershipRevoked
@@ -5231,7 +5236,7 @@ Notify Owners or Admins
 
 ---
 
-# Administrative Finding
+## Administrative Finding
 
 A reconciliation finding may contain:
 
@@ -5254,7 +5259,7 @@ It does not replace domain state.
 
 ---
 
-# Reconciliation Finding Types
+## Reconciliation Finding Types
 
 Examples:
 
@@ -5272,7 +5277,7 @@ SuspendedOrganizationHasPendingProcessing
 
 ---
 
-# No Direct Reassignment
+## No Direct Reassignment
 
 The reconciliation handler must not directly:
 
@@ -5286,7 +5291,7 @@ It may create a task or notification requiring Human action.
 
 ---
 
-# Organization Suspension Reconciliation
+## Organization Suspension Reconciliation
 
 When an Organization is Suspended, Workers should:
 
@@ -5301,7 +5306,7 @@ The exact handler policy must be explicit.
 
 ---
 
-# Organization Archival Reconciliation
+## Organization Archival Reconciliation
 
 Before or after archival, the system may verify:
 
@@ -5316,7 +5321,7 @@ Archival must not delete historical events.
 
 ---
 
-# Role Revocation Reconciliation
+## Role Revocation Reconciliation
 
 Role revocation may affect future access immediately.
 
@@ -5342,7 +5347,7 @@ Admin receives reassignment finding
 
 ---
 
-# Reconciliation Idempotency
+## Reconciliation Idempotency
 
 Each handler records:
 
@@ -5365,7 +5370,7 @@ UNIQUE (
 
 ---
 
-# Reconciliation Recovery
+## Reconciliation Recovery
 
 Failed reconciliation is retryable.
 
@@ -5380,7 +5385,7 @@ The source lifecycle change remains committed.
 
 ---
 
-# Notification Workflows
+## Notification Workflows
 
 Notifications may be triggered by:
 
@@ -5398,7 +5403,7 @@ Notification failure does not roll back the authoritative lifecycle event.
 
 ---
 
-# Notification Privacy
+## Notification Privacy
 
 Notifications must:
 
@@ -5411,7 +5416,7 @@ Notifications must:
 
 ---
 
-# Read Model Projections
+## Read Model Projections
 
 Identity and Organization events may build read models such as:
 
@@ -5433,7 +5438,7 @@ They do not become authorization sources unless designed and validated for that 
 
 ---
 
-# Authorization Source of Truth
+## Authorization Source of Truth
 
 Authoritative authorization checks should use current trusted data from:
 
@@ -5447,7 +5452,7 @@ A stale read model must not grant authority.
 
 ---
 
-# Idempotency
+## Idempotency
 
 Every state-changing Application Service accepts a commandId.
 
@@ -5471,7 +5476,7 @@ identityScope + commandId
 
 ---
 
-# Idempotent Invitation Delivery
+## Idempotent Invitation Delivery
 
 Invitation delivery should use a stable delivery identity:
 
@@ -5483,7 +5488,7 @@ Repeated Worker execution must not issue unrelated concurrent tokens.
 
 ---
 
-# Idempotent Session Invalidation
+## Idempotent Session Invalidation
 
 Session invalidation handlers may safely execute repeatedly.
 
@@ -5496,7 +5501,7 @@ Session already invalidated
 
 ---
 
-# Concurrency
+## Concurrency
 
 Optimistic concurrency applies to:
 
@@ -5508,7 +5513,7 @@ Expected versions should be used for Human-driven updates.
 
 ---
 
-# Concurrency Examples
+## Concurrency Examples
 
 ```text
 Two Admins assign same role
@@ -5538,7 +5543,7 @@ Stale command reloads and revalidates
 
 ---
 
-# Ownership Locking
+## Ownership Locking
 
 Owner-count changes require stronger coordination than ordinary optimistic locking.
 
@@ -5553,7 +5558,7 @@ Operations requiring ownership-scope locking include:
 
 ---
 
-# Failure Isolation
+## Failure Isolation
 
 Failure in an asynchronous consequence must not roll back the source lifecycle fact.
 
@@ -5583,7 +5588,7 @@ Result:
 
 ---
 
-# Application Result Types
+## Application Result Types
 
 Application Services should return explicit results.
 
@@ -5610,7 +5615,7 @@ TransferOwnershipResult
 
 ---
 
-# Stable Failure Results
+## Stable Failure Results
 
 Recommended failures include:
 
@@ -5654,7 +5659,7 @@ Transport layers map these results to protocol-specific responses.
 
 ---
 
-# Application Layer Rules
+## Application Layer Rules
 
 The following rules are mandatory:
 
@@ -5676,7 +5681,7 @@ The following rules are mandatory:
 
 ---
 
-# Part 3 Design Summary
+## Part 3 Design Summary
 
 The Application Layer converts trusted authentication evidence into explicit AIOS principals.
 
@@ -5702,7 +5707,7 @@ Membership establishes where the person participates.
 
 Authorization determines what the resulting principal may attempt.
 
-# Failure and Recovery Semantics
+## Failure and Recovery Semantics
 
 Identity and Organization operations must fail safely.
 
@@ -5722,7 +5727,7 @@ The system must prefer denial and recoverability over ambiguous success.
 
 ---
 
-# Failure Categories
+## Failure Categories
 
 Failures are classified as:
 
@@ -5758,7 +5763,7 @@ Configuration Failure
 
 ---
 
-# Authentication Failure
+## Authentication Failure
 
 Authentication failure occurs when trusted authentication evidence is missing or invalid.
 
@@ -5788,7 +5793,7 @@ Authentication failure is not retried as a domain command.
 
 ---
 
-# Identity Resolution Failure
+## Identity Resolution Failure
 
 Identity resolution fails when authentication evidence cannot be mapped safely to one Human Identity.
 
@@ -5810,7 +5815,7 @@ The system must not create a new Identity automatically unless an explicit provi
 
 ---
 
-# Ambiguous Identity Failure
+## Ambiguous Identity Failure
 
 The following condition is security-critical:
 
@@ -5833,7 +5838,7 @@ The resolver must never select one mapping arbitrarily.
 
 ---
 
-# Organization Resolution Failure
+## Organization Resolution Failure
 
 Organization resolution fails when:
 
@@ -5854,7 +5859,7 @@ A Human may remain globally authenticated while being unable to enter the reques
 
 ---
 
-# Membership Resolution Failure
+## Membership Resolution Failure
 
 Membership resolution fails when the Membership is:
 
@@ -5875,7 +5880,7 @@ Membership resolution failure must not fall back to another Membership automatic
 
 ---
 
-# Invitation Failure
+## Invitation Failure
 
 Invitation failures include:
 
@@ -5899,7 +5904,7 @@ IdentityConflict
 
 ---
 
-# Invalid Invitation Token
+## Invalid Invitation Token
 
 An invalid invitation token must produce a generic failure.
 
@@ -5912,7 +5917,7 @@ The response must not reveal:
 
 ---
 
-# Expired Invitation
+## Expired Invitation
 
 An expired invitation cannot activate Membership.
 
@@ -5922,7 +5927,7 @@ The expired token remains unusable.
 
 ---
 
-# Consumed Invitation
+## Consumed Invitation
 
 A consumed invitation token cannot be reused.
 
@@ -5932,7 +5937,7 @@ A different command using the same consumed token must fail.
 
 ---
 
-# Invitation Recipient Mismatch
+## Invitation Recipient Mismatch
 
 Recipient mismatch occurs when the authenticated Human does not satisfy the invitation recipient policy.
 
@@ -5952,7 +5957,7 @@ Repeated mismatches may trigger token revocation.
 
 ---
 
-# Identity Conflict During Acceptance
+## Identity Conflict During Acceptance
 
 A conflict may occur when:
 
@@ -5973,7 +5978,7 @@ Identity merge is outside the MVP.
 
 ---
 
-# Organization Bootstrap Failure
+## Organization Bootstrap Failure
 
 Organization creation coordinates:
 
@@ -5997,7 +6002,7 @@ No bootstrap events published
 
 ---
 
-# Partial Bootstrap Prohibition
+## Partial Bootstrap Prohibition
 
 The following states must never become visible:
 
@@ -6019,7 +6024,7 @@ OrganizationCreated event without committed Organization
 
 ---
 
-# Last Owner Invariant Failure
+## Last Owner Invariant Failure
 
 An operation fails with:
 
@@ -6041,7 +6046,7 @@ Affected commands include:
 
 ---
 
-# Last Owner Failure Result
+## Last Owner Failure Result
 
 When the invariant fails:
 
@@ -6061,7 +6066,7 @@ The user must first assign or transfer Owner authority.
 
 ---
 
-# Ownership Transfer Failure
+## Ownership Transfer Failure
 
 Ownership transfer may fail because:
 
@@ -6077,7 +6082,7 @@ The transaction must roll back entirely.
 
 ---
 
-# Authorization Failure
+## Authorization Failure
 
 Authorization failure means the principal is valid but cannot execute the requested command.
 
@@ -6097,7 +6102,7 @@ No domain mutation
 
 ---
 
-# Concurrency Failure
+## Concurrency Failure
 
 Optimistic concurrency protects each Aggregate.
 
@@ -6118,7 +6123,7 @@ The caller may reload and retry when appropriate.
 
 ---
 
-# Ownership Concurrency Failure
+## Ownership Concurrency Failure
 
 Owner-related mutations require additional Organization-scoped coordination.
 
@@ -6134,7 +6139,7 @@ A successful outcome with zero active Owners is prohibited.
 
 ---
 
-# External Identity Provider Failure
+## External Identity Provider Failure
 
 External Identity Provider failures may include:
 
@@ -6146,7 +6151,7 @@ External Identity Provider failures may include:
 
 ---
 
-# Provider Failure Rule
+## Provider Failure Rule
 
 When provider verification cannot complete safely:
 
@@ -6163,7 +6168,7 @@ The system must not:
 
 ---
 
-# Provider Provisioning Failure
+## Provider Provisioning Failure
 
 When external provisioning fails after AIOS has committed an internal state change, recovery depends on the workflow.
 
@@ -6185,7 +6190,7 @@ External delivery failure does not roll back committed AIOS state.
 
 ---
 
-# Persistence Failure
+## Persistence Failure
 
 A persistence failure before commit results in full rollback.
 
@@ -6204,7 +6209,7 @@ Affected data may include:
 
 ---
 
-# Outbox Failure
+## Outbox Failure
 
 Domain state and Outbox records are written in the same transaction.
 
@@ -6218,7 +6223,7 @@ No committed lifecycle fact may exist without its durable event record.
 
 ---
 
-# Publication Failure
+## Publication Failure
 
 When the transaction commits but event publication fails:
 
@@ -6230,7 +6235,7 @@ When the transaction commits but event publication fails:
 
 ---
 
-# Session Invalidation Failure
+## Session Invalidation Failure
 
 Session invalidation is asynchronous.
 
@@ -6251,7 +6256,7 @@ Result:
 
 ---
 
-# Reconciliation Failure
+## Reconciliation Failure
 
 Assignment reconciliation may fail after a Membership lifecycle event.
 
@@ -6265,7 +6270,7 @@ Result:
 
 ---
 
-# Configuration Failure
+## Configuration Failure
 
 Configuration failures include:
 
@@ -6286,7 +6291,7 @@ High-severity configuration errors should be visible during startup where possib
 
 ---
 
-# Recovery Principles
+## Recovery Principles
 
 Recovery must follow these rules:
 
@@ -6303,7 +6308,7 @@ Recovery must follow these rules:
 
 ---
 
-# Human Command Retry
+## Human Command Retry
 
 A retried Human command must re-evaluate:
 
@@ -6319,7 +6324,7 @@ An earlier valid principal does not guarantee current authority.
 
 ---
 
-# Idempotent Recovery
+## Idempotent Recovery
 
 When a command previously committed but the caller did not receive the response:
 
@@ -6341,7 +6346,7 @@ The system must not repeat:
 
 ---
 
-# Operational Retry
+## Operational Retry
 
 Operational handlers may retry when:
 
@@ -6355,7 +6360,7 @@ Retries are bounded and observable.
 
 ---
 
-# Manual Recovery
+## Manual Recovery
 
 Manual recovery may be required for:
 
@@ -6372,7 +6377,7 @@ It must be audited.
 
 ---
 
-# Data Repair
+## Data Repair
 
 Data repair scripts must:
 
@@ -6388,7 +6393,7 @@ Routine business operations must not depend on repair scripts.
 
 ---
 
-# Testing Strategy
+## Testing Strategy
 
 Identity and Organization architecture requires tests at multiple levels:
 
@@ -6412,7 +6417,7 @@ Failure Injection Tests
 
 ---
 
-# Human Identity Aggregate Tests
+## Human Identity Aggregate Tests
 
 Required tests include:
 
@@ -6427,7 +6432,7 @@ Required tests include:
 
 ---
 
-# Organization Aggregate Tests
+## Organization Aggregate Tests
 
 Required tests include:
 
@@ -6442,7 +6447,7 @@ Required tests include:
 
 ---
 
-# Membership Aggregate Tests
+## Membership Aggregate Tests
 
 Required tests include:
 
@@ -6459,7 +6464,7 @@ Required tests include:
 
 ---
 
-# Organization Bootstrap Tests
+## Organization Bootstrap Tests
 
 Bootstrap tests must verify:
 
@@ -6483,7 +6488,7 @@ Failure injection must verify total rollback after any individual step fails.
 
 ---
 
-# Invitation Tests
+## Invitation Tests
 
 Required invitation tests include:
 
@@ -6501,7 +6506,7 @@ Required invitation tests include:
 
 ---
 
-# Invitation Security Tests
+## Invitation Security Tests
 
 Security tests should verify:
 
@@ -6515,7 +6520,7 @@ Security tests should verify:
 
 ---
 
-# Membership Status Tests
+## Membership Status Tests
 
 For each inactive Membership state, verify:
 
@@ -6534,7 +6539,7 @@ Only Active Membership may produce Organization-scoped Human authority.
 
 ---
 
-# Identity Status Tests
+## Identity Status Tests
 
 Verify:
 
@@ -6550,7 +6555,7 @@ Disabled Identity + Active Membership + Active Organization
 
 ---
 
-# Organization Status Tests
+## Organization Status Tests
 
 Verify:
 
@@ -6571,7 +6576,7 @@ Archived Organization
 
 ---
 
-# Multi-Organization Isolation Tests
+## Multi-Organization Isolation Tests
 
 Required tests include:
 
@@ -6585,7 +6590,7 @@ Required tests include:
 
 ---
 
-# Organization Context Tests
+## Organization Context Tests
 
 Verify:
 
@@ -6598,7 +6603,7 @@ Verify:
 
 ---
 
-# Principal Construction Tests
+## Principal Construction Tests
 
 Verify:
 
@@ -6611,7 +6616,7 @@ Verify:
 
 ---
 
-# Stable Identity Tests
+## Stable Identity Tests
 
 Verify that changing:
 
@@ -6630,7 +6635,7 @@ Domain records must remain linked to the same stable Human Identity.
 
 ---
 
-# Last Owner Invariant Tests
+## Last Owner Invariant Tests
 
 Mandatory tests include:
 
@@ -6645,7 +6650,7 @@ Mandatory tests include:
 
 ---
 
-# Owner Concurrency Tests
+## Owner Concurrency Tests
 
 Use real transactional integration tests for:
 
@@ -6665,7 +6670,7 @@ At least one active Owner must remain after every committed outcome.
 
 ---
 
-# Role Assignment Tests
+## Role Assignment Tests
 
 Verify:
 
@@ -6680,7 +6685,7 @@ Verify:
 
 ---
 
-# Application Service Tests
+## Application Service Tests
 
 Application Service tests must verify orchestration order:
 
@@ -6712,7 +6717,7 @@ Denied or unresolved commands must stop before Aggregate mutation.
 
 ---
 
-# Repository Scope Tests
+## Repository Scope Tests
 
 Protected repository tests must verify:
 
@@ -6724,7 +6729,7 @@ Protected repository tests must verify:
 
 ---
 
-# Transaction Tests
+## Transaction Tests
 
 Transactional tests should verify:
 
@@ -6738,7 +6743,7 @@ Transactional tests should verify:
 
 ---
 
-# External Identity Provider Tests
+## External Identity Provider Tests
 
 Integration tests should cover:
 
@@ -6756,7 +6761,7 @@ Integration tests should cover:
 
 ---
 
-# Session Tests
+## Session Tests
 
 Verify:
 
@@ -6770,7 +6775,7 @@ Verify:
 
 ---
 
-# Reconciliation Tests
+## Reconciliation Tests
 
 Required tests include:
 
@@ -6784,7 +6789,7 @@ Required tests include:
 
 ---
 
-# Audit Tests
+## Audit Tests
 
 Verify audit records capture:
 
@@ -6803,7 +6808,7 @@ Audit tests must also verify that raw secrets are absent.
 
 ---
 
-# Privacy Tests
+## Privacy Tests
 
 Privacy-focused tests should verify:
 
@@ -6817,7 +6822,7 @@ Privacy-focused tests should verify:
 
 ---
 
-# Failure Injection Tests
+## Failure Injection Tests
 
 Inject failures at:
 
@@ -6840,7 +6845,7 @@ No partial authoritative state
 
 ---
 
-# Security Regression Suite
+## Security Regression Suite
 
 The following cases should remain permanent regression tests:
 
@@ -6862,7 +6867,7 @@ The following cases should remain permanent regression tests:
 
 ---
 
-# Property-Based Tests
+## Property-Based Tests
 
 Property-based tests are recommended for core invariants.
 
@@ -6899,7 +6904,7 @@ For every Organization mismatch:
 
 ---
 
-# Database Design
+## Database Design
 
 Database constraints provide defense in depth.
 
@@ -6907,7 +6912,7 @@ They do not replace Aggregate or Application Layer rules.
 
 ---
 
-# Human Identity Table
+## Human Identity Table
 
 Conceptual structure:
 
@@ -6935,7 +6940,7 @@ CHECK (
 
 ---
 
-# Authentication Subject Table
+## Authentication Subject Table
 
 Conceptual structure:
 
@@ -6963,7 +6968,7 @@ WHERE unlinked_at IS NULL
 
 ---
 
-# Organization Table
+## Organization Table
 
 Conceptual structure:
 
@@ -6994,7 +6999,7 @@ Organization name need not be globally unique.
 
 ---
 
-# Membership Table
+## Membership Table
 
 Conceptual structure:
 
@@ -7037,7 +7042,7 @@ CHECK (
 
 ---
 
-# Membership Foreign Keys
+## Membership Foreign Keys
 
 Recommended foreign keys:
 
@@ -7061,7 +7066,7 @@ The schema should avoid using an unverified email as a permanent identity foreig
 
 ---
 
-# Role Assignment Table
+## Role Assignment Table
 
 Conceptual structure:
 
@@ -7090,7 +7095,7 @@ WHERE revoked_at IS NULL
 
 ---
 
-# Organization Consistency Constraint
+## Organization Consistency Constraint
 
 Role Assignment Organization must match Membership Organization.
 
@@ -7105,7 +7110,7 @@ Composite foreign keys are preferred where practical.
 
 ---
 
-# Invitation Table
+## Invitation Table
 
 Conceptual structure:
 
@@ -7144,7 +7149,7 @@ Raw token storage is discouraged.
 
 ---
 
-# Invitation Consumption Constraint
+## Invitation Consumption Constraint
 
 A consumed or revoked invitation cannot return to Pending.
 
@@ -7152,7 +7157,7 @@ Database and Application Layer behavior should prevent multiple successful consu
 
 ---
 
-# Owner Index
+## Owner Index
 
 The Last Owner Invariant may use a dedicated ownership index or locked query.
 
@@ -7168,7 +7173,7 @@ The implementation must support transactional owner-count protection.
 
 ---
 
-# Optimistic Concurrency
+## Optimistic Concurrency
 
 Each Aggregate Root table should include:
 
@@ -7189,7 +7194,7 @@ Zero updated rows indicate concurrency conflict.
 
 ---
 
-# Composite Organization Keys
+## Composite Organization Keys
 
 Organization-owned relationship tables should include organization_id.
 
@@ -7206,7 +7211,7 @@ This supports database-level cross-Organization protection.
 
 ---
 
-# Row-Level Security
+## Row-Level Security
 
 PostgreSQL Row-Level Security is optional for the MVP.
 
@@ -7221,7 +7226,7 @@ RLS must not replace:
 
 ---
 
-# Implementation Guidance
+## Implementation Guidance
 
 The implementation should keep identity responsibilities explicit.
 
@@ -7287,7 +7292,7 @@ The boundaries should remain equivalent.
 
 ---
 
-# Value Objects
+## Value Objects
 
 Recommended Value Objects include:
 
@@ -7317,7 +7322,7 @@ Value Objects should validate their own structural rules.
 
 ---
 
-# Email Address Value Object
+## Email Address Value Object
 
 Email validation should cover:
 
@@ -7333,7 +7338,7 @@ Verification is a separate authentication or invitation concern.
 
 ---
 
-# Organization Name Value Object
+## Organization Name Value Object
 
 OrganizationName should validate:
 
@@ -7347,7 +7352,7 @@ Organization name uniqueness is not required.
 
 ---
 
-# Principal Factory
+## Principal Factory
 
 Principal creation should be centralized.
 
@@ -7366,7 +7371,7 @@ The factory must reject invalid combinations.
 
 ---
 
-# Actor Reference Factory
+## Actor Reference Factory
 
 ActorReference creation should also be centralized.
 
@@ -7384,7 +7389,7 @@ No generic factory should permit arbitrary actor type conversion.
 
 ---
 
-# Aggregate Factories
+## Aggregate Factories
 
 Creation should occur through Aggregate factories.
 
@@ -7404,7 +7409,7 @@ Direct row construction outside persistence hydration is discouraged.
 
 ---
 
-# Repository Rules
+## Repository Rules
 
 Repositories must:
 
@@ -7418,7 +7423,7 @@ Repositories must:
 
 ---
 
-# Query Service Rules
+## Query Service Rules
 
 Query services may optimize reads.
 
@@ -7432,7 +7437,7 @@ They must not:
 
 ---
 
-# Invitation Service Rules
+## Invitation Service Rules
 
 Invitation infrastructure must:
 
@@ -7446,7 +7451,7 @@ Invitation infrastructure must:
 
 ---
 
-# Identity Provider Adapter
+## Identity Provider Adapter
 
 A provider adapter should expose a stable internal contract.
 
@@ -7468,7 +7473,7 @@ Domain code must not depend on provider-specific SDK types.
 
 ---
 
-# Session Validation Service
+## Session Validation Service
 
 A Session Validation Service may check:
 
@@ -7486,7 +7491,7 @@ Authorization evaluates roles and permissions afterward.
 
 ---
 
-# Startup Validation
+## Startup Validation
 
 Application startup should validate:
 
@@ -7504,7 +7509,7 @@ Missing critical configuration should stop startup.
 
 ---
 
-# Logging Guidance
+## Logging Guidance
 
 Identity-related logs should include:
 
@@ -7532,7 +7537,7 @@ Logs must not include:
 
 ---
 
-# Observability
+## Observability
 
 Recommended metrics include:
 
@@ -7564,7 +7569,7 @@ assignment_reconciliation_backlog
 
 ---
 
-# Health Checks
+## Health Checks
 
 Operational health checks may verify:
 
@@ -7580,7 +7585,7 @@ A degraded external provider must not corrupt internal identity state.
 
 ---
 
-# Performance Considerations
+## Performance Considerations
 
 Common identity operations should use indexed lookups.
 
@@ -7604,7 +7609,7 @@ Large global scans should be avoided in synchronous requests.
 
 ---
 
-# Scalability
+## Scalability
 
 Separate Aggregates support scaling by avoiding one large Organization object.
 
@@ -7618,7 +7623,7 @@ The model permits:
 
 ---
 
-# Multi-Tenancy Boundary
+## Multi-Tenancy Boundary
 
 Organization is the MVP tenant boundary.
 
@@ -7636,7 +7641,7 @@ Cross-Organization sharing requires a future explicit model.
 
 ---
 
-# Data Retention
+## Data Retention
 
 Retention policy must address:
 
@@ -7653,7 +7658,7 @@ The MVP architecture preserves records but does not define final retention durat
 
 ---
 
-# Backup and Restore
+## Backup and Restore
 
 Backup and restore procedures must preserve consistency among:
 
@@ -7671,7 +7676,7 @@ Partial restoration of identity data may produce security failures and is prohib
 
 ---
 
-# Migration Guidance
+## Migration Guidance
 
 Schema migrations must preserve:
 
@@ -7688,7 +7693,7 @@ Migration scripts should validate the Last Owner Invariant before completion.
 
 ---
 
-# MVP Exclusions
+## MVP Exclusions
 
 The following capabilities are outside the MVP:
 
@@ -7729,7 +7734,7 @@ These require separate future architecture.
 
 ---
 
-# Future Extension Principles
+## Future Extension Principles
 
 Future changes must preserve:
 
@@ -7746,7 +7751,7 @@ Future changes must preserve:
 
 ---
 
-# Organization Hierarchy Future Phase
+## Organization Hierarchy Future Phase
 
 A future Organization hierarchy may introduce:
 
@@ -7766,7 +7771,7 @@ Roles must not flow automatically without a defined policy.
 
 ---
 
-# Enterprise Provisioning Future Phase
+## Enterprise Provisioning Future Phase
 
 SCIM or enterprise provisioning may automate:
 
@@ -7785,7 +7790,7 @@ Automation must remain:
 
 ---
 
-# Delegated Administration Future Phase
+## Delegated Administration Future Phase
 
 Delegated administration may allow limited Member management.
 
@@ -7802,7 +7807,7 @@ It must not permit silent Owner escalation.
 
 ---
 
-# Privacy Erasure Future Phase
+## Privacy Erasure Future Phase
 
 A future erasure design may distinguish:
 
@@ -7824,7 +7829,7 @@ Erasure must preserve business consistency while satisfying applicable legal req
 
 ---
 
-# Implementation Checklist
+## Implementation Checklist
 
 Before implementation is considered complete, verify:
 
@@ -7852,7 +7857,7 @@ Before implementation is considered complete, verify:
 
 ---
 
-# Design Summary
+## Design Summary
 
 The Identity and Organization architecture establishes four distinct foundations:
 
@@ -7878,7 +7883,7 @@ Domain Aggregates determine whether the command is valid.
 
 ---
 
-# Core Guarantees
+## Core Guarantees
 
 The design guarantees:
 
@@ -7898,9 +7903,9 @@ The design guarantees:
 
 ---
 
-# Architect Review
+## Architect Review
 
-## Identity Stability
+### Identity Stability
 
 **Rating: ★★★★★**
 
@@ -7910,7 +7915,7 @@ Domain history remains valid through profile and provider changes.
 
 ---
 
-## Organization Isolation
+### Organization Isolation
 
 **Rating: ★★★★★**
 
@@ -7920,7 +7925,7 @@ Authority cannot be combined across Organizations.
 
 ---
 
-## Membership Model
+### Membership Model
 
 **Rating: ★★★★★**
 
@@ -7930,7 +7935,7 @@ This supports clear lifecycle semantics and avoids oversized Organization Aggreg
 
 ---
 
-## Principal Separation
+### Principal Separation
 
 **Rating: ★★★★★**
 
@@ -7940,7 +7945,7 @@ Non-Human principals cannot acquire Human Memberships or roles.
 
 ---
 
-## Ownership Safety
+### Ownership Safety
 
 **Rating: ★★★★★**
 
@@ -7950,7 +7955,7 @@ Concurrent ownership mutation is addressed transactionally.
 
 ---
 
-## Invitation Security
+### Invitation Security
 
 **Rating: ★★★★★**
 
@@ -7960,7 +7965,7 @@ Unknown recipients do not become authoritative identities prematurely.
 
 ---
 
-## External Identity Independence
+### External Identity Independence
 
 **Rating: ★★★★★**
 
@@ -7970,7 +7975,7 @@ Provider changes do not rewrite domain history.
 
 ---
 
-## Auditability
+### Auditability
 
 **Rating: ★★★★★**
 
@@ -7978,7 +7983,7 @@ Identity, Membership, role, ownership, and Organization lifecycle changes remain
 
 ---
 
-## Failure Safety
+### Failure Safety
 
 **Rating: ★★★★★**
 
@@ -7988,7 +7993,7 @@ Operational failures do not restore revoked authority.
 
 ---
 
-## Scalability
+### Scalability
 
 **Rating: ★★★★★**
 
@@ -7996,7 +8001,7 @@ Separate Human Identity, Organization, and Membership Aggregates support indepen
 
 ---
 
-## Testability
+### Testability
 
 **Rating: ★★★★★**
 
@@ -8006,7 +8011,7 @@ Critical invariants are suitable for property-based testing.
 
 ---
 
-## MVP Scope Discipline
+### MVP Scope Discipline
 
 **Rating: ★★★★★**
 
@@ -8016,7 +8021,7 @@ Future extension boundaries remain explicit.
 
 ---
 
-## Final Assessment
+### Final Assessment
 
 ```text
 Architecture Quality:          ★★★★★

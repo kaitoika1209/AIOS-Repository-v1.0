@@ -50,13 +50,13 @@ AIOS is built on the following principles:
 
 ## Project Status
 
-AIOS is currently under active development.
+AIOS is currently in the design and specification stage. This repository contains the
+architectural blueprint; application code has not started yet.
 
 Current progress:
 
 - ✅ Product Vision
 - ✅ Domain Architecture
-- ✅ Design System
 - ✅ Technical Specification
 - 🚧 Foundation Development
 
@@ -64,21 +64,29 @@ Current objective:
 
 > Build the first MVP that demonstrates AI-assisted organizational workflows.
 
+The authoritative definition of what the MVP includes is
+[`docs/product/mvp.md`](docs/product/mvp.md). When this README and an authoritative
+document disagree, the authoritative document wins — see
+[Document Governance](docs/document-governance.md).
+
 ---
 
 ## Repository Structure
 
+The layout below is the **target** monorepo structure defined in
+[`docs/engineering/folder-structure.md`](docs/engineering/folder-structure.md).
+Only `docs/` and `.github/` exist today.
+
 ```text
 .
-├── apps/
-├── packages/
-├── services/
-├── infra/
+├── apps/          (planned)
+├── packages/      (planned)
+├── services/      (planned)
+├── infra/         (planned)
 ├── docs/
 │   ├── product/
 │   ├── architecture/
 │   ├── engineering/
-│   ├── api/
 │   └── adr/
 └── README.md
 ```
@@ -89,72 +97,97 @@ Current objective:
 
 | Directory | Description |
 |-----------|-------------|
-| `docs/product` | Product vision, roadmap, and MVP |
-| `docs/architecture` | Domain model and system architecture |
-| `docs/engineering` | Engineering standards and conventions |
-| `docs/api` | API specifications |
-| `docs/adr` | Architecture Decision Records |
+| [`docs/product`](docs/product) | Product vision, roadmap, and MVP scope |
+| [`docs/architecture`](docs/architecture) | Domain model and system architecture |
+| [`docs/engineering`](docs/engineering) | Engineering standards and conventions |
+| [`docs/adr`](docs/adr) | Architecture Decision Records |
+| [`docs/glossary.md`](docs/glossary.md) | Canonical domain vocabulary |
+| [`docs/document-governance.md`](docs/document-governance.md) | Which document wins when documents disagree |
+
+`docs/api` is not yet created. API specifications are a Phase 5 deliverable
+(see [Roadmap](docs/product/roadmap.md)).
 
 ---
 
 ## Technology Stack
 
+See [`docs/engineering/tech-stack.md`](docs/engineering/tech-stack.md) for the rationale
+behind each choice.
+
 | Layer | Technology |
 |--------|------------|
-| Frontend | Next.js + TypeScript |
+| Frontend | Next.js (App Router) + TypeScript |
+| UI | Tailwind CSS + shadcn/ui |
 | Backend | NestJS |
 | Database | PostgreSQL |
 | ORM | Prisma |
 | AI Runtime | LangGraph |
-| Authentication | Clerk *(planned)* |
-| Infrastructure | AWS |
+| Model Provider | OpenAI (the application remains provider-agnostic) |
+| Authentication | Clerk |
+| Infrastructure | AWS (ECS, RDS, S3, CloudFront) |
 | Monorepo | Turborepo |
+| Package Manager | pnpm |
+| Testing | Vitest + Playwright |
+| Code Quality | ESLint + Prettier |
 
 ---
 
 ## Roadmap
 
-### Phase 1 — Foundation
+This is a summary. [`docs/product/roadmap.md`](docs/product/roadmap.md) is authoritative.
 
-- Organization
-- Authentication
-- Workspace
+| Phase | Name | Primary Outcome |
+|---:|---|---|
+| 1 | Foundation — MVP | Human-approved organizational Memory from completed Work |
+| 2 | Structured Collaboration | Repeatable workflows and stronger team coordination |
+| 3 | AI Organization | Multiple governed AI Principals working with humans |
+| 4 | Organizational Intelligence | Approved experience transformed into reusable Knowledge and Capability |
+| 5 | Platform and Ecosystem | Stable extension model for developers, partners, and integrations |
+
+### Phase 1 — Foundation (MVP)
+
+- Identity and Organization
+- Workspace (presentation views)
 - Work
+- Decision
+- **Secretary** — one advisory Secretary per Organization
+- **Memory** — generation, human review, and approval
 
-### Phase 2 — Workflow
+Phase 1 ends at Approved Memory. Knowledge promotion is **not** part of the MVP.
 
-- Workflow Engine
-- Assignment
-- Review
-- Replay
+### Phase 2 — Structured Collaboration
 
-### Phase 3 — AI Collaboration
+- Work templates and repeatable patterns
+- Dependencies, milestones, and checklists
+- Team coordination and review queues
 
-- AI Employees
-- Secretary AI
-- Multi-Agent Workflow
+### Phase 3 — AI Organization
+
+- AI Employees as governed AI Principals
+- Delegated execution boundaries
+- Multi-principal collaboration
 
 ### Phase 4 — Organizational Intelligence
 
-- Memory
-- Knowledge
-- Organization Brain
-- Recall Engine
+- Knowledge promotion from Approved Memory
+- Evidence
+- Capability
 
-### Phase 5 — Platform
+### Phase 5 — Platform and Ecosystem
 
-- Governance
-- API
-- Marketplace
+- Public API
 - SDK
+- Plugin system and Marketplace
 
 ---
 
 ## Contributing
 
-Contribution guidelines will be published as the project matures.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the development workflow, coding standards,
+and review expectations.
 
-For architectural changes, please create or update an Architecture Decision Record (ADR) before implementation.
+For architectural changes, please create or update an Architecture Decision Record (ADR)
+in [`docs/adr`](docs/adr) before implementation.
 
 ---
 

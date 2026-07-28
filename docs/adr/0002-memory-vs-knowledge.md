@@ -1,12 +1,12 @@
 # ADR-0002: Separate Memory and Knowledge
 
-- Status: Accepted
-- Date: 2026-07-23
-- Blueprint Version: v0.2.0
+**Status:** Accepted  
+**Date:** 2026-07-23  
+**Blueprint Version:** 0.2.0
 
 ---
 
-# Context
+## Context
 
 Early versions of the AIOS Blueprint treated organizational Memory and Knowledge as closely related concepts.
 
@@ -27,11 +27,11 @@ The domain therefore required an explicit separation.
 
 ---
 
-# Decision
+## Decision
 
 AIOS separates **Memory** and **Knowledge** into independent Aggregates.
 
-## Memory
+### Memory
 
 Memory represents verified organizational history.
 
@@ -51,7 +51,7 @@ Its purpose is historical preservation.
 
 ---
 
-## Knowledge
+### Knowledge
 
 Knowledge represents reusable organizational understanding.
 
@@ -70,7 +70,7 @@ Knowledge is organizational guidance.
 
 ---
 
-## Evidence
+### Evidence
 
 Evidence provides the traceable relationship between Memory and Knowledge.
 
@@ -84,11 +84,11 @@ Knowledge never owns or modifies Memory.
 
 ---
 
-# Consequences
+## Consequences
 
 This decision provides several architectural benefits.
 
-## Historical Integrity
+### Historical Integrity
 
 Historical facts remain unchanged after approval.
 
@@ -96,7 +96,7 @@ Knowledge evolves without rewriting history.
 
 ---
 
-## Explainability
+### Explainability
 
 Every published Knowledge record can be traced back to supporting organizational experience.
 
@@ -104,7 +104,7 @@ AI recommendations therefore remain explainable.
 
 ---
 
-## Governance
+### Governance
 
 Memory approval and Knowledge publication become independent governance processes.
 
@@ -112,7 +112,7 @@ Organizations may evolve Knowledge without altering historical records.
 
 ---
 
-## Separation of Responsibilities
+### Separation of Responsibilities
 
 The responsibilities become explicit.
 
@@ -125,7 +125,7 @@ This improves maintainability and reduces conceptual coupling.
 
 ---
 
-## Future Evolution
+### Future Evolution
 
 Knowledge may later incorporate additional Evidence sources such as:
 
@@ -138,9 +138,9 @@ without changing the Memory Aggregate.
 
 ---
 
-# Alternatives Considered
+## Alternatives Considered
 
-## Single Aggregate
+### Single Aggregate
 
 Treat Memory and Knowledge as one Aggregate.
 
@@ -153,7 +153,7 @@ Rejected because:
 
 ---
 
-## Memory Becomes Knowledge
+### Memory Becomes Knowledge
 
 Allow approved Memory to transform into Knowledge.
 
@@ -165,7 +165,7 @@ Rejected because:
 
 ---
 
-# Rationale
+## Rationale
 
 Organizations learn by transforming experience into reusable understanding.
 

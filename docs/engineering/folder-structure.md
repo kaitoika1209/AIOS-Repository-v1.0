@@ -10,7 +10,7 @@ All new modules should follow this structure unless an Architecture Decision Rec
 
 ---
 
-# Repository Structure
+## Repository Structure
 
 ```text
 aios/
@@ -30,7 +30,7 @@ aios/
 
 ---
 
-# apps/
+## apps/
 
 Applications that are directly deployed.
 
@@ -44,13 +44,13 @@ apps/
 
 Next.js frontend application.
 
-### api
+#### api
 
 NestJS backend application.
 
 ---
 
-# packages/
+## packages/
 
 Reusable libraries shared across applications.
 
@@ -67,25 +67,25 @@ packages/
 
 Business rules and domain models.
 
-### ui
+#### ui
 
 Reusable UI components.
 
-### shared
+#### shared
 
 Common utilities.
 
-### config
+#### config
 
 Shared configuration.
 
-### types
+#### types
 
 Shared TypeScript types.
 
 ---
 
-# services/
+## services/
 
 Standalone services.
 
@@ -97,7 +97,7 @@ Examples:
 
 ---
 
-# infra/
+## infra/
 
 Infrastructure configuration.
 
@@ -109,7 +109,7 @@ Examples:
 
 ---
 
-# docs/
+## docs/
 
 Project documentation.
 
@@ -124,7 +124,7 @@ docs/
 
 ---
 
-# scripts/
+## scripts/
 
 Development and maintenance scripts.
 
@@ -136,7 +136,7 @@ Examples:
 
 ---
 
-# .github/
+## .github/
 
 GitHub configuration.
 
@@ -148,9 +148,9 @@ Examples:
 
 ---
 
-# Guiding Principles
+## Guiding Principles
 
-## Separate Applications from Libraries
+### Separate Applications from Libraries
 
 Applications should contain application logic.
 
@@ -158,7 +158,7 @@ Reusable code belongs in packages.
 
 ---
 
-## Keep the Domain Independent
+### Keep the Domain Independent
 
 Business rules must not depend on frameworks.
 
@@ -166,7 +166,7 @@ The domain layer should remain portable and testable.
 
 ---
 
-## Prefer Small Packages
+### Prefer Small Packages
 
 Create focused packages with clear responsibilities.
 
@@ -174,7 +174,7 @@ Avoid large utility packages with unrelated functionality.
 
 ---
 
-## Documentation Lives with the Project
+### Documentation Lives with the Project
 
 Documentation is part of the product.
 

@@ -10,7 +10,7 @@ Changes to this document should be recorded through an Architecture Decision Rec
 
 ---
 
-# Architecture
+## Architecture
 
 AIOS follows a modular monorepo architecture.
 
@@ -26,13 +26,13 @@ Database
 
 ---
 
-# Frontend
+## Frontend
 
-## Framework
+### Framework
 
 - Next.js (App Router)
 
-### Why
+#### Why
 
 - Server Components
 - Excellent TypeScript support
@@ -42,11 +42,11 @@ Database
 
 ---
 
-## Language
+### Language
 
 - TypeScript
 
-### Why
+#### Why
 
 - Strong typing
 - Better refactoring
@@ -55,12 +55,12 @@ Database
 
 ---
 
-## UI
+### UI
 
 - Tailwind CSS
 - shadcn/ui
 
-### Why
+#### Why
 
 - Consistent design
 - Accessibility
@@ -69,13 +69,13 @@ Database
 
 ---
 
-# Backend
+## Backend
 
-## Framework
+### Framework
 
 - NestJS
 
-### Why
+#### Why
 
 - Modular architecture
 - Dependency Injection
@@ -84,13 +84,13 @@ Database
 
 ---
 
-# Database
+## Database
 
-## Primary Database
+### Primary Database
 
 - PostgreSQL
 
-### Why
+#### Why
 
 - Reliability
 - Transactions
@@ -99,11 +99,11 @@ Database
 
 ---
 
-## ORM
+### ORM
 
 - Prisma
 
-### Why
+#### Why
 
 - Type safety
 - Migration management
@@ -111,13 +111,13 @@ Database
 
 ---
 
-# AI
+## AI
 
-## Runtime
+### Runtime
 
 - LangGraph
 
-### Why
+#### Why
 
 - Stateful workflows
 - Multi-agent orchestration
@@ -125,7 +125,7 @@ Database
 
 ---
 
-## Model Provider
+### Model Provider
 
 - OpenAI
 
@@ -135,7 +135,7 @@ The application should remain provider-agnostic.
 
 ---
 
-# Authentication
+## Authentication
 
 - Clerk
 
@@ -147,9 +147,9 @@ The application should remain provider-agnostic.
 
 ---
 
-# Infrastructure
+## Infrastructure
 
-## Hosting
+### Hosting
 
 AWS
 
@@ -164,33 +164,33 @@ Infrastructure may evolve as the product grows.
 
 ---
 
-# Package Management
+## Package Management
 
 - pnpm
 
 ---
 
-# Monorepo
+## Monorepo
 
 - Turborepo
 
 ---
 
-# Testing
+## Testing
 
 - Vitest
 - Playwright
 
 ---
 
-# Code Quality
+## Code Quality
 
 - ESLint
 - Prettier
 
 ---
 
-# Guiding Principles
+## Guiding Principles
 
 Technology should support the product.
 

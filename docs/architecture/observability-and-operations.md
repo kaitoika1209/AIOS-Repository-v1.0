@@ -1,5 +1,10 @@
 # Observability and Operations Architecture
 
+> **Scope classification:** Mixed — MVP Normative baseline, plus production-hardening and Future Hypothesis guidance  
+> **MVP implementation authority:** Yes for the MVP baseline only  
+> **Promotion requirement:** Accepted implementation ADR and scope-document update  
+> **Authority rank:** see [Document Governance](../document-governance.md)
+
 **Status:** Draft  
 **Phase:** MVP Baseline with Production-Hardening and Future Guidance  
 **Architecture:** Modular Monolith  
@@ -10,7 +15,7 @@
 
 ---
 
-# Purpose
+## Purpose
 
 This document defines how AIOS is observed, operated, diagnosed, recovered, and safely changed in production.
 
@@ -51,7 +56,7 @@ Examples include:
 
 ---
 
-# Guarantee Ownership and Reconciliation Boundary
+## Guarantee Ownership and Reconciliation Boundary
 
 Observability detects evidence that an architectural guarantee failed. It does not own, define, or replace that guarantee.
 
@@ -84,7 +89,7 @@ validationQueryOrCommand
 
 If `guaranteeReference`, `owningModule`, or `primaryPreventionLayer` is unknown, the check is not implementation-ready. A reconciliation finding is evidence of a failed or missing safeguard; it is not permission to accept invalid state as normal.
 
-## MVP Integrity-Finding Classification
+### MVP Integrity-Finding Classification
 
 | Finding | Authoritative guarantee and prevention owner | Database defense | Reconciliation role | Recovery authority |
 |---|---|---|---|---|
@@ -96,7 +101,7 @@ If `guaranteeReference`, `owningModule`, or `primaryPreventionLayer` is unknown,
 | `HumanAuthorityBoundaryViolated` | Authorization and the command Application Service reject Secretary or System execution of Human-only commands. | Human actor columns reference Human Identity and Membership; non-Human principals use separate columns or tables. | Verify that no authoritative transition committed after a prohibited attempt. | Security incident handling and Human-approved repair if state changed. |
 | `CrossOrganizationReferenceDetected` | Authorization, Organization-scoped repositories, and owning modules reject cross-Organization access and relationships. | Composite Organization keys and foreign keys where applicable. | Detect structural or access evidence missed by preventive controls. | Immediate containment; scoped Human-led security and integrity recovery. |
 
-## MVP Operational-Finding Classification
+### MVP Operational-Finding Classification
 
 | Finding | Primary prevention owner | Reconciliation role | Recovery authority |
 |---|---|---|---|
@@ -108,7 +113,7 @@ Operational projections and reconciliation findings remain non-authoritative met
 
 ---
 
-# Scope
+## Scope
 
 This document covers operational concerns for the MVP Modular Monolith.
 
@@ -132,7 +137,7 @@ It applies to:
 
 ---
 
-# Requirement Levels and Delivery Tiers
+## Requirement Levels and Delivery Tiers
 
 This document defines both the minimum production baseline and later operational capabilities. The tiers below determine implementation timing.
 
@@ -144,7 +149,7 @@ Normative terms are used as follows:
 
 Only uppercase **MUST**, **SHOULD**, and **MAY** are normative. Lowercase wording elsewhere is explanatory unless a requirement is assigned to a tier below. Security boundaries, Human-authority rules, Organization isolation, PostgreSQL authority, and transactional consistency remain mandatory regardless of tier.
 
-## MVP Production Baseline — MUST
+### MVP Production Baseline — MUST
 
 Before the MVP is operated in production, AIOS MUST provide:
 
@@ -163,7 +168,7 @@ Before the MVP is operated in production, AIOS MUST provide:
 
 An MVP release is not accepted for production when any item in this baseline is absent unless the architecture owner records a time-bounded risk acceptance.
 
-## Production Hardening — SHOULD
+### Production Hardening — SHOULD
 
 After the baseline is working, AIOS SHOULD add:
 
@@ -179,7 +184,7 @@ After the baseline is working, AIOS SHOULD add:
 
 Deferral requires a named owner and an explicit trigger for implementation, such as traffic volume, incident history, or customer requirement.
 
-## Future Enterprise Capabilities — MAY
+### Future Enterprise Capabilities — MAY
 
 AIOS MAY introduce when scale and organizational maturity justify them:
 
@@ -196,7 +201,7 @@ Future capabilities MUST NOT be prerequisites for the MVP domain workflow and MU
 
 ---
 
-# Non-Goals
+## Non-Goals
 
 This document does not define:
 
@@ -220,7 +225,7 @@ These may be introduced in future phases.
 
 ---
 
-# Operational Goals
+## Operational Goals
 
 The operational architecture must ensure that:
 
@@ -242,7 +247,7 @@ The operational architecture must ensure that:
 
 ---
 
-# Operational Principles
+## Operational Principles
 
 AIOS operations follow these principles:
 
@@ -272,7 +277,7 @@ Keep Operational State Non-Authoritative
 
 ---
 
-# Principle 1: Observability Is a System Property
+## Principle 1: Observability Is a System Property
 
 Observability is not limited to logs emitted by controllers.
 
@@ -304,7 +309,7 @@ Recovery boundary
 
 ---
 
-# Principle 2: Business Workflows Are Observable
+## Principle 2: Business Workflows Are Observable
 
 Infrastructure health alone is insufficient.
 
@@ -339,7 +344,7 @@ Memory submitted
 
 ---
 
-# Principle 3: Operational Data Is Not Business Authority
+## Principle 3: Operational Data Is Not Business Authority
 
 Logs, metrics, traces, and dashboards may describe system behavior.
 
@@ -357,7 +362,7 @@ Authoritative facts remain in PostgreSQL Aggregate and processing tables.
 
 ---
 
-# Principle 4: Correlation Is Mandatory
+## Principle 4: Correlation Is Mandatory
 
 Every command and asynchronous consequence must be traceable across process and transaction boundaries.
 
@@ -383,7 +388,7 @@ Not every field exists at every boundary, but applicable identifiers must be pre
 
 ---
 
-# Principle 5: Failures Must Be Classified
+## Principle 5: Failures Must Be Classified
 
 Failures should be classified into stable categories.
 
@@ -427,7 +432,7 @@ Error classification supports:
 
 ---
 
-# Principle 6: Retries Are Observable
+## Principle 6: Retries Are Observable
 
 Every retry must have:
 
@@ -442,7 +447,7 @@ Infinite invisible retries are prohibited.
 
 ---
 
-# Principle 7: Recovery Is Explicit
+## Principle 7: Recovery Is Explicit
 
 Recovery must occur through:
 
@@ -457,7 +462,7 @@ Operators must not silently rewrite authoritative tables as the ordinary respons
 
 ---
 
-# Principle 8: Human Authority Is Observable
+## Principle 8: Human Authority Is Observable
 
 AIOS must make authority boundaries visible.
 
@@ -479,7 +484,7 @@ These events require structured audit and security telemetry.
 
 ---
 
-# Principle 9: Telemetry Is Privacy-Aware
+## Principle 9: Telemetry Is Privacy-Aware
 
 Telemetry is production data and MUST be governed as such.
 
@@ -489,11 +494,11 @@ AIOS MUST minimize collection, classify fields before export, enforce retention,
 
 ---
 
-# Telemetry Data Classes
+## Telemetry Data Classes
 
 Every telemetry field MUST belong to one class.
 
-## T0 — Aggregate Operational Metadata
+### T0 — Aggregate Operational Metadata
 
 Examples:
 
@@ -507,7 +512,7 @@ Examples:
 
 T0 contains no tenant, principal, resource, or content identifier.
 
-## T1 — Correlation and Execution Identifiers
+### T1 — Correlation and Execution Identifiers
 
 Examples:
 
@@ -522,7 +527,7 @@ Examples:
 
 T1 can link activity across systems and is therefore internal operational data.
 
-## T2 — Tenant, Principal, and Resource Identifiers
+### T2 — Tenant, Principal, and Resource Identifiers
 
 Examples:
 
@@ -537,7 +542,7 @@ Examples:
 
 T2 is sensitive and linkable. It is never an ordinary metric label.
 
-## T3 — Business and Personal Content
+### T3 — Business and Personal Content
 
 Examples:
 
@@ -553,7 +558,7 @@ Examples:
 
 T3 is prohibited from ordinary telemetry unless a separately approved incident-capture procedure explicitly permits a minimal redacted field.
 
-## T4 — Secrets and Credentials
+### T4 — Secrets and Credentials
 
 Examples:
 
@@ -571,7 +576,7 @@ T4 is prohibited from all telemetry and audit payloads.
 
 ---
 
-# Telemetry Field Matrix
+## Telemetry Field Matrix
 
 | Surface | T0 | T1 | T2 | T3 | T4 |
 |---|---|---|---|---|---|
@@ -589,7 +594,7 @@ Model name and provider may be T0 only when values come from bounded configurati
 
 ---
 
-# Identifier Handling
+## Identifier Handling
 
 Raw T2 identifiers are permitted only where they are necessary for authorized diagnosis, audit, reconciliation, or deletion.
 
@@ -610,7 +615,7 @@ Organization IDs may remain raw in PostgreSQL audit and operational tables becau
 
 ---
 
-# Telemetry Encryption and Transport
+## Telemetry Encryption and Transport
 
 All production telemetry stores MUST use encryption at rest.
 
@@ -629,7 +634,7 @@ Disabling certificate validation or exporting telemetry over plaintext is prohib
 
 ---
 
-# Telemetry Residency and Export
+## Telemetry Residency and Export
 
 T1, T2, and T3-derived telemetry MUST remain in the approved data region for the associated deployment unless a contract, data-processing agreement, and architecture decision permit export.
 
@@ -649,7 +654,7 @@ Vendor support bundles are exports and follow the same rules.
 
 ---
 
-# Platform Security Telemetry and Organization Audit
+## Platform Security Telemetry and Organization Audit
 
 Platform-security telemetry and Organization-accessible audit serve different audiences.
 
@@ -671,7 +676,7 @@ A sanitized Organization audit export MUST be generated from an authorized appli
 
 ---
 
-# Telemetry Deletion and Legal Hold
+## Telemetry Deletion and Legal Hold
 
 Telemetry deletion follows Organization deletion, data-subject obligations, contractual retention, and security requirements.
 
@@ -690,7 +695,7 @@ A legal hold extends retention but does not broaden access.
 
 ---
 
-# Principle 10: Observability Must Survive Partial Failure
+## Principle 10: Observability Must Survive Partial Failure
 
 Telemetry should remain useful when one subsystem is degraded.
 
@@ -703,7 +708,7 @@ Examples:
 
 ---
 
-# Observability Architecture
+## Observability Architecture
 
 The observability model includes four telemetry types:
 
@@ -721,7 +726,7 @@ Each has a distinct purpose.
 
 ---
 
-# Logs
+## Logs
 
 Logs provide detailed records of discrete operational events.
 
@@ -741,7 +746,7 @@ Logs should be structured and machine-queryable.
 
 ---
 
-# Metrics
+## Metrics
 
 Metrics provide aggregated numerical measurements over time.
 
@@ -762,7 +767,7 @@ Metrics must avoid high-cardinality labels.
 
 ---
 
-# Traces
+## Traces
 
 Traces connect operations across boundaries.
 
@@ -780,7 +785,7 @@ Tracing must preserve correlation across asynchronous operations.
 
 ---
 
-# Audit Records
+## Audit Records
 
 Audit records provide durable accountability for security-sensitive and Human-authoritative actions.
 
@@ -803,7 +808,7 @@ They are not replaceable by ordinary application logs.
 
 ---
 
-# Telemetry Flow
+## Telemetry Flow
 
 ```text
 Application / Worker
@@ -827,11 +832,11 @@ Application / Worker
 
 ---
 
-# MVP Implementation Stack Decision
+## MVP Implementation Stack Decision
 
 The architecture contracts, telemetry schema, and Application Layer ports remain provider-neutral.
 
-The production MVP implementation is fixed by [ADR-0003](docs/adr/0003-select-mvp-observability-stack.md). That ADR is the canonical source for:
+The production MVP implementation is fixed by [ADR-0003](../adr/0003-select-mvp-observability-stack.md). That ADR is the canonical source for:
 
 - selected managed services and disabled components
 - primary Region and accepted regional failure mode
@@ -855,7 +860,7 @@ Vendor-specific SDKs, resource names, access policies, and exporter settings bel
 
 ---
 
-# OpenTelemetry
+## OpenTelemetry
 
 OpenTelemetry is recommended for:
 
@@ -869,7 +874,7 @@ The MVP production exporter decision is fixed by ADR-0003. Remote trace export i
 
 ---
 
-# Telemetry Failure and Backpressure Contract
+## Telemetry Failure and Backpressure Contract
 
 Optional telemetry export MUST NOT roll back or reject a valid business operation, but it also MUST NOT consume unbounded memory, disk, threads, connections, or shutdown time. Telemetry is allowed to degrade; the authoritative service is not allowed to fail merely to preserve optional telemetry.
 
@@ -899,7 +904,7 @@ Required Class A audit persistence failure
 
 ---
 
-# Telemetry Delivery Classes
+## Telemetry Delivery Classes
 
 | Delivery class | Data | Failure behavior |
 |---|---|---|
@@ -913,7 +918,7 @@ No non-authoritative telemetry class has an unlimited delivery guarantee. A high
 
 ---
 
-# Bounded Export Queues
+## Bounded Export Queues
 
 Every in-process exporter MUST define fixed limits for:
 
@@ -939,7 +944,7 @@ The process MUST NOT allocate a second unbounded overflow queue. Caller threads,
 
 ---
 
-# Export Timeout and Retry Policy
+## Export Timeout and Retry Policy
 
 Remote export calls MUST use explicit connection and response deadlines. Retries MUST use exponential backoff with jitter and a ceiling.
 
@@ -956,7 +961,7 @@ Authentication failure, invalid configuration, and other non-transient exporter 
 
 ---
 
-# Resource and Bulkhead Isolation
+## Resource and Bulkhead Isolation
 
 Telemetry export uses resource pools isolated from authoritative request and Worker execution where practical.
 
@@ -973,7 +978,7 @@ If the deployment writes logs to stdout or a local agent, the writer and collect
 
 ---
 
-# Local Disk Spooling
+## Local Disk Spooling
 
 Disk spooling is optional and MUST NOT be treated as unlimited durability.
 
@@ -992,7 +997,7 @@ Secrets, raw prompts, generated content, and T4 data remain prohibited even in a
 
 ---
 
-# Backend-Unavailable Behavior
+## Backend-Unavailable Behavior
 
 When a centralized log, metric, or trace backend is unavailable:
 
@@ -1009,7 +1014,7 @@ Telemetry backend recovery MUST NOT trigger an uncontrolled catch-up burst. Expo
 
 ---
 
-# Shutdown Flush Contract
+## Shutdown Flush Contract
 
 Shutdown attempts a best-effort flush of accepted optional telemetry within a fixed deadline. The MVP default is five seconds, and the configured deadline MUST be shorter than the process termination grace period.
 
@@ -1025,7 +1030,7 @@ A telemetry flush MUST NOT delay lease release, transaction rollback, or safe pr
 
 ---
 
-# Telemetry Self-Observability
+## Telemetry Self-Observability
 
 Each exporter SHOULD expose bounded local metrics such as:
 
@@ -1055,7 +1060,7 @@ Alert conditions SHOULD include:
 
 ---
 
-# Telemetry Priority
+## Telemetry Priority
 
 The system priority order is:
 
@@ -1077,7 +1082,7 @@ The first three may participate in the business transaction. Items four through 
 
 ---
 
-# Structured Logging
+## Structured Logging
 
 All runtime components must emit structured logs.
 
@@ -1091,7 +1096,7 @@ Plain unstructured text should be limited to local development.
 
 ---
 
-# Operational Log Envelope
+## Operational Log Envelope
 
 Every structured operational log uses one fixed base envelope:
 
@@ -1117,7 +1122,7 @@ The base keys have one meaning and type across every service. `outcome` and `dur
 
 ---
 
-# Required Base Fields
+## Required Base Fields
 
 Every production log MUST populate:
 
@@ -1138,7 +1143,7 @@ attributes
 
 ---
 
-# Extension Attribute Namespaces
+## Extension Attribute Namespaces
 
 Canonical attribute keys use lower snake case after a registered namespace:
 
@@ -1181,7 +1186,7 @@ Attribute names are part of the telemetry contract. Aliases such as `commandType
 
 ---
 
-# Standard Identity Attributes
+## Standard Identity Attributes
 
 Cross-cutting identifiers use:
 
@@ -1215,7 +1220,7 @@ Generic `eventName`, `eventType`, `eventId`, or unqualified `operationId` attrib
 
 ---
 
-# Operational Log Class Registry
+## Operational Log Class Registry
 
 Every `operationalLogName` MUST have one version-controlled registry entry containing:
 
@@ -1253,7 +1258,7 @@ Conditional requirements are explicit registry rules. The phrase “when availab
 
 ---
 
-# Schema Ownership and Validation
+## Schema Ownership and Validation
 
 The Observability module owns the base envelope, namespace registry, compatibility policy, and validation tooling. Each producing module owns the semantic accuracy of its registered log names and extension attributes. A change affecting both requires review by both owners.
 
@@ -1270,7 +1275,7 @@ Production ingestion records a bounded contract-violation counter and routes mal
 
 ---
 
-# Compatibility Rules
+## Compatibility Rules
 
 Compatible changes include adding an optional registered attribute or a new operational-log name that does not change an existing meaning.
 
@@ -1287,7 +1292,7 @@ A breaking change requires a new `logSchemaVersion`, versioned registry fixtures
 
 ---
 
-# Telemetry Identity Namespace
+## Telemetry Identity Namespace
 
 The following semantic names remain distinct:
 
@@ -1303,7 +1308,7 @@ An ordinary structured log record is not an Operational Event and does not prove
 
 ---
 
-# Operational Log Name
+## Operational Log Name
 
 `operationalLogName` names the observed processing stage, not the underlying business fact.
 
@@ -1322,7 +1327,7 @@ Avoid names such as `DomainEventPublished` or `DomainEventProcessed`, because th
 
 ---
 
-# Log Message
+## Log Message
 
 The `message` field is a Human-readable summary.
 
@@ -1336,7 +1341,7 @@ The message should not contain sensitive domain content.
 
 ---
 
-# Severity Levels
+## Severity Levels
 
 Recommended levels:
 
@@ -1354,7 +1359,7 @@ Critical
 
 ---
 
-# Debug
+## Debug
 
 Use Debug for:
 
@@ -1367,7 +1372,7 @@ Debug logs should normally be disabled or sampled in production.
 
 ---
 
-# Info
+## Info
 
 Use Info for successful important lifecycle and operational events.
 
@@ -1386,7 +1391,7 @@ High-volume routine events may require sampling or aggregation.
 
 ---
 
-# Warn
+## Warn
 
 Use Warn when the system remains functional but requires attention.
 
@@ -1402,7 +1407,7 @@ Examples:
 
 ---
 
-# Error
+## Error
 
 Use Error when an operation fails and requires retry, investigation, or user-visible failure.
 
@@ -1417,7 +1422,7 @@ Examples:
 
 ---
 
-# Critical
+## Critical
 
 Use Critical when the service cannot safely continue or a core guarantee may be compromised.
 
@@ -1433,7 +1438,7 @@ Examples:
 
 ---
 
-# Stable Error Categories
+## Stable Error Categories
 
 Logs should include a stable:
 
@@ -1473,7 +1478,7 @@ Unknown
 
 ---
 
-# Stable Error Codes
+## Stable Error Codes
 
 `errorCode` should identify a specific operational condition.
 
@@ -1501,7 +1506,7 @@ Error codes should remain stable across wording changes.
 
 ---
 
-# Exception Logging
+## Exception Logging
 
 Unhandled exceptions should be logged once at the boundary that owns the failure response.
 
@@ -1529,7 +1534,7 @@ Additional lower-level Debug detail may be used when necessary.
 
 ---
 
-# Stack Traces
+## Stack Traces
 
 Stack traces are useful for unexpected failures.
 
@@ -1543,7 +1548,7 @@ They should:
 
 ---
 
-# SQL Logging
+## SQL Logging
 
 Production SQL logging should not record full parameter values by default.
 
@@ -1567,7 +1572,7 @@ Sensitive bind values must be redacted.
 
 ---
 
-# Named Database Operations
+## Named Database Operations
 
 Repository and Worker SQL operations should have stable operation names.
 
@@ -1589,7 +1594,7 @@ These names improve metrics and traces without exposing SQL text.
 
 ---
 
-# Slow Query Logging
+## Slow Query Logging
 
 Queries exceeding a configured duration should emit:
 
@@ -1619,7 +1624,7 @@ Do not include unrestricted SQL parameters.
 
 ---
 
-# Transaction Logging
+## Transaction Logging
 
 Important transaction operational log names may include:
 
@@ -1641,7 +1646,7 @@ High-volume success events may be traced rather than logged individually.
 
 ---
 
-# Aggregate Command Logging
+## Aggregate Command Logging
 
 An authoritative command should produce one `CommandCompletion` log.
 
@@ -1673,7 +1678,7 @@ The actual Work content must not be logged.
 
 ---
 
-# Authorization Logging
+## Authorization Logging
 
 Authorization outcomes should be observable.
 
@@ -1691,7 +1696,7 @@ Denied authoritative actions should not be silently sampled away.
 
 ---
 
-# Authorization Denial Fields
+## Authorization Denial Fields
 
 Recommended fields:
 
@@ -1719,7 +1724,7 @@ authorization.policy_version
 
 ---
 
-# Human Authority Violation Logging
+## Human Authority Violation Logging
 
 Attempts by non-Human principals to perform Human-authoritative commands require a dedicated `SecurityViolation` operational log.
 
@@ -1765,7 +1770,7 @@ depending on source and frequency.
 
 ---
 
-# Organization Isolation Logging
+## Organization Isolation Logging
 
 A rejected cross-Organization operation should emit:
 
@@ -1779,7 +1784,7 @@ Internal security telemetry may contain protected identifiers under restricted a
 
 ---
 
-# Worker Logging
+## Worker Logging
 
 Every real Worker attempt is observable. Claim deferral, predecessor blocking, and lease-recovery bookkeeping are observable outcomes but are not counted as handler attempts.
 
@@ -1817,7 +1822,7 @@ error.code
 
 ---
 
-# Worker Success Logging
+## Worker Success Logging
 
 High-volume successful item logs may be sampled. Metrics remain the primary tool for throughput.
 
@@ -1825,7 +1830,7 @@ Failures, retry scheduling, lease loss or expiry, permanent consumer failure, or
 
 ---
 
-# Retry Logging
+## Retry Logging
 
 A retry log records the claim version that failed, the completed attempt number, the registered maximum-attempt and elapsed-time policy, the bounded failure category and code, and the database-derived next attempt time.
 
@@ -1833,7 +1838,7 @@ It must not log unrestricted event payloads, provider responses, or ordering-key
 
 ---
 
-# Retry Exhaustion
+## Retry Exhaustion
 
 When retries are exhausted, emit `RetryExhausted` with `Error` or `Critical` severity according to business impact.
 
@@ -1855,7 +1860,7 @@ Memory generation operation
 
 ---
 
-# Outbox Relay Logging
+## Outbox Relay Logging
 
 Required operational log names:
 
@@ -1874,7 +1879,7 @@ Relay logs populate `integrationMessageId` and `integrationMessageType` when an 
 
 ---
 
-# Consumer Delivery Logging
+## Consumer Delivery Logging
 
 Canonical processed-event statuses are `Pending`, `Processing`, `Processed`, `RetryPending`, `Failed`, `Blocked`, and `Skipped`. Telemetry uses these persisted values without aliases.
 
@@ -1910,7 +1915,7 @@ ConsumerLeaseRecovered
 
 ---
 
-# Message Contract Logging
+## Message Contract Logging
 
 An invalid Domain Event envelope or Integration Message contract emits:
 
@@ -1935,7 +1940,7 @@ Exactly one primary message identity pair is required. Both pairs may be present
 
 ---
 
-# Memory Generation Logging
+## Memory Generation Logging
 
 Required operational log names:
 
@@ -1993,7 +1998,7 @@ Success and terminal-failure logs MUST be emitted from committed durable state. 
 
 ---
 
-# AI Provider Logging
+## AI Provider Logging
 
 When an external AI provider is used, logs may include:
 
@@ -2024,7 +2029,7 @@ Do not log:
 
 ---
 
-# Content Fingerprints
+## Content Fingerprints
 
 Content fingerprints are T3-derived sensitive data.
 
@@ -2049,7 +2054,7 @@ A fingerprint detects equality for an approved operational purpose. It is not an
 
 ---
 
-# Projection Logging
+## Projection Logging
 
 Recommended projection operational log names:
 
@@ -2071,7 +2076,7 @@ ProjectionRebuildFailed
 
 ---
 
-# Reconciliation Logging
+## Reconciliation Logging
 
 Recommended operational log names:
 
@@ -2107,7 +2112,7 @@ reconciliation.resolution_reference
 
 ---
 
-# Migration Logging
+## Migration Logging
 
 Every migration execution should emit:
 
@@ -2141,7 +2146,7 @@ error.code
 
 ---
 
-# Deployment Logging
+## Deployment Logging
 
 Deployment systems should emit:
 
@@ -2161,7 +2166,7 @@ These operational logs should be available independently from the newly deployed
 
 ---
 
-# Backup and Restore Logging
+## Backup and Restore Logging
 
 Recommended operational log names:
 
@@ -2189,7 +2194,7 @@ Backup logs must not expose:
 
 ---
 
-# Operational Action Logging
+## Operational Action Logging
 
 Privileged operational actions require structured operational logs in addition to durable audit.
 
@@ -2222,7 +2227,7 @@ High-cardinality replayId, eventId, OrganizationId, ordering key, IdentityId, an
 
 ---
 
-# Telemetry Retention
+## Telemetry Retention
 
 Initial MVP production defaults:
 
@@ -2247,7 +2252,7 @@ Legal hold overrides automatic expiry only for the explicitly recorded scope.
 
 ---
 
-# Log Immutability
+## Log Immutability
 
 Centralized production logs should be protected from ordinary modification.
 
@@ -2257,7 +2262,7 @@ Stronger immutable storage may be used for security logs.
 
 ---
 
-# Telemetry Access
+## Telemetry Access
 
 Telemetry access MUST follow least privilege.
 
@@ -2283,7 +2288,7 @@ Possession of telemetry access does not grant permission to change business stat
 
 ---
 
-# Log Sampling
+## Log Sampling
 
 Sampling may be applied to:
 
@@ -2305,7 +2310,7 @@ Sampling must not remove:
 
 ---
 
-# Log Rate Limiting
+## Log Rate Limiting
 
 Repeated identical errors may be rate-limited to protect the telemetry pipeline.
 
@@ -2319,7 +2324,7 @@ The system must preserve:
 
 ---
 
-# Correlation Model
+## Correlation Model
 
 AIOS uses separate server-owned and caller-supplied identifiers. They have different trust, lifecycle, and persistence rules.
 
@@ -2338,7 +2343,7 @@ They MUST NOT be used interchangeably. An identifier provides correlation only; 
 
 ---
 
-# Correlation Trust Boundary
+## Correlation Trust Boundary
 
 At every public ingress, AIOS MUST generate a new server-owned `requestId` and `correlationId`. A value supplied by an external caller MUST NOT be accepted, promoted, or copied into the internal `correlationId` field.
 
@@ -2356,7 +2361,7 @@ The following rules are mandatory:
 
 ---
 
-# Request ID
+## Request ID
 
 `requestId` identifies one inbound transport request and is generated by AIOS.
 
@@ -2370,7 +2375,7 @@ A retry creates a new `requestId`. The same logical command may still map to the
 
 ---
 
-# Command ID
+## Command ID
 
 `commandId` identifies one logical authoritative command.
 
@@ -2380,7 +2385,7 @@ Retries with unchanged intent resolve to the same `commandId`; a changed request
 
 ---
 
-# Correlation ID
+## Correlation ID
 
 Within AIOS logs, commands, Domain Events, Integration Events, Outbox records, and durable workflow projections, the field `correlationId` always means the server-owned internal correlation identifier. It identifies one end-to-end business workflow and may span multiple commands, events, worker executions, and traces.
 
@@ -2402,7 +2407,7 @@ Work Completion Gate update
 
 ---
 
-# External Correlation ID
+## External Correlation ID
 
 `externalCorrelationId` is optional caller-supplied metadata used only to help reconcile AIOS activity with an external system. It is classified as T2 operational metadata unless its content requires a stricter class.
 
@@ -2420,7 +2425,7 @@ If an external provider returns its own correlation value, it is stored as provi
 
 ---
 
-# Causation ID
+## Causation ID
 
 `causationId` identifies the immediate cause of an operation.
 
@@ -2436,13 +2441,13 @@ It MUST reference an internal immutable identifier such as `commandId`, `eventId
 
 ---
 
-# Event ID
+## Event ID
 
 `eventId` uniquely identifies one immutable Domain or Integration Event. Retries and redeliveries preserve the same `eventId`.
 
 ---
 
-# Trace ID
+## Trace ID
 
 `traceId` identifies one telemetry trace. A trace may cover one HTTP command, Worker execution, or replay operation. A business correlation may span multiple traces.
 
@@ -2450,7 +2455,7 @@ Inbound trace context is subject to the Trace Context Trust rules below. A trace
 
 ---
 
-# Span ID
+## Span ID
 
 `spanId` identifies one operation inside a trace.
 
@@ -2464,7 +2469,7 @@ Examples:
 
 ---
 
-# Correlation Propagation
+## Correlation Propagation
 
 At public ingress AIOS creates:
 
@@ -2481,7 +2486,7 @@ The `externalCorrelationId` remains at the ingress and observability boundary. I
 
 ---
 
-# Command Correlation
+## Command Correlation
 
 A Human command envelope should include:
 
@@ -2507,7 +2512,7 @@ The untrusted `externalCorrelationId` is not part of the authoritative command e
 
 ---
 
-# Event Correlation
+## Event Correlation
 
 Every Domain Event envelope should include:
 
@@ -2531,7 +2536,7 @@ The event schema MUST NOT define `externalCorrelationId` as an authoritative env
 
 ---
 
-# Consumer Correlation
+## Consumer Correlation
 
 When a consumer handles an event:
 
@@ -2544,7 +2549,7 @@ The consumer execution creates a new `requestId`, `traceId`, and `spanId`. It do
 
 ---
 
-# Follow-Up Event Correlation
+## Follow-Up Event Correlation
 
 When event handling emits another Domain Event:
 
@@ -2555,7 +2560,7 @@ newEvent.causationId   = sourceEvent.eventId
 
 ---
 
-# Replay Correlation
+## Replay Correlation
 
 An operational replay is a new execution and MUST receive a new server-owned `replayCorrelationId`. The original immutable event and its `correlationId` are not mutated.
 
@@ -2573,7 +2578,7 @@ The replayed delivery retains the original immutable `eventId` inside the wrappe
 
 ---
 
-# Scheduled Job Correlation
+## Scheduled Job Correlation
 
 Each scheduled job run creates a server-owned:
 
@@ -2592,7 +2597,7 @@ Items retain their business identifiers. A schedule name, tenant-supplied value,
 
 ---
 
-# Correlation Persistence and Search
+## Correlation Persistence and Search
 
 Durable operational records SHOULD store separate columns for:
 
@@ -2621,13 +2626,13 @@ Cross-Organization search is restricted to explicitly authorized platform-securi
 
 ---
 
-# Trace Architecture
+## Trace Architecture
 
 Tracing should cover synchronous and asynchronous execution.
 
 ---
 
-# HTTP Trace
+## HTTP Trace
 
 Recommended spans:
 
@@ -2649,7 +2654,7 @@ HTTP Request
 
 ---
 
-# Worker Trace
+## Worker Trace
 
 Recommended spans:
 
@@ -2669,7 +2674,7 @@ Worker Item
 
 ---
 
-# Memory Generation Trace
+## Memory Generation Trace
 
 Recommended spans:
 
@@ -2689,7 +2694,7 @@ The external AI call must occur outside a long database transaction.
 
 ---
 
-# Database Spans
+## Database Spans
 
 Database spans should include:
 
@@ -2711,7 +2716,7 @@ Full SQL and sensitive parameters should not be exported by default.
 
 ---
 
-# External Dependency Spans
+## External Dependency Spans
 
 External calls should include:
 
@@ -2733,7 +2738,7 @@ Do not include secrets or full payloads.
 
 ---
 
-# Span Status
+## Span Status
 
 Spans should use clear outcomes:
 
@@ -2755,7 +2760,7 @@ may be an expected outcome rather than an infrastructure exception, but should s
 
 ---
 
-# Trace Sampling
+## Trace Sampling
 
 Recommended approach:
 
@@ -2769,7 +2774,7 @@ Recommended approach:
 
 ---
 
-# Tail-Based Sampling
+## Tail-Based Sampling
 
 Tail-based sampling is preferred when available because it can retain traces based on final outcome.
 
@@ -2777,7 +2782,7 @@ It is optional for the MVP.
 
 ---
 
-# Trace Retention
+## Trace Retention
 
 Sampled production traces have an initial default retention of 7 days.
 
@@ -2787,7 +2792,7 @@ Incident-specific trace retention requires recorded scope, owner, expiry, and da
 
 ---
 
-# Trace Context Trust
+## Trace Context Trust
 
 Inbound trace context is untrusted.
 
@@ -2801,7 +2806,7 @@ The system should:
 
 ---
 
-# Baggage Restrictions
+## Baggage Restrictions
 
 Trace baggage must not contain:
 
@@ -2816,7 +2821,7 @@ Trace baggage must not contain:
 
 ---
 
-# Audit Architecture
+## Audit Architecture
 
 Audit supports accountability and security investigation. It is distinct from ordinary logs, metrics, and traces.
 
@@ -2835,7 +2840,7 @@ The Aggregate and Domain Event remain authoritative for business state. Audit re
 
 ---
 
-# Audit Categories
+## Audit Categories
 
 Required categories:
 
@@ -2861,11 +2866,11 @@ ConfigurationChange
 
 ---
 
-# Audit Durability Classes
+## Audit Durability Classes
 
 Every audit-producing operation MUST select exactly one class.
 
-## Class A — Transactional Mandatory
+### Class A — Transactional Mandatory
 
 Use for successful state changes whose accountability must be atomic with the authoritative mutation.
 
@@ -2888,7 +2893,7 @@ Required behavior:
 
 A durable Outbox audit event satisfies the transaction boundary only when it is retryable and the final audit projection can be reconciled.
 
-## Class B — Durable Independent
+### Class B — Durable Independent
 
 Use for privileged operational actions and security-relevant denials that have no domain mutation transaction.
 
@@ -2912,7 +2917,7 @@ Required behavior:
 - audit-write failure creates an operational or security alert
 - retries use a stable operation or audit id
 
-## Class C — Best-Effort Security Telemetry
+### Class C — Best-Effort Security Telemetry
 
 Use for ordinary authenticated denials that are expected during normal product use and do not indicate a security boundary attack.
 
@@ -2931,7 +2936,7 @@ Required behavior:
 
 Class C MUST NOT be used for successful Human-authoritative mutations.
 
-## Class D — Rate-Limited or Aggregated
+### Class D — Rate-Limited or Aggregated
 
 Use for unauthenticated, malformed, automated, or repeated traffic that could create audit-table or telemetry-pipeline denial of service.
 
@@ -2956,7 +2961,7 @@ Rate limiting audit evidence MUST NOT weaken authentication, authorization, Orga
 
 ---
 
-# Audit Classification Matrix
+## Audit Classification Matrix
 
 | Audit scenario | Class | Persistence boundary | Failure behavior |
 |---|---|---|---|
@@ -2971,7 +2976,7 @@ The classification is based on security and accountability impact, not on the vo
 
 ---
 
-# Authorization Audit
+## Authorization Audit
 
 Every accepted authoritative command MUST produce Class A authorization evidence containing:
 
@@ -3011,7 +3016,7 @@ A failed Deny audit write never changes the authorization outcome to Allow.
 
 ---
 
-# Lifecycle Audit
+## Lifecycle Audit
 
 Human-authoritative transitions should have dedicated durable audit evidence.
 
@@ -3037,7 +3042,7 @@ The audit record supports accountability and investigation.
 
 ---
 
-# Membership Audit
+## Membership Audit
 
 Audit:
 
@@ -3053,7 +3058,7 @@ Audit:
 
 ---
 
-# Replay Audit
+## Replay Audit
 
 Replay is Class B durable operational audit. The request intent MUST commit before asynchronous execution.
 
@@ -3085,7 +3090,7 @@ Payload content, authentication credentials, provider secrets, and unrestricted 
 
 ---
 
-# Data Repair Audit
+## Data Repair Audit
 
 Every controlled data repair should record:
 
@@ -3115,7 +3120,7 @@ Sensitive before-and-after content should not be copied into the audit record un
 
 ---
 
-# Audit and Domain Events
+## Audit and Domain Events
 
 Audit records and Domain Events serve different purposes.
 
@@ -3133,7 +3138,7 @@ Neither should replace the other.
 
 ---
 
-# Audit Failure
+## Audit Failure
 
 Failure behavior is determined by durability class.
 
@@ -3162,7 +3167,7 @@ The Class A rule may be changed only by an ADR that defines equivalent durable e
 
 ---
 
-# Audit Query Access
+## Audit Query Access
 
 Audit queries require elevated authority.
 
@@ -3172,7 +3177,7 @@ Platform-wide audit access must remain restricted.
 
 ---
 
-# Audit Export
+## Audit Export
 
 Audit export should:
 
@@ -3187,7 +3192,7 @@ Audit export is optional for the MVP.
 
 ---
 
-# Operational Log Taxonomy
+## Operational Log Taxonomy
 
 Stable operational log names improve search, alerting, and dashboards. They remain telemetry and are not Event contracts.
 
@@ -3212,7 +3217,7 @@ Configuration
 
 ---
 
-# Naming Pattern
+## Naming Pattern
 
 Recommended pattern:
 
@@ -3234,7 +3239,7 @@ Names must identify the stage whose result is known. `OutboxRecordRelayed` and `
 
 ---
 
-# Outcome Values
+## Outcome Values
 
 Recommended stable values:
 
@@ -3252,7 +3257,7 @@ Degraded
 
 ---
 
-# Log Schema Version
+## Log Schema Version
 
 Structured log records use:
 
@@ -3264,7 +3269,7 @@ Version 3 fixes the base envelope and moves specialized fields into registered n
 
 ---
 
-# Example Operational Log Record
+## Example Operational Log Record
 
 ```json
 {
@@ -3299,7 +3304,7 @@ Version 3 fixes the base envelope and moves specialized fields into registered n
 
 ---
 
-# Log Field Cardinality
+## Log Field Cardinality
 
 Low-cardinality base fields and attributes may be indexed for aggregation. Examples include:
 
@@ -3336,7 +3341,7 @@ High-cardinality attributes belong only in permitted logs and traces, not ordina
 
 ---
 
-# Message Redaction
+## Message Redaction
 
 Before a log is emitted, redaction should remove:
 
@@ -3352,7 +3357,7 @@ Before a log is emitted, redaction should remove:
 
 ---
 
-# Redaction Failure
+## Redaction Failure
 
 If the system cannot guarantee safe redaction of a provider or exception payload:
 
@@ -3371,7 +3376,7 @@ Log only:
 
 ---
 
-# Log Injection Protection
+## Log Injection Protection
 
 User-controlled values must remain structured fields.
 
@@ -3381,7 +3386,7 @@ This prevents malicious or accidental log-line injection.
 
 ---
 
-# Production Console Output
+## Production Console Output
 
 Containers and processes may write structured logs to:
 
@@ -3397,7 +3402,7 @@ Local file logging inside ephemeral containers should not be the primary strateg
 
 ---
 
-# Local Development Logging
+## Local Development Logging
 
 Local development may use:
 
@@ -3410,7 +3415,7 @@ Production field names and operational log names should remain consistent.
 
 ---
 
-# Clock and Timestamp
+## Clock and Timestamp
 
 Telemetry timestamps must use UTC.
 
@@ -3426,7 +3431,7 @@ System clocks should use reliable synchronization.
 
 ---
 
-# Duration Measurement
+## Duration Measurement
 
 Durations should use monotonic clocks where available.
 
@@ -3434,7 +3439,7 @@ Wall-clock timestamps should not be subtracted when clock adjustment could disto
 
 ---
 
-# Part 1 Invariants
+## Part 1 Invariants
 
 The observability foundation must preserve:
 
@@ -3464,7 +3469,7 @@ The observability foundation must preserve:
 
 ---
 
-# Part 1 Design Summary
+## Part 1 Design Summary
 
 The AIOS observability foundation combines:
 
@@ -3488,7 +3493,7 @@ Every synchronous command and asynchronous consequence can be traced through sta
 
 Human authority, Organization isolation, retries, event handling, Worker recovery, and privileged operational actions remain visible without making telemetry a new source of business authority.
 
-# Metrics Architecture
+## Metrics Architecture
 
 Metrics provide continuous quantitative visibility into the operational health and business workflow progression of AIOS.
 
@@ -3511,7 +3516,7 @@ Metrics should be:
 
 ---
 
-# Metric Design Principles
+## Metric Design Principles
 
 Metrics should measure:
 
@@ -3537,7 +3542,7 @@ Metrics must not expose sensitive business content.
 
 ---
 
-# Metric Categories
+## Metric Categories
 
 AIOS metrics are divided into:
 
@@ -3567,7 +3572,7 @@ Each category has distinct operational responsibilities.
 
 ---
 
-# RED Metrics
+## RED Metrics
 
 All externally visible services should expose RED metrics.
 
@@ -3590,7 +3595,7 @@ These metrics apply to:
 
 ---
 
-# Request Rate
+## Request Rate
 
 Measure:
 
@@ -3632,7 +3637,7 @@ Organization and resource identifiers are prohibited as metric labels even when 
 
 ---
 
-# Error Rate
+## Error Rate
 
 Measure:
 
@@ -3652,7 +3657,7 @@ Separate expected business denials from unexpected infrastructure failures.
 
 ---
 
-# Request Duration
+## Request Duration
 
 Measure end-to-end execution time.
 
@@ -3670,7 +3675,7 @@ Average latency alone is insufficient.
 
 ---
 
-# USE Metrics
+## USE Metrics
 
 Infrastructure components should expose USE metrics.
 
@@ -3702,7 +3707,7 @@ Connection Pool
 
 ---
 
-# Domain Workflow Metrics
+## Domain Workflow Metrics
 
 Infrastructure health alone does not indicate whether AIOS is functioning correctly.
 
@@ -3710,7 +3715,7 @@ Business workflow progression must also be measured.
 
 ---
 
-# Work Lifecycle Metrics
+## Work Lifecycle Metrics
 
 Recommended metrics:
 
@@ -3732,7 +3737,7 @@ These metrics reveal workflow progression rather than infrastructure behavior.
 
 ---
 
-# Decision Metrics
+## Decision Metrics
 
 Recommended:
 
@@ -3762,7 +3767,7 @@ approved/rejected/withdrawn_at
 
 ---
 
-# Memory Metrics
+## Memory Metrics
 
 Recommended:
 
@@ -3794,7 +3799,7 @@ Memory Generated
 
 ---
 
-# Completion Gate Metrics
+## Completion Gate Metrics
 
 Recommended:
 
@@ -3810,7 +3815,7 @@ These metrics help identify approval bottlenecks.
 
 ---
 
-# Workflow Latency Metrics
+## Workflow Latency Metrics
 
 The Work-to-Memory workflow MUST expose one end-to-end measure and stage-level diagnostic measures.
 
@@ -3860,7 +3865,7 @@ The end-to-end measure is authoritative for the Work-to-Memory SLO. Stage measur
 
 ---
 
-# Work-to-Memory Timestamp Contract
+## Work-to-Memory Timestamp Contract
 
 The following timestamp semantics MUST be stable:
 
@@ -3881,7 +3886,7 @@ Wall-clock differences, retry overlap, and queue rescheduling mean stage histogr
 
 ---
 
-# Retry Measurement
+## Retry Measurement
 
 Provider, validation, and persistence durations are recorded per attempt.
 
@@ -3897,7 +3902,7 @@ Metrics MAY use bounded labels such as outcome, failureCategory, workerType, and
 
 ---
 
-# Durable Memory Generation State
+## Durable Memory Generation State
 
 Logs, metrics, and traces are not sufficient to determine whether Memory generation is pending, running, retrying, or terminal.
 
@@ -3968,7 +3973,7 @@ Labels may include bounded outcome, failure category, configured provider, and r
 
 ---
 
-# External Effect Ledger Observability
+## External Effect Ledger Observability
 
 This section applies only when an `ExternalBusinessEffect` consumer is enabled. The baseline MVP has none.
 
@@ -4008,7 +4013,7 @@ The Organization-scoped health query exposes protected identifiers and stable ev
 
 ---
 
-# Authorization Metrics
+## Authorization Metrics
 
 Recommended:
 
@@ -4028,7 +4033,7 @@ Unexpected increases should trigger investigation.
 
 ---
 
-# Worker Metrics
+## Worker Metrics
 
 Every Worker should expose:
 
@@ -4048,7 +4053,7 @@ worker_duration_seconds
 
 ---
 
-# Queue Metrics
+## Queue Metrics
 
 Outbox publication and consumer execution expose separate bounded metrics:
 
@@ -4086,7 +4091,7 @@ Queue age is often more important than queue length. `Blocked` deliveries do not
 
 ---
 
-# Database Metrics
+## Database Metrics
 
 Recommended:
 
@@ -4108,7 +4113,7 @@ slow_queries_total
 
 ---
 
-# Projection Metrics
+## Projection Metrics
 
 Recommended:
 
@@ -4124,7 +4129,7 @@ projection_lag_seconds
 
 ---
 
-# Reconciliation Metrics
+## Reconciliation Metrics
 
 Recommended:
 
@@ -4140,7 +4145,7 @@ reconciliation_duration_seconds
 
 ---
 
-# Deployment Metrics
+## Deployment Metrics
 
 Recommended:
 
@@ -4156,7 +4161,7 @@ migration_duration_seconds
 
 ---
 
-# Backup Metrics
+## Backup Metrics
 
 Recommended:
 
@@ -4174,7 +4179,7 @@ restore_test_duration_seconds
 
 ---
 
-# Backup and Recovery Operational Contract
+## Backup and Recovery Operational Contract
 
 `docs/architecture/persistence-and-data-model.md` is the canonical source for recovery semantics, protected data, and restore correctness. This document defines how Operations measures and enforces that contract.
 
@@ -4226,7 +4231,7 @@ Restored Outbox rows retain at-least-once delivery semantics. For an external si
 
 ---
 
-# Metric Label Contract
+## Metric Label Contract
 
 Metric labels MUST be bounded, server-derived, non-sensitive, and registered before production use.
 
@@ -4253,7 +4258,7 @@ model_slot
 
 ---
 
-# HTTP Route Template Rules
+## HTTP Route Template Rules
 
 `route_template` MUST be obtained from the server-side router after route matching. A permitted value is a static template such as:
 
@@ -4286,7 +4291,7 @@ They MUST NOT derive a template by copying or heuristically rewriting the raw pa
 
 ---
 
-# Operation Label Registry
+## Operation Label Registry
 
 Every permitted `operation` value is declared in version-controlled configuration or code with:
 
@@ -4315,7 +4320,7 @@ Unknown runtime values collapse to the fixed value `unknown` and increment the c
 
 ---
 
-# Prohibited High-Cardinality Labels
+## Prohibited High-Cardinality Labels
 
 Prohibited labels and values include:
 
@@ -4347,7 +4352,7 @@ These values belong only in the protected PostgreSQL operational records, logs, 
 
 ---
 
-# Label Cardinality Enforcement
+## Label Cardinality Enforcement
 
 The build or startup validation MUST compare each label source with its registered bounded set. The runtime MUST NOT create a new label value from untrusted input when validation is bypassed or stale.
 
@@ -4368,7 +4373,7 @@ The absence of `organizationId` from metrics MUST NOT make Organization-specific
 
 ---
 
-# Organization Workflow Health Projection
+## Organization Workflow Health Projection
 
 Global metrics can remain healthy while one Organization is permanently blocked. The MVP MUST maintain a rebuildable PostgreSQL projection for Organization-specific asynchronous workflow health.
 
@@ -4430,7 +4435,7 @@ This relation is operational metadata. It is not a Domain Aggregate, does not au
 
 ---
 
-# Workflow Health Status
+## Workflow Health Status
 
 Permitted status values:
 
@@ -4460,7 +4465,7 @@ Thresholds are versioned configuration by workflow type. A threshold change MUST
 
 ---
 
-# Projection Update and Reconciliation
+## Projection Update and Reconciliation
 
 Workers and Outbox consumers write durable operational state before emitting diagnostic telemetry.
 
@@ -4488,7 +4493,7 @@ Projection failure is itself operationally visible. When the projection becomes 
 
 ---
 
-# Organization Health Query Authorization
+## Organization Health Query Authorization
 
 Organization-specific health data is protected operational information.
 
@@ -4505,7 +4510,7 @@ The projection MUST NOT be exposed through an unrestricted metrics endpoint.
 
 ---
 
-# Organization Health Metrics and Alerts
+## Organization Health Metrics and Alerts
 
 The metric backend receives only aggregated counts:
 
@@ -4531,7 +4536,7 @@ An alert may contain a protected internal reference that an authorized operator 
 
 ---
 
-# Service Level Management
+## Service Level Management
 
 SLIs measure observed system behavior. SLOs define the minimum acceptable result over a stated measurement window.
 
@@ -4539,7 +4544,7 @@ An SLO is valid only when its eligibility rules, numerator, denominator, timesta
 
 ---
 
-# SLO Measurement Policy
+## SLO Measurement Policy
 
 The MVP MUST apply the following policy:
 
@@ -4556,7 +4561,7 @@ Changing a target, formula, exclusion, or source requires an implementation ADR 
 
 ---
 
-# HTTP Availability SLI
+## HTTP Availability SLI
 
 Eligible requests are production requests to supported customer-facing HTTP operations.
 
@@ -4596,7 +4601,7 @@ Normalized ingress request counter using registered `route_template`, `operation
 
 ---
 
-# HTTP Request Latency SLI
+## HTTP Request Latency SLI
 
 Latency is measured from ingress acceptance until the final response is written for successful eligible synchronous requests.
 
@@ -4612,7 +4617,7 @@ External AI-provider time is not included in an HTTP latency SLI when the reques
 
 ---
 
-# Outbox Relay Timeliness SLI
+## Outbox Relay Timeliness SLI
 
 An eligible Outbox record is a committed, publishable record that is not administratively paused before it becomes eligible.
 
@@ -4636,7 +4641,7 @@ PostgreSQL Outbox committedAt and relayedAt timestamps
 
 ---
 
-# Work-to-Memory System Completion SLI
+## Work-to-Memory System Completion SLI
 
 This SLI measures the AIOS system obligation after a Human completes Work. It does not include Human review time.
 
@@ -4675,7 +4680,7 @@ The unique-Memory invariant remains a database and domain guarantee. An SLO does
 
 ---
 
-# Worker Terminal Success SLI
+## Worker Terminal Success SLI
 
 A logical Worker item, not an individual claim attempt, is the unit of measurement.
 
@@ -4697,7 +4702,7 @@ Durable Worker item status keyed by logical item identifier
 
 ---
 
-# Decision Review Workflow Indicators
+## Decision Review Workflow Indicators
 
 Human review latency is a product workflow indicator, not a platform reliability SLO.
 
@@ -4714,7 +4719,7 @@ For the MVP, a submitted Decision MUST be query-visible from PostgreSQL after it
 
 ---
 
-# MVP SLO Catalog
+## MVP SLO Catalog
 
 | SLO | Target | Window | Minimum volume | Initial alert signal | Owner |
 |---|---:|---|---:|---|---|
@@ -4730,7 +4735,7 @@ These are the initial MVP production targets. They may be revised through the ve
 
 ---
 
-# Error-Budget and Breach Policy
+## Error-Budget and Breach Policy
 
 For ratio SLOs:
 
@@ -4751,7 +4756,7 @@ Security isolation, Human authority, immutable approval, exactly-one Memory, and
 
 ---
 
-# Health Surfaces
+## Health Surfaces
 
 AIOS exposes separate health surfaces for synchronous HTTP serving, Worker processes, asynchronous workflow progression, and privileged diagnosis. A combined green or red status MUST NOT be used to represent all four concerns.
 
@@ -4768,7 +4773,7 @@ Health status is operational evidence, not authoritative domain state. Work, Dec
 
 ---
 
-# HTTP Liveness
+## HTTP Liveness
 
 HTTP liveness answers:
 
@@ -4789,7 +4794,7 @@ The endpoint MUST return a minimal status and MUST NOT expose dependency names, 
 
 ---
 
-# HTTP Readiness
+## HTTP Readiness
 
 HTTP readiness answers:
 
@@ -4819,7 +4824,7 @@ If PostgreSQL is reachable but the process cannot atomically persist the authori
 
 ---
 
-# Startup Checks
+## Startup Checks
 
 Startup checks determine whether a process may enter its normal lifecycle. They are separate from recurring liveness and readiness probes.
 
@@ -4836,7 +4841,7 @@ A failure prevents readiness. Restart behavior is controlled by the deployment p
 
 ---
 
-# Worker Liveness
+## Worker Liveness
 
 Worker liveness answers:
 
@@ -4850,7 +4855,7 @@ Long-running jobs MUST update a bounded heartbeat or lease. A missed heartbeat m
 
 ---
 
-# Worker Readiness
+## Worker Readiness
 
 Worker readiness is scoped by Worker type and answers:
 
@@ -4873,7 +4878,7 @@ Worker readiness does not prove progress. A Worker can be ready yet make no usef
 
 ---
 
-# Asynchronous Workflow Health
+## Asynchronous Workflow Health
 
 Asynchronous workflow health answers:
 
@@ -4896,7 +4901,7 @@ Asynchronous workflow health MUST be queryable by workflow type and authorized O
 
 ---
 
-# Administrative Diagnostic Health
+## Administrative Diagnostic Health
 
 Administrative diagnostic health correlates component and workflow evidence for incident investigation. It MAY report database, Outbox, Worker-type, workflow, projection, and provider conditions in one response, but it is not a liveness or readiness endpoint and MUST NOT be configured as a load-balancer or restart probe.
 
@@ -4911,7 +4916,7 @@ The diagnostic surface MUST:
 
 ---
 
-# Health Failure Matrix
+## Health Failure Matrix
 
 | Condition | HTTP liveness | HTTP readiness | Affected Worker readiness | Async workflow health |
 |---|---|---|---|---|
@@ -4928,7 +4933,7 @@ The diagnostic surface MUST:
 
 ---
 
-# Health Response Contracts
+## Health Response Contracts
 
 Each process probe returns only its own status. An HTTP readiness response MUST NOT embed overall Worker or workflow status.
 
@@ -4965,7 +4970,7 @@ Responses MUST NOT expose stack traces, raw database errors, hostnames, credenti
 
 ---
 
-# Dashboards
+## Dashboards
 
 Dashboards should support:
 
@@ -4978,7 +4983,7 @@ Each audience requires different views.
 
 ---
 
-# Executive Dashboard
+## Executive Dashboard
 
 Recommended indicators:
 
@@ -4991,7 +4996,7 @@ Recommended indicators:
 
 ---
 
-# Operations Dashboard
+## Operations Dashboard
 
 Required MVP indicators:
 
@@ -5012,7 +5017,7 @@ The dashboard links to the restricted Operations Application Service for Organiz
 
 ---
 
-# Developer Dashboard
+## Developer Dashboard
 
 Recommended indicators:
 
@@ -5026,7 +5031,7 @@ Recommended indicators:
 
 ---
 
-# Workflow Dashboard
+## Workflow Dashboard
 
 Recommended indicators:
 
@@ -5058,7 +5063,7 @@ Each stage should expose throughput and delay.
 
 ---
 
-# Alerting Principles
+## Alerting Principles
 
 Alerts should be:
 
@@ -5071,7 +5076,7 @@ Alerts should be:
 
 ---
 
-# Alert Severity
+## Alert Severity
 
 Recommended levels:
 
@@ -5087,7 +5092,7 @@ Critical
 
 ---
 
-# Critical Alerts
+## Critical Alerts
 
 Examples:
 
@@ -5100,7 +5105,7 @@ Examples:
 
 ---
 
-# High Alerts
+## High Alerts
 
 Examples:
 
@@ -5112,7 +5117,7 @@ Examples:
 
 ---
 
-# Warning Alerts
+## Warning Alerts
 
 Examples:
 
@@ -5124,7 +5129,7 @@ Examples:
 
 ---
 
-# Alert Routing
+## Alert Routing
 
 Alert routing should distinguish:
 
@@ -5138,7 +5143,7 @@ Different teams may own different categories.
 
 ---
 
-# Worker Monitoring
+## Worker Monitoring
 
 Operators should observe:
 
@@ -5152,7 +5157,7 @@ Operators should observe:
 
 ---
 
-# Outbox Monitoring
+## Outbox Monitoring
 
 Recommended dashboards:
 
@@ -5170,7 +5175,7 @@ Publication Failures
 
 ---
 
-# Consumer Monitoring
+## Consumer Monitoring
 
 Recommended dashboards:
 
@@ -5188,7 +5193,7 @@ Average Processing Time
 
 ---
 
-# Database Monitoring
+## Database Monitoring
 
 Monitor:
 
@@ -5203,7 +5208,7 @@ Monitor:
 
 ---
 
-# Capacity Indicators
+## Capacity Indicators
 
 Monitor growth of:
 
@@ -5220,7 +5225,7 @@ Growth trends support future capacity planning.
 
 ---
 
-# Part 2 Invariants
+## Part 2 Invariants
 
 The operational metrics architecture must preserve:
 
@@ -5240,7 +5245,7 @@ The operational metrics architecture must preserve:
 
 ---
 
-# Part 2 Design Summary
+## Part 2 Design Summary
 
 The AIOS metrics architecture combines:
 
@@ -5264,7 +5269,7 @@ Infrastructure health and business workflow health are treated as complementary 
 
 Operational success is measured not only by request availability, but by the successful progression of Human-authoritative workflows across synchronous and asynchronous boundaries.
 
-# Incident Response
+## Incident Response
 
 Incident response defines how AIOS detects, contains, investigates, resolves, and learns from production failures.
 
@@ -5281,7 +5286,7 @@ The incident process must prioritize:
 
 ---
 
-# Incident Definition
+## Incident Definition
 
 An incident is an unplanned event that materially affects:
 
@@ -5302,7 +5307,7 @@ A growing queue that prevents Memory generation may become an incident.
 
 ---
 
-# Incident Categories
+## Incident Categories
 
 Recommended categories:
 
@@ -5334,7 +5339,7 @@ BackupAndRecovery
 
 ---
 
-# Incident Severity
+## Incident Severity
 
 Recommended severity levels:
 
@@ -5350,7 +5355,7 @@ SEV-4
 
 ---
 
-# SEV-1
+## SEV-1
 
 A SEV-1 incident creates immediate critical risk.
 
@@ -5383,7 +5388,7 @@ Continuous response until controlled
 
 ---
 
-# SEV-2
+## SEV-2
 
 A SEV-2 incident causes major degradation without confirmed broad critical compromise.
 
@@ -5412,7 +5417,7 @@ Recovery during active response window
 
 ---
 
-# SEV-3
+## SEV-3
 
 A SEV-3 incident causes limited degradation.
 
@@ -5437,7 +5442,7 @@ Resolution within normal operational process
 
 ---
 
-# SEV-4
+## SEV-4
 
 A SEV-4 issue has low immediate impact.
 
@@ -5457,7 +5462,7 @@ Tracked through normal engineering backlog
 
 ---
 
-# Incident Lifecycle
+## Incident Lifecycle
 
 Recommended lifecycle:
 
@@ -5481,7 +5486,7 @@ Reviewed
 
 ---
 
-# Detection
+## Detection
 
 Incidents may be detected through:
 
@@ -5499,7 +5504,7 @@ Detection time should be recorded.
 
 ---
 
-# Acknowledgement
+## Acknowledgement
 
 Acknowledgement confirms that a Human operator has accepted responsibility for the incident.
 
@@ -5519,7 +5524,7 @@ initialOwner
 
 ---
 
-# Incident Responsibility Model
+## Incident Responsibility Model
 
 Incident roles in this document are responsibilities, not assumptions about separate full-time staff positions.
 
@@ -5532,11 +5537,11 @@ Every SEV-1 and SEV-2 incident MUST name Human owners for:
 - timeline and evidence capture
 - post-incident review
 
-The assignment record MUST include the Human principal, responsibility names, assumption time, and handoff or release time. Automation and the AI Secretary MAY prepare status summaries, correlate evidence, and suggest next actions, but they cannot own an incident, approve a risky operation, declare authoritative recovery, or perform the post-incident review.
+The assignment record MUST include the Human principal, responsibility names, assumption time, and handoff or release time. Automation and the Secretary MAY prepare status summaries, correlate evidence, and suggest next actions, but they cannot own an incident, approve a risky operation, declare authoritative recovery, or perform the post-incident review.
 
 ---
 
-# Small-Team Operating Mode
+## Small-Team Operating Mode
 
 The production MVP is expected to be operated by one to three people. Its minimum accountability model is:
 
@@ -5567,7 +5572,7 @@ When two authorized Humans are available, dangerous repair, replay, or emergency
 
 ---
 
-# Incident Commander
+## Incident Commander
 
 The Incident Commander is the incident-coordination responsibility. SEV-1 and SEV-2 incidents MUST assign it to a Human; in small-team mode this is normally the Primary Responder.
 
@@ -5585,7 +5590,7 @@ The Incident Commander may also perform technical remediation when staffing requ
 
 ---
 
-# Technical Lead
+## Technical Lead
 
 The Technical Lead responsibility owns:
 
@@ -5599,7 +5604,7 @@ It MAY be combined with the Incident Commander responsibility in small-team mode
 
 ---
 
-# Communications Lead
+## Communications Lead
 
 For significant incidents, the Communications Lead responsibility owns:
 
@@ -5613,7 +5618,7 @@ In small-team mode this responsibility is named Business Communicator and MAY be
 
 ---
 
-# Scribe
+## Scribe
 
 The Scribe responsibility records:
 
@@ -5630,7 +5635,7 @@ It MAY be combined with another response responsibility. Even when no dedicated 
 
 ---
 
-# Incident Timeline
+## Incident Timeline
 
 Every material incident should maintain a UTC timeline.
 
@@ -5654,7 +5659,7 @@ Example:
 
 ---
 
-# Containment
+## Containment
 
 Containment limits further damage.
 
@@ -5675,7 +5680,7 @@ Containment must be reversible where practical.
 
 ---
 
-# Safe Containment Priority
+## Safe Containment Priority
 
 Recommended priority:
 
@@ -5697,7 +5702,7 @@ Availability must not be restored by weakening authority or isolation guarantees
 
 ---
 
-# Read-Only Containment
+## Read-Only Containment
 
 Read-only mode may be used when authoritative writes are unsafe.
 
@@ -5712,7 +5717,7 @@ In read-only mode:
 
 ---
 
-# Organization-Specific Containment
+## Organization-Specific Containment
 
 Where possible, isolate only the affected Organization.
 
@@ -5728,7 +5733,7 @@ Organization-specific containment must not expose the Organization to other tena
 
 ---
 
-# Worker Containment
+## Worker Containment
 
 A Worker may be paused when:
 
@@ -5742,7 +5747,7 @@ Pausing must emit an operational audit event.
 
 ---
 
-# Incident Evidence
+## Incident Evidence
 
 Preserve:
 
@@ -5763,7 +5768,7 @@ Do not alter evidence unnecessarily during investigation.
 
 ---
 
-# Database Investigation Safety
+## Database Investigation Safety
 
 Production investigation queries should:
 
@@ -5777,7 +5782,7 @@ Production investigation queries should:
 
 ---
 
-# Exceptional Manual Database Repair During Incident
+## Exceptional Manual Database Repair During Incident
 
 Direct database modification is not a normal operational interface. Replay, Worker control, dead-letter actions, containment, and supported repairs MUST use the Operations Application Service.
 
@@ -5800,7 +5805,7 @@ The repair MUST run in a bounded transaction, fail closed on unexpected row coun
 
 ---
 
-# Resolution Criteria
+## Resolution Criteria
 
 An incident is resolved only when:
 
@@ -5815,7 +5820,7 @@ An incident is resolved only when:
 
 ---
 
-# Monitoring Phase
+## Monitoring Phase
 
 Before resolution, the system should remain in monitoring long enough to verify:
 
@@ -5828,7 +5833,7 @@ Before resolution, the system should remain in monitoring long enough to verify:
 
 ---
 
-# Incident Review
+## Incident Review
 
 SEV-1 and SEV-2 incidents require a post-incident review and a named Post-Incident Reviewer.
 
@@ -5838,7 +5843,7 @@ The reviewer SHOULD differ from the primary technical responder whenever another
 
 ---
 
-# Blameless Review
+## Blameless Review
 
 The review should focus on:
 
@@ -5854,7 +5859,7 @@ It should not focus on individual blame.
 
 ---
 
-# Post-Incident Review Contents
+## Post-Incident Review Contents
 
 Recommended structure:
 
@@ -5886,7 +5891,7 @@ Due Dates
 
 ---
 
-# Root Cause
+## Root Cause
 
 Root cause analysis should distinguish:
 
@@ -5918,7 +5923,7 @@ Systemic Cause:
 
 ---
 
-# Corrective Actions
+## Corrective Actions
 
 Corrective actions should prioritize:
 
@@ -5932,7 +5937,7 @@ Actions must have Human owners and due dates.
 
 ---
 
-# Incident Metrics
+## Incident Metrics
 
 Recommended incident metrics:
 
@@ -5954,7 +5959,7 @@ incident_recurrence_total
 
 ---
 
-# Operational Runbooks
+## Operational Runbooks
 
 Runbooks define repeatable response procedures.
 
@@ -5986,7 +5991,7 @@ Audit Requirements
 
 ---
 
-# Runbook Principles
+## Runbook Principles
 
 Runbooks must:
 
@@ -6002,7 +6007,7 @@ Runbooks must:
 
 ---
 
-# Runbook Ownership
+## Runbook Ownership
 
 Every runbook should have:
 
@@ -6020,7 +6025,7 @@ severity
 
 ---
 
-# Required MVP Runbooks
+## Required MVP Runbooks
 
 The MVP MUST include six executable runbooks:
 
@@ -6065,7 +6070,7 @@ The detailed runbook sections below are retained as target guidance. Their prese
 
 ---
 
-# Runbook: Application Unavailable
+## Runbook: Application Unavailable
 
 Diagnosis:
 
@@ -6099,7 +6104,7 @@ Authoritative command test succeeds
 
 ---
 
-# Runbook: Database Unavailable
+## Runbook: Database Unavailable
 
 Safety constraints:
 
@@ -6121,7 +6126,7 @@ Actions:
 
 ---
 
-# Runbook: Connection Pool Exhaustion
+## Runbook: Connection Pool Exhaustion
 
 Diagnosis:
 
@@ -6150,7 +6155,7 @@ Permanent remediation may include:
 
 ---
 
-# Runbook: Outbox Backlog
+## Runbook: Outbox Backlog
 
 Diagnosis:
 
@@ -6178,7 +6183,7 @@ Validation:
 
 ---
 
-# Runbook: External Effect Outcome Unknown
+## Runbook: External Effect Outcome Unknown
 
 This runbook applies only to a registered `ExternalBusinessEffect`.
 
@@ -6199,7 +6204,7 @@ If neither provider idempotency nor authoritative outcome query exists, automati
 
 ---
 
-# Runbook: Dead-Letter Event
+## Runbook: Dead-Letter Event
 
 Steps:
 
@@ -6221,7 +6226,7 @@ Do not use a database update, process restart, lease expiry, feature flag, or su
 
 ---
 
-# Runbook: Memory Generation Failure
+## Runbook: Memory Generation Failure
 
 Diagnosis:
 
@@ -6248,7 +6253,7 @@ The Secretary must not approve the Memory.
 
 ---
 
-# Runbook: Organization Isolation Alert
+## Runbook: Organization Isolation Alert
 
 Immediate actions:
 
@@ -6266,7 +6271,7 @@ Do not disclose one Organization’s identifiers to another Organization.
 
 ---
 
-# Runbook: Human Authority Violation
+## Runbook: Human Authority Violation
 
 Immediate actions:
 
@@ -6282,7 +6287,7 @@ Immediate actions:
 
 ---
 
-# Runbook: Last Owner Finding
+## Runbook: Last Owner Finding
 
 Immediate actions:
 
@@ -6299,7 +6304,7 @@ A Secretary or System principal must not be assigned as Human Owner.
 
 ---
 
-# Runbook: Migration Failure
+## Runbook: Migration Failure
 
 Steps:
 
@@ -6314,7 +6319,7 @@ Steps:
 
 ---
 
-# Runbook: Backup or WAL Archive Failure
+## Runbook: Backup or WAL Archive Failure
 
 1. Confirm the latest independently verified restorable UTC point.
 2. Calculate `now - latest_restorable_point` and compare it with the 15-minute RPO.
@@ -6329,7 +6334,7 @@ Steps:
 
 ---
 
-# Runbook: Production PostgreSQL Restore
+## Runbook: Production PostgreSQL Restore
 
 1. The Incident Commander declares restoration and records the approved target time and reason.
 2. Enter maintenance mode; stop mutation traffic, Outbox publication, consumers, schedulers, and background workers.
@@ -6347,7 +6352,7 @@ Steps:
 
 ---
 
-# Feature Flags
+## Feature Flags
 
 Feature flags allow controlled activation of behavior without immediate redeployment.
 
@@ -6355,7 +6360,7 @@ They are operational controls, not replacements for Domain rules.
 
 ---
 
-# Feature Flag Principles
+## Feature Flag Principles
 
 Feature flags must:
 
@@ -6370,7 +6375,7 @@ Feature flags must:
 
 ---
 
-# Feature Flag Categories
+## Feature Flag Categories
 
 Recommended categories:
 
@@ -6388,7 +6393,7 @@ EmergencyKillSwitch
 
 ---
 
-# Release Flags
+## Release Flags
 
 Release flags support gradual rollout of new code paths.
 
@@ -6402,7 +6407,7 @@ They should be temporary.
 
 ---
 
-# Operational Flags
+## Operational Flags
 
 Operational flags control runtime behavior.
 
@@ -6418,7 +6423,7 @@ disable-projection-rebuild
 
 ---
 
-# Experiment Flags
+## Experiment Flags
 
 Experiment flags support user-experience testing.
 
@@ -6432,7 +6437,7 @@ They must not alter:
 
 ---
 
-# Permissioned Preview Flags
+## Permissioned Preview Flags
 
 Permissioned Preview flags may enable a feature for selected Organizations.
 
@@ -6440,7 +6445,7 @@ Selection must use approved Organization identifiers and remain auditable.
 
 ---
 
-# Emergency Kill Switches
+## Emergency Kill Switches
 
 Kill switches disable unsafe behavior rapidly.
 
@@ -6462,7 +6467,7 @@ pause-all-domain-workers
 
 ---
 
-# Prohibited Flag Behavior
+## Prohibited Flag Behavior
 
 Feature flags must never allow:
 
@@ -6478,7 +6483,7 @@ Feature flags must never allow:
 
 ---
 
-# Flag Evaluation
+## Flag Evaluation
 
 Flag evaluation should be:
 
@@ -6491,7 +6496,7 @@ Flag evaluation should be:
 
 ---
 
-# Flag Failure Mode
+## Flag Failure Mode
 
 Every flag must define behavior when the flag service is unavailable.
 
@@ -6509,7 +6514,7 @@ Non-critical user-interface enhancement:
 
 ---
 
-# Flag Caching
+## Flag Caching
 
 Flag values may be cached.
 
@@ -6523,7 +6528,7 @@ The cache policy should define:
 
 ---
 
-# Flag Audit
+## Flag Audit
 
 Changes to sensitive flags should record:
 
@@ -6547,7 +6552,7 @@ changeRequest
 
 ---
 
-# Flag Lifecycle
+## Flag Lifecycle
 
 Recommended lifecycle:
 
@@ -6571,7 +6576,7 @@ Retired flags must be removed from code.
 
 ---
 
-# Flag Debt
+## Flag Debt
 
 Long-lived release flags create complexity.
 
@@ -6584,7 +6589,7 @@ Every temporary flag should have:
 
 ---
 
-# Configuration Management
+## Configuration Management
 
 Configuration controls runtime behavior that is not ordinary business state.
 
@@ -6602,7 +6607,7 @@ Examples:
 
 ---
 
-# Configuration Principles
+## Configuration Principles
 
 Configuration must be:
 
@@ -6616,7 +6621,7 @@ Configuration must be:
 
 ---
 
-# Configuration Hierarchy
+## Configuration Hierarchy
 
 Recommended precedence:
 
@@ -6634,7 +6639,7 @@ Runtime overrides should be limited and auditable.
 
 ---
 
-# Typed Configuration
+## Typed Configuration
 
 Configuration should use typed structures.
 
@@ -6653,7 +6658,7 @@ Avoid unstructured string-based lookup throughout the codebase.
 
 ---
 
-# Startup Validation
+## Startup Validation
 
 The process should fail startup when required configuration is:
 
@@ -6666,7 +6671,7 @@ The process should fail startup when required configuration is:
 
 ---
 
-# Configuration Bounds
+## Configuration Bounds
 
 Examples of bounded configuration:
 
@@ -6686,7 +6691,7 @@ SLO threshold within valid range
 
 ---
 
-# Dynamic Configuration
+## Dynamic Configuration
 
 Only selected settings should support runtime reload.
 
@@ -6708,7 +6713,7 @@ Avoid dynamic reload for:
 
 ---
 
-# Configuration Version
+## Configuration Version
 
 Processes should expose:
 
@@ -6720,7 +6725,7 @@ Operational events should record the active version.
 
 ---
 
-# Configuration Drift
+## Configuration Drift
 
 Drift detection should identify differences between:
 
@@ -6734,7 +6739,7 @@ Unexpected drift should create an alert or finding.
 
 ---
 
-# Configuration Rollback
+## Configuration Rollback
 
 Every sensitive configuration change should have:
 
@@ -6747,7 +6752,7 @@ Every sensitive configuration change should have:
 
 ---
 
-# Secrets Management
+## Secrets Management
 
 Secrets must be stored outside source control and ordinary configuration files.
 
@@ -6762,7 +6767,7 @@ Examples:
 
 ---
 
-# Secret Management Principles
+## Secret Management Principles
 
 Secrets must be:
 
@@ -6777,7 +6782,7 @@ Secrets must be:
 
 ---
 
-# Secret References
+## Secret References
 
 Configuration should contain secret references rather than raw secret values.
 
@@ -6797,7 +6802,7 @@ inside committed configuration.
 
 ---
 
-# Secret Access
+## Secret Access
 
 Runtime processes should access only required secrets.
 
@@ -6822,7 +6827,7 @@ Memory Worker:
 
 ---
 
-# Secret Rotation
+## Secret Rotation
 
 Rotation should support:
 
@@ -6842,7 +6847,7 @@ Audit completion
 
 ---
 
-# Emergency Rotation
+## Emergency Rotation
 
 Emergency rotation may be required after:
 
@@ -6857,7 +6862,7 @@ Emergency rotation should have a tested runbook.
 
 ---
 
-# Secret Expiry
+## Secret Expiry
 
 Where supported, secrets should have bounded validity.
 
@@ -6865,7 +6870,7 @@ Expiring secrets require alerts before expiration.
 
 ---
 
-# Secret Logging Prohibition
+## Secret Logging Prohibition
 
 Secrets must never appear in:
 
@@ -6881,7 +6886,7 @@ Secrets must never appear in:
 
 ---
 
-# Local Development Secrets
+## Local Development Secrets
 
 Local development should use:
 
@@ -6893,7 +6898,7 @@ Shared plaintext secret files are prohibited.
 
 ---
 
-# Deployment Strategy
+## Deployment Strategy
 
 The deployment architecture must preserve availability, compatibility, and authoritative data safety.
 
@@ -6909,7 +6914,7 @@ Blue-Green deployment may be used where infrastructure supports it.
 
 ---
 
-# Deployment Principles
+## Deployment Principles
 
 Deployments must be:
 
@@ -6924,7 +6929,7 @@ Deployments must be:
 
 ---
 
-# Deployment Artifact
+## Deployment Artifact
 
 Each deployable artifact should be immutable and identified by:
 
@@ -6942,7 +6947,7 @@ configuration schema version
 
 ---
 
-# Pre-Deployment Checks
+## Pre-Deployment Checks
 
 Before deployment:
 
@@ -6959,7 +6964,7 @@ Before deployment:
 
 ---
 
-# Deployment Order
+## Deployment Order
 
 Recommended order:
 
@@ -6981,7 +6986,7 @@ Recommended order:
 
 ---
 
-# Rolling Deployment
+## Rolling Deployment
 
 Rolling deployment replaces instances gradually.
 
@@ -6995,7 +7000,7 @@ During the rollout:
 
 ---
 
-# Rolling Deployment Readiness
+## Rolling Deployment Readiness
 
 A new instance becomes ready only after:
 
@@ -7009,7 +7014,7 @@ A new instance becomes ready only after:
 
 ---
 
-# Rolling Worker Deployment
+## Rolling Worker Deployment
 
 Workers require additional care.
 
@@ -7024,7 +7029,7 @@ Recommended sequence:
 
 ---
 
-# Consumer Compatibility
+## Consumer Compatibility
 
 Consumers should be deployed before producers of a new event schema.
 
@@ -7038,7 +7043,7 @@ During mixed deployment, consumers must tolerate:
 
 ---
 
-# Blue-Green Deployment
+## Blue-Green Deployment
 
 Blue-Green deployment maintains two complete application environments:
 
@@ -7052,7 +7057,7 @@ Traffic switches after validation.
 
 ---
 
-# Blue-Green Advantages
+## Blue-Green Advantages
 
 - rapid rollback
 - isolated pre-traffic validation
@@ -7061,7 +7066,7 @@ Traffic switches after validation.
 
 ---
 
-# Blue-Green Limitations
+## Blue-Green Limitations
 
 - shared database compatibility still required
 - Workers may process twice if both environments are active
@@ -7071,7 +7076,7 @@ Traffic switches after validation.
 
 ---
 
-# Blue-Green Worker Rule
+## Blue-Green Worker Rule
 
 Only one environment should actively claim the same Worker queue unless claim safety and idempotency explicitly support both.
 
@@ -7079,7 +7084,7 @@ Activation must be controlled.
 
 ---
 
-# Canary Deployment
+## Canary Deployment
 
 Canary deployment may send limited traffic to the new version.
 
@@ -7094,7 +7099,7 @@ Authority-sensitive commands require careful validation before canary exposure.
 
 ---
 
-# Deployment Smoke Tests
+## Deployment Smoke Tests
 
 Smoke tests should verify:
 
@@ -7113,7 +7118,7 @@ Production smoke tests must use controlled test data.
 
 ---
 
-# Deployment Validation
+## Deployment Validation
 
 After deployment, verify:
 
@@ -7130,7 +7135,7 @@ After deployment, verify:
 
 ---
 
-# Automatic Rollback
+## Automatic Rollback
 
 Automatic rollback may occur when:
 
@@ -7144,7 +7149,7 @@ Automatic rollback must not occur blindly when the database has undergone an irr
 
 ---
 
-# Forward Fix
+## Forward Fix
 
 A forward fix is preferred when:
 
@@ -7157,7 +7162,7 @@ The deployment plan must classify this before release.
 
 ---
 
-# Deployment Freeze
+## Deployment Freeze
 
 Deployment may be frozen during:
 
@@ -7172,7 +7177,7 @@ Emergency security fixes may follow a separate expedited process.
 
 ---
 
-# Maintenance Mode
+## Maintenance Mode
 
 Maintenance mode may restrict user operations during unsafe system conditions.
 
@@ -7190,13 +7195,13 @@ FullMaintenance
 
 ---
 
-# Normal Mode
+## Normal Mode
 
 All authorized operations are available.
 
 ---
 
-# Read-Only Mode
+## Read-Only Mode
 
 Safe reads are available.
 
@@ -7206,7 +7211,7 @@ Mutation Workers are paused unless explicitly required for recovery.
 
 ---
 
-# Restricted Writes Mode
+## Restricted Writes Mode
 
 Only selected safe operations are permitted.
 
@@ -7220,7 +7225,7 @@ Examples:
 
 ---
 
-# Full Maintenance Mode
+## Full Maintenance Mode
 
 User traffic is rejected.
 
@@ -7228,7 +7233,7 @@ Only approved operational access remains.
 
 ---
 
-# Maintenance Mode Authority
+## Maintenance Mode Authority
 
 Changing maintenance mode requires elevated Human operational authority.
 
@@ -7250,7 +7255,7 @@ expectedEndTime
 
 ---
 
-# Organization-Scoped Maintenance
+## Organization-Scoped Maintenance
 
 Maintenance may apply to one Organization.
 
@@ -7260,7 +7265,7 @@ The scope must be enforced in command authorization and Worker processing.
 
 ---
 
-# Maintenance Mode Messaging
+## Maintenance Mode Messaging
 
 Responses should communicate:
 
@@ -7273,7 +7278,7 @@ They must not expose internal incident details.
 
 ---
 
-# Operational Automation
+## Operational Automation
 
 Operational automation reduces repetitive Human intervention.
 
@@ -7281,7 +7286,7 @@ Automation must remain bounded and auditable.
 
 ---
 
-# Safe Automation Examples
+## Safe Automation Examples
 
 - recover expired Worker claims
 - restart unhealthy stateless processes
@@ -7295,7 +7300,7 @@ Automation must remain bounded and auditable.
 
 ---
 
-# Unsafe Automation Examples
+## Unsafe Automation Examples
 
 Automation must not independently:
 
@@ -7312,7 +7317,7 @@ Automation must not independently:
 
 ---
 
-# Auto-Remediation Requirements
+## Auto-Remediation Requirements
 
 Auto-remediation must define:
 
@@ -7334,7 +7339,7 @@ Escalation
 
 ---
 
-# Circuit Breakers
+## Circuit Breakers
 
 Circuit breakers may protect external dependencies.
 
@@ -7357,7 +7362,7 @@ Use cases:
 
 ---
 
-# Circuit Breaker Behavior
+## Circuit Breaker Behavior
 
 When the AI provider circuit is open:
 
@@ -7370,7 +7375,7 @@ When the AI provider circuit is open:
 
 ---
 
-# Rate Limiting
+## Rate Limiting
 
 Rate limiting protects:
 
@@ -7386,7 +7391,7 @@ Rate limits must not be keyed with high-cardinality metric labels.
 
 ---
 
-# Backpressure
+## Backpressure
 
 Workers must reduce intake when downstream systems are saturated.
 
@@ -7402,7 +7407,7 @@ Backpressure strategies:
 
 ---
 
-# Bulkhead Isolation
+## Bulkhead Isolation
 
 Separate resource pools may isolate:
 
@@ -7416,7 +7421,7 @@ One overloaded Worker type should not exhaust all database connections.
 
 ---
 
-# Scheduled Operations
+## Scheduled Operations
 
 Scheduled operations may include:
 
@@ -7433,7 +7438,7 @@ Every run should have a unique jobRunId.
 
 ---
 
-# Operational Job Idempotency
+## Operational Job Idempotency
 
 Scheduled jobs must be safe to retry.
 
@@ -7447,7 +7452,7 @@ They should use:
 
 ---
 
-# Operational Approval
+## Operational Approval
 
 High-risk operations require explicit Human approval before execution.
 
@@ -7467,7 +7472,7 @@ For a one-to-three-person MVP team, requester and approver separation is require
 
 ---
 
-# Operations Application Service
+## Operations Application Service
 
 AIOS MUST expose privileged state-changing recovery actions through a restricted Operations Application Service inside the Modular Monolith. It is a management-plane Application Service, not a Domain Aggregate and not a public business API.
 
@@ -7484,11 +7489,11 @@ The service coordinates:
 
 The service MUST NOT reach directly into another module's tables or repositories to bypass its rules. A module may expose a narrow operational port for recovery, but the module remains owner of its state and invariants.
 
-The AI Secretary and other AI Principals cannot invoke this service. `SystemAutomation` may invoke only explicitly allowlisted low-risk capabilities under bounded policy; it cannot approve its own action or acquire Human business authority.
+The Secretary and other AI Principals cannot invoke this service. `SystemAutomation` may invoke only explicitly allowlisted low-risk capabilities under bounded policy; it cannot approve its own action or acquire Human business authority.
 
 ---
 
-# Management-Plane Boundary
+## Management-Plane Boundary
 
 The Operations Application Service is available only through an authenticated management-plane endpoint or approved CLI that calls that endpoint.
 
@@ -7507,7 +7512,7 @@ The management endpoint may be deployed in the same process for the MVP, but its
 
 ---
 
-# Operational Command Envelope
+## Operational Command Envelope
 
 Every state-changing operational request MUST use a typed envelope containing at least:
 
@@ -7544,7 +7549,7 @@ Rules:
 
 ---
 
-# Operational Operation State
+## Operational Operation State
 
 Multi-step operational commands use a durable PostgreSQL operation record.
 
@@ -7573,7 +7578,7 @@ Short operations MAY update the control state and result atomically in one trans
 
 ---
 
-# Idempotency and Concurrency
+## Idempotency and Concurrency
 
 Operational idempotency is mandatory, not best-effort.
 
@@ -7592,7 +7597,7 @@ A client retry after timeout queries by `operationId` or idempotency key; it doe
 
 ---
 
-# Durable Intent and Result Boundary
+## Durable Intent and Result Boundary
 
 Privileged operations follow Class B audit durability unless a mutation must be Class A with the owning authoritative state.
 
@@ -7612,7 +7617,7 @@ If intent audit cannot be persisted, execution MUST NOT start. If execution comm
 
 ---
 
-# MVP Operational Commands
+## MVP Operational Commands
 
 The production MVP MUST implement and test these typed commands because existing incident and dead-letter runbooks depend on them:
 
@@ -7637,7 +7642,7 @@ Replay identifies the immutable source event, target consumer, Organization, rep
 
 ---
 
-# Worker Pause Semantics
+## Worker Pause Semantics
 
 Worker pause control is durable PostgreSQL state read before new claims.
 
@@ -7661,7 +7666,7 @@ An Organization-scoped pause MUST NOT stop another Organization. A platform-wide
 
 ---
 
-# Replay and Dead-Letter Safety
+## Replay and Dead-Letter Safety
 
 The Consumer Ordering and Failure-Continuation Contract in `docs/architecture/events-and-outbox.md` is authoritative for whether a failed delivery may be quarantined while later deliveries continue. The Operations Application Service MUST load the registered `orderingRequirement`, `orderingKeyStrategy`, `failureContinuationPolicy`, `sideEffectClass`, and `skipPolicy`; an operator request cannot override those fields ad hoc.
 
@@ -7701,7 +7706,7 @@ Replay completion means the requested delivery reached its defined terminal cons
 
 ---
 
-# Operational Result Contract
+## Operational Result Contract
 
 Every command returns or makes queryable:
 
@@ -7731,7 +7736,7 @@ Failure codes are stable bounded enums. Raw exception text, SQL, secrets, prompt
 
 ---
 
-# Production-Hardening Operational Commands
+## Production-Hardening Operational Commands
 
 After the MVP control surface is proven, AIOS SHOULD add typed commands for:
 
@@ -7745,7 +7750,7 @@ Generalized repair tooling is not an MVP requirement. It MUST NOT accept arbitra
 
 ---
 
-# Operational Principal Types
+## Operational Principal Types
 
 Operational commands may be initiated by:
 
@@ -7760,7 +7765,7 @@ SystemAutomation
 
 ---
 
-# Operational Audit
+## Operational Audit
 
 Every privileged operational command records durable append-only evidence for:
 
@@ -7781,7 +7786,7 @@ Reading cross-Organization operation details and invoking break-glass access are
 
 ---
 
-# Change Management
+## Change Management
 
 Operational changes should be classified by risk.
 
@@ -7797,7 +7802,7 @@ Emergency
 
 ---
 
-# Standard Change
+## Standard Change
 
 A repeatable, low-risk, pre-approved change.
 
@@ -7810,7 +7815,7 @@ Examples:
 
 ---
 
-# Normal Change
+## Normal Change
 
 A reviewed change with planned execution.
 
@@ -7823,7 +7828,7 @@ Examples:
 
 ---
 
-# Emergency Change
+## Emergency Change
 
 A change required to contain or resolve an incident.
 
@@ -7837,7 +7842,7 @@ It must still record:
 
 ---
 
-# Part 3 Invariants
+## Part 3 Invariants
 
 The operational control architecture must preserve:
 
@@ -7873,7 +7878,7 @@ The operational control architecture must preserve:
 
 ---
 
-# Part 3 Design Summary
+## Part 3 Design Summary
 
 The AIOS operational control model combines:
 
@@ -7903,7 +7908,7 @@ They cannot approve Decisions, complete Work, approve Memory, assign Human autho
 
 Production changes remain observable, reversible where possible, and forward-fixable where rollback is unsafe.
 
-# Capacity Planning
+## Capacity Planning
 
 Capacity planning ensures that AIOS can support expected growth without compromising:
 
@@ -7920,7 +7925,7 @@ Capacity planning should use measured production behavior rather than assumption
 
 ---
 
-# Capacity Planning Principles
+## Capacity Planning Principles
 
 Capacity planning must:
 
@@ -7937,7 +7942,7 @@ Capacity planning must:
 
 ---
 
-# Capacity Dimensions
+## Capacity Dimensions
 
 AIOS capacity should be evaluated across:
 
@@ -7979,7 +7984,7 @@ Backup Volume
 
 ---
 
-# Workload Profiles
+## Workload Profiles
 
 Capacity planning should define representative workload profiles.
 
@@ -8007,7 +8012,7 @@ Backup and Restore Exercise
 
 ---
 
-# Normal Day Profile
+## Normal Day Profile
 
 The Normal Day profile represents typical sustained use.
 
@@ -8025,7 +8030,7 @@ It should capture:
 
 ---
 
-# Peak Business Hour Profile
+## Peak Business Hour Profile
 
 The Peak Business Hour profile should capture expected short-term load.
 
@@ -8041,7 +8046,7 @@ It should include:
 
 ---
 
-# Worker Recovery Profile
+## Worker Recovery Profile
 
 The Worker Recovery profile models a period after:
 
@@ -8056,7 +8061,7 @@ The system must support backlog recovery without overwhelming PostgreSQL or down
 
 ---
 
-# Recovery Capacity
+## Recovery Capacity
 
 Recovery capacity should be higher than normal production rate.
 
@@ -8074,7 +8079,7 @@ This allows backlog reduction while new work continues.
 
 ---
 
-# Capacity Headroom
+## Capacity Headroom
 
 Production systems should preserve headroom.
 
@@ -8097,7 +8102,7 @@ The exact threshold depends on workload behavior.
 
 ---
 
-# Saturation Indicators
+## Saturation Indicators
 
 Capacity planning should monitor:
 
@@ -8116,7 +8121,7 @@ Capacity planning should monitor:
 
 ---
 
-# Database Capacity
+## Database Capacity
 
 PostgreSQL is the primary authoritative capacity boundary.
 
@@ -8135,7 +8140,7 @@ Database capacity planning must account for:
 
 ---
 
-# Database Connection Capacity
+## Database Connection Capacity
 
 Connections should be divided by workload.
 
@@ -8159,7 +8164,7 @@ One workload must not consume every available connection.
 
 ---
 
-# Connection Budget
+## Connection Budget
 
 A connection budget should define:
 
@@ -8179,7 +8184,7 @@ Operational Emergency Allowance
 
 ---
 
-# Connection Pool Sizing
+## Connection Pool Sizing
 
 Pool size should be based on measured database throughput.
 
@@ -8195,7 +8200,7 @@ Excessive connections may increase:
 
 ---
 
-# Worker Concurrency Capacity
+## Worker Concurrency Capacity
 
 Worker concurrency should be tuned against:
 
@@ -8209,7 +8214,7 @@ Worker concurrency should be tuned against:
 
 ---
 
-# Little’s Law Guidance
+## Little’s Law Guidance
 
 Approximate concurrency may be estimated from:
 
@@ -8223,7 +8228,7 @@ This is a planning aid, not a substitute for load testing.
 
 ---
 
-# Worker Batch Capacity
+## Worker Batch Capacity
 
 Batch size affects:
 
@@ -8238,7 +8243,7 @@ Batches should remain bounded.
 
 ---
 
-# Outbox Capacity
+## Outbox Capacity
 
 Outbox capacity planning should consider:
 

@@ -1,8 +1,8 @@
 # ADR-0008: Define Work-to-Memory Generation as a Durable Process
 
-> **Status:** Accepted  
-> **Date:** 2026-07-26  
-> **Blueprint version:** 0.2.1
+**Status:** Accepted  
+**Date:** 2026-07-26  
+**Blueprint Version:** 0.2.1
 
 ## Context
 

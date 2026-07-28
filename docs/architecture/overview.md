@@ -1,5 +1,10 @@
 # AIOS Architecture Overview
 
+> **Scope classification:** Mixed — introductory; see "Scope Classification and Implementation Authority"  
+> **MVP implementation authority:** None; defer to the owning document  
+> **Promotion requirement:** Accepted implementation ADR and scope-document update  
+> **Authority rank:** see [Document Governance](../document-governance.md)
+
 ## Purpose
 
 This document provides the architectural overview of AIOS.
@@ -23,7 +28,7 @@ Where an implementation decision is necessary for the initial product, this docu
 
 ---
 
-# Vision
+## Vision
 
 AIOS is an organizational operating system.
 
@@ -44,7 +49,7 @@ AI accelerates organizational learning without replacing human decision-making.
 
 ---
 
-# Guiding Principle
+## Guiding Principle
 
 AIOS is designed around a single architectural idea:
 
@@ -60,7 +65,7 @@ Every major architectural decision in the Blueprint supports this learning cycle
 
 ---
 
-# Core Learning Model
+## Core Learning Model
 
 The central learning model of AIOS is:
 
@@ -110,11 +115,11 @@ Knowledge promotion and Capability management are not part of the MVP.
 
 ---
 
-# Blueprint and MVP Separation
+## Blueprint and MVP Separation
 
 The Blueprint and the MVP serve different purposes.
 
-## Blueprint
+### Blueprint
 
 The Blueprint describes the intended business architecture of AIOS.
 
@@ -133,7 +138,7 @@ These concepts are retained in the architecture because they influence terminolo
 
 Their presence in the Blueprint does not place them in the MVP implementation scope.
 
-## Scope Classification and Implementation Authority
+### Scope Classification and Implementation Authority
 
 Every architectural statement is interpreted using one of four classifications:
 
@@ -152,7 +157,7 @@ A Reserved Extension Point must have a current MVP consumer and test. Provider-n
 
 [ADR-0010](../adr/0010-classify-blueprint-scope-and-implementation-authority.md) defines the complete interpretation and promotion rules.
 
-## MVP
+### MVP
 
 The MVP is the smallest implementation that can validate the core product hypothesis.
 
@@ -170,7 +175,7 @@ The MVP validates whether an Organization can:
 
 1. perform and track Work,
 2. record meaningful Decisions,
-3. receive assistance from one AI Secretary,
+3. receive assistance from one Secretary,
 4. generate a structured Memory from completed Work,
 5. correct that generated Memory,
 6. and approve or reject the resulting historical record.
@@ -189,7 +194,7 @@ The MVP does not implement:
 
 ---
 
-# MVP Memory Boundary
+## MVP Memory Boundary
 
 Memory review is part of the MVP.
 
@@ -231,9 +236,9 @@ A Memory may therefore be approved as a historical organizational record without
 
 ---
 
-# Architectural Principles
+## Architectural Principles
 
-## Domain-Driven Design
+### Domain-Driven Design
 
 Business concepts are modeled explicitly.
 
@@ -255,7 +260,7 @@ Depending on the rule, they may instead be enforced by:
 
 ---
 
-## Explicit Human Authority
+### Explicit Human Authority
 
 Human Members remain responsible for authoritative business actions.
 
@@ -283,7 +288,7 @@ Every invocation is Organization-scoped, deny-by-default, bound to an initiating
 
 ---
 
-## Historical Integrity
+### Historical Integrity
 
 AIOS distinguishes draft content from authoritative history.
 
@@ -299,7 +304,7 @@ Historical records remain traceable even when later Decisions or Knowledge super
 
 ---
 
-## Explainability
+### Explainability
 
 Every authoritative AI-assisted result must preserve sufficient provenance to explain:
 
@@ -316,7 +321,7 @@ They are not the source of truth.
 
 ---
 
-## Organization Isolation
+### Organization Isolation
 
 Every primary Aggregate belongs to exactly one owning Organization.
 
@@ -336,7 +341,7 @@ Future sharing must not require an Aggregate to be owned by multiple Organizatio
 
 ---
 
-## AI Governance
+### AI Governance
 
 AI participation is explicit and attributable.
 
@@ -352,7 +357,7 @@ Its technical execution is coordinated through the Application Layer rather than
 
 ---
 
-## Operational Reliability
+### Operational Reliability
 
 Domain Events alone do not guarantee reliable processing.
 
@@ -373,7 +378,7 @@ The detailed decision belongs in an Architecture Decision Record.
 
 ---
 
-# Domain Architecture
+## Domain Architecture
 
 The principal domain concepts are:
 
@@ -415,7 +420,7 @@ It assists through explicit application use cases and ports.
 
 ---
 
-# Principal and Actor Direction
+## Principal and Actor Direction
 
 The Blueprint uses `Principal` for the authenticated or trusted execution identity that requests or performs an action.
 
@@ -445,7 +450,7 @@ The detailed identity, Membership, Principal, and ActorReference rules are defin
 
 ---
 
-# Bounded Context and Module Direction
+## Bounded Context and Module Direction
 
 AIOS distinguishes semantic domain boundaries from implementation packaging.
 
@@ -461,7 +466,7 @@ Future Domain Bounded Contexts are Knowledge Management and Capability Managemen
 
 ---
 
-# Initial Implementation Architecture
+## Initial Implementation Architecture
 
 The initial implementation is one Modular Monolith using one authoritative PostgreSQL database.
 
@@ -507,11 +512,11 @@ A module may be extracted later only for a concrete reason such as independent s
 
 ---
 
-# Architectural Layers
+## Architectural Layers
 
 AIOS is described through complementary architectural views.
 
-## Domain Model
+### Domain Model
 
 Defines the core business concepts and their relationships.
 
@@ -519,7 +524,7 @@ Defines the core business concepts and their relationships.
 docs/architecture/domain-model.md
 ```
 
-## Context Map
+### Context Map
 
 Defines conceptual Bounded Contexts and their relationships.
 
@@ -527,7 +532,7 @@ Defines conceptual Bounded Contexts and their relationships.
 docs/architecture/context-map.md
 ```
 
-## Authorization
+### Authorization
 
 Defines organizational authority, access boundaries, and human-only actions.
 
@@ -535,7 +540,7 @@ Defines organizational authority, access boundaries, and human-only actions.
 docs/architecture/authorization.md
 ```
 
-## Aggregates
+### Aggregates
 
 Define:
 
@@ -552,7 +557,7 @@ Location:
 docs/architecture/aggregates/
 ```
 
-## State Machines
+### State Machines
 
 Define Aggregate lifecycles and permitted transitions.
 
@@ -562,7 +567,7 @@ Location:
 docs/architecture/state-machines/
 ```
 
-## Architecture Decision Records
+### Architecture Decision Records
 
 Architecture Decision Records capture accepted or superseded architectural decisions, alternatives, and consequences.
 
@@ -588,7 +593,7 @@ Location:
 docs/adr/
 ```
 
-## Product Documents
+### Product Documents
 
 Define implementation scope and delivery sequencing.
 
@@ -600,7 +605,7 @@ docs/product/
 
 ---
 
-# Aggregate Overview
+## Aggregate Overview
 
 The Blueprint currently defines the following primary Aggregates.
 
@@ -631,7 +636,7 @@ An Aggregate must not directly mutate another Aggregate.
 
 ---
 
-# Aggregate Invariants and External Consistency
+## Aggregate Invariants and External Consistency
 
 An Aggregate invariant must be enforceable using the Aggregate's own state and command input.
 
@@ -669,7 +674,7 @@ Every rule must have one primary owner, an explicit failure outcome, and tests a
 
 ---
 
-# State Machines
+## State Machines
 
 Each Aggregate owns its own lifecycle.
 
@@ -693,7 +698,7 @@ ADR-0007 and the detailed Work and Decision State Machines define the exact MVP 
 
 ---
 
-# Organizational Learning
+## Organizational Learning
 
 The canonical MVP learning flow is:
 
@@ -744,7 +749,7 @@ Generation request, success, retry, and failure remain distinguishable through t
 
 ---
 
-# AI Participation
+## AI Participation
 
 The Secretary assists throughout supported use cases.
 
@@ -781,11 +786,11 @@ A human-authorized application use case must perform authoritative commands.
 
 ---
 
-# MVP Scope
+## MVP Scope
 
 The MVP includes:
 
-## Organization and Access
+### Organization and Access
 
 - authentication,
 - Organization creation,
@@ -799,7 +804,7 @@ The MVP authorization model should remain limited to essential roles and permiss
 
 Advanced delegation, policy versioning, temporary access, and enterprise governance are future concerns.
 
-## Work
+### Work
 
 - create Work,
 - update Work,
@@ -809,7 +814,7 @@ Advanced delegation, policy versioning, temporary access, and enterprise governa
 - resume Work after a Decision is resolved,
 - and explicitly complete Work.
 
-## Decision
+### Decision
 
 - create Decision proposals,
 - review proposals,
@@ -819,14 +824,14 @@ Advanced delegation, policy versioning, temporary access, and enterprise governa
 
 Advanced Decision supersession may be defined in the Blueprint before it is fully implemented.
 
-## Secretary
+### Secretary
 
 - one AI assistant,
 - no autonomous authority,
 - explicit provenance for generated output,
 - and access limited by Organization and resource scope.
 
-## Memory
+### Memory
 
 - request generation after Work completion,
 - generate one Memory per source Work,
@@ -839,7 +844,7 @@ Advanced Decision supersession may be defined in the Blueprint before it is full
 
 ---
 
-# MVP Out of Scope
+## MVP Out of Scope
 
 The following capabilities are not part of the MVP:
 
@@ -871,25 +876,25 @@ They only defer implementation.
 
 ---
 
-# Roadmap Direction
+## Roadmap Direction
 
 Future phases may introduce:
 
-## Workflow Expansion
+### Workflow Expansion
 
 - structured workflow templates,
 - improved coordination,
 - notifications,
 - and activity projections.
 
-## AI Organization
+### AI Organization
 
 - AI Employees,
 - specialized AI roles,
 - multiple AI Principals,
 - and controlled orchestration.
 
-## Organizational Intelligence
+### Organizational Intelligence
 
 - Knowledge promotion,
 - Evidence management,
@@ -898,13 +903,13 @@ Future phases may introduce:
 - external Knowledge Sources,
 - and Knowledge reuse.
 
-## Capability
+### Capability
 
 - Capability taxonomy,
 - Capability classification,
 - and, only after a measurable model exists, organizational capability assessment.
 
-## Platform
+### Platform
 
 - public APIs,
 - SDKs,
@@ -918,11 +923,11 @@ Future phases must not force premature complexity into the MVP.
 
 ---
 
-# Open Question Classification
+## Open Question Classification
 
 Open architectural questions must be classified by the point at which they require resolution.
 
-## Before MVP Implementation
+### Before MVP Implementation
 
 Questions that could cause conflicting implementation must be resolved before coding begins.
 
@@ -936,7 +941,7 @@ Examples:
 - duplicate Memory prevention,
 - and MVP authorization scope.
 
-## Before Knowledge Implementation
+### Before Knowledge Implementation
 
 Examples:
 
@@ -946,7 +951,7 @@ Examples:
 - Confidence calculation,
 - and Knowledge supersession.
 
-## Before v1.0
+### Before v1.0
 
 Examples:
 
@@ -956,7 +961,7 @@ Examples:
 - jurisdiction-specific retention durations and legal bases (source-snapshot semantics are fixed by ADR-0012),
 - and operational recovery tooling.
 
-## Future Exploration
+### Future Exploration
 
 Examples:
 
@@ -974,7 +979,7 @@ Every unresolved item that blocks implementation should have:
 
 ---
 
-# ADR Numbering and Adoption
+## ADR Numbering and Adoption
 
 ADR identifiers are assigned only when a decision record is created.
 
@@ -996,7 +1001,7 @@ This list is a decision backlog, not a numbering reservation. An ADR number iden
 
 ---
 
-# Reading Guide
+## Reading Guide
 
 The recommended reading order is:
 
@@ -1034,7 +1039,7 @@ This order moves from:
 
 ---
 
-# Relationship Between Documents
+## Relationship Between Documents
 
 The documents complement one another.
 
@@ -1062,7 +1067,7 @@ A conflict must be corrected rather than left to implementation interpretation.
 
 ---
 
-# Blueprint Scope
+## Blueprint Scope
 
 Blueprint v0.2.1 defines the business architecture and the initial implementation direction.
 
@@ -1090,7 +1095,7 @@ These implementation decisions should be recorded in ADRs rather than expanded i
 
 ---
 
-# Implementation Readiness Status
+## Implementation Readiness Status
 
 The following cross-document consistency items identified during the pre-implementation review are resolved in the current Blueprint:
 
@@ -1109,7 +1114,7 @@ Knowledge, Evidence, Capability, external Knowledge Sources, and advanced govern
 
 ---
 
-# Related Documents
+## Related Documents
 
 - `docs/glossary.md`
 - `docs/architecture/domain-model.md`

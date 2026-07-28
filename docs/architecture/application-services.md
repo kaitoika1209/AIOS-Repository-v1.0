@@ -1,12 +1,17 @@
 # Application Services
 
+> **Scope classification:** MVP Normative  
+> **MVP implementation authority:** Yes  
+> **Promotion requirement:** Not applicable  
+> **Authority rank:** see [Document Governance](../document-governance.md)
+
 **Status:** Draft  
 **Phase:** MVP  
 **Architecture:** Modular Monolith
 
 ---
 
-# Purpose
+## Purpose
 
 Application Services coordinate business use cases, including single-Aggregate commands and the few documented workflows that span multiple Aggregates.
 
@@ -18,7 +23,7 @@ They do **not** own Aggregate-local lifecycle rules or mutate Aggregate-owned st
 
 ---
 
-# Responsibilities
+## Responsibilities
 
 Application Services are responsible for:
 
@@ -37,7 +42,7 @@ Application Services are responsible for:
 
 ---
 
-# Non-Responsibilities
+## Non-Responsibilities
 
 Application Services are **not** responsible for:
 
@@ -55,7 +60,7 @@ Those responsibilities belong to other architectural layers.
 
 ---
 
-# Architectural Position
+## Architectural Position
 
 ```text
 Presentation Adapter
@@ -88,9 +93,9 @@ Repository interfaces are internal persistence ports of their owning Aggregate. 
 
 ---
 
-# Layer Responsibilities
+## Layer Responsibilities
 
-## Presentation Layer
+### Presentation Layer
 
 Responsible for:
 
@@ -105,7 +110,7 @@ The Presentation Layer never invokes repositories directly.
 
 ---
 
-## Application Layer
+### Application Layer
 
 Responsible for:
 
@@ -121,7 +126,7 @@ Responsible for:
 
 ---
 
-## Domain Layer
+### Domain Layer
 
 Responsible for:
 
@@ -135,7 +140,7 @@ The Domain Layer knows nothing about application workflows.
 
 ---
 
-## Infrastructure Layer
+### Infrastructure Layer
 
 Responsible for:
 
@@ -150,7 +155,7 @@ Infrastructure never contains business decisions.
 
 ---
 
-# Rule Ownership
+## Rule Ownership
 
 Every rule has one primary enforcement owner. The Application Service may coordinate enforcement, but it must not duplicate another owner's semantics.
 
@@ -168,13 +173,13 @@ The complete classification, failure semantics, and verification requirements ar
 
 ---
 
-# Design Principles
+## Design Principles
 
 Application Services follow several architectural principles.
 
 ---
 
-## Principle 1
+### Principle 1
 
 Aggregate-local rules belong inside the owning Aggregate. Multi-fact domain meaning that has no natural Aggregate owner belongs in a context-owned deterministic Domain Policy or Specification.
 
@@ -182,7 +187,7 @@ Application Services may enforce documented external preconditions, but never du
 
 ---
 
-## Principle 2
+### Principle 2
 
 Aggregates remain independent.
 
@@ -192,7 +197,7 @@ Aggregates never invoke one another directly.
 
 ---
 
-## Principle 3
+### Principle 3
 
 One use case.
 
@@ -202,7 +207,7 @@ Each method represents one complete business use case.
 
 ---
 
-## Principle 4
+### Principle 4
 
 Transactions remain short.
 
@@ -212,7 +217,7 @@ Long-running work is asynchronous.
 
 ---
 
-## Principle 5
+### Principle 5
 
 Application Services publish intent.
 
@@ -238,7 +243,7 @@ The Application Service decides what happens next.
 
 ---
 
-## Principle 6
+### Principle 6
 
 Application Services coordinate.
 
@@ -266,7 +271,7 @@ The Work Aggregate decides whether completion is valid.
 
 ---
 
-## Principle 7
+### Principle 7
 
 Application Services never bypass Aggregates.
 
@@ -276,7 +281,7 @@ Every state change occurs through Aggregate commands.
 
 ---
 
-# Aggregate Interaction
+## Aggregate Interaction
 
 Application Services are the only layer allowed to coordinate multiple Aggregates, but that permission is not global.
 
@@ -306,7 +311,7 @@ The dispatcher does not load Work and does not receive a `WorkRepository`. Neith
 
 ---
 
-# Aggregate Independence
+## Aggregate Independence
 
 Each Aggregate must remain independently testable.
 
@@ -340,7 +345,7 @@ Cross-aggregate references occur only through:
 
 ---
 
-# Use Case Coordination
+## Use Case Coordination
 
 A typical use case consists of:
 
@@ -378,7 +383,7 @@ Further processing occurs asynchronously.
 
 ---
 
-# Aggregate Loading
+## Aggregate Loading
 
 Application Services load only the Aggregates required for the current use case.
 
@@ -412,7 +417,7 @@ The Work update occurs later through event processing.
 
 ---
 
-# Repository Usage
+## Repository Usage
 
 Repositories persist Aggregate Roots through Aggregate-specific ports.
 
@@ -438,7 +443,7 @@ Repository.Save(organizationId, aggregate, expectedVersion)
 
 ---
 
-# Transaction Ownership
+## Transaction Ownership
 
 Application Services own database transaction boundaries. Aggregates and Repositories never begin or commit transactions.
 
@@ -461,7 +466,7 @@ Every state-changing transaction has exactly one explicit Application Service ow
 
 ---
 
-# Domain Event Collection
+## Domain Event Collection
 
 Aggregates emit and retain immutable Domain Events during command execution; they do not publish them.
 
@@ -481,7 +486,7 @@ Aggregate state, required Outbox records, idempotency records, and transactional
 
 ---
 
-# Application Result
+## Application Result
 
 After a successful transaction, the Application Service returns:
 
@@ -494,7 +499,7 @@ Application results do not expose internal aggregate state unnecessarily.
 
 ---
 
-# Guiding Philosophy
+## Guiding Philosophy
 
 Application Services answer the question:
 
@@ -506,7 +511,7 @@ Aggregates answer the question:
 
 Keeping these responsibilities separate preserves a clean domain model, supports long-term maintainability, and enables independent evolution of each aggregate.
 
-# Core Application Workflows
+## Core Application Workflows
 
 The MVP Application Layer coordinates three primary workflows:
 
@@ -518,7 +523,7 @@ Each workflow is implemented as a distinct use case.
 
 ---
 
-# Workflow 1: Create Work
+## Workflow 1: Create Work
 
 A Human Member creates a new Work item.
 
@@ -547,7 +552,7 @@ Commit
 
 ---
 
-## Create Work Transaction
+### Create Work Transaction
 
 ```text
 BEGIN
@@ -578,7 +583,7 @@ Those actions require separate use cases or asynchronous handlers.
 
 ---
 
-# Workflow 2: Start Work
+## Workflow 2: Start Work
 
 A Human Member explicitly moves Work from Draft to InProgress.
 
@@ -607,7 +612,7 @@ That rule belongs to the Work Aggregate.
 
 ---
 
-# Workflow 3: Request a Blocking Decision
+## Workflow 3: Request a Blocking Decision
 
 A Human Member requests a Decision that must be resolved before Work completion.
 
@@ -617,7 +622,7 @@ The two aggregates remain independently authoritative.
 
 ---
 
-## Coordination Sequence
+### Coordination Sequence
 
 ```text
 Human Member
@@ -641,7 +646,7 @@ Commit
 
 ---
 
-## Atomic Coordination
+### Atomic Coordination
 
 Within the Modular Monolith, the MVP coordinates activation of the blocking relationship in one PostgreSQL transaction.
 
@@ -683,7 +688,7 @@ It does not merge the two Aggregate boundaries.
 
 ---
 
-## Why Atomic Activation Is Allowed
+### Why Atomic Activation Is Allowed
 
 The workflow establishes a required reference between two newly coordinated facts:
 
@@ -702,7 +707,7 @@ After activation, the aggregates evolve independently.
 
 ---
 
-## Cross-Aggregate Preconditions
+### Cross-Aggregate Preconditions
 
 Before executing the workflow, the Application Service verifies:
 
@@ -719,7 +724,7 @@ The Decision Aggregate still validates its own initial content and submission ru
 
 ---
 
-# Workflow 4: Edit Decision Draft
+## Workflow 4: Edit Decision Draft
 
 A Human Member updates the active Decision Draft.
 
@@ -746,7 +751,7 @@ Only the Decision Aggregate determines whether the Draft is editable.
 
 ---
 
-# Workflow 5: Record Secretary Contribution
+## Workflow 5: Record Secretary Contribution
 
 The Secretary may produce advisory content for Work, Decision, or Memory.
 
@@ -754,7 +759,7 @@ The Secretary does not mutate authoritative business content automatically.
 
 ---
 
-## Decision Contribution Flow
+### Decision Contribution Flow
 
 ```text
 Human Member
@@ -781,7 +786,7 @@ A Human Member must explicitly choose to incorporate it through a later edit com
 
 ---
 
-## Secretary Boundary
+### Secretary Boundary
 
 The Application Service must never translate Secretary output directly into:
 
@@ -801,7 +806,7 @@ Provider output is untrusted candidate data. The owning context validates and op
 
 ---
 
-# Workflow 6: Submit Decision for Review
+## Workflow 6: Submit Decision for Review
 
 A Human Member submits the active Decision Draft.
 
@@ -828,7 +833,7 @@ Save + Outbox + Commit
 
 ---
 
-## Submit Decision Transaction
+### Submit Decision Transaction
 
 ```text
 BEGIN
@@ -854,7 +859,7 @@ No Work state is changed during this transaction.
 
 ---
 
-# Workflow 7: Approve Decision
+## Workflow 7: Approve Decision
 
 A Human reviewer explicitly approves an InReview Decision.
 
@@ -880,7 +885,7 @@ Save + Outbox + Commit
 
 ---
 
-## Approval Transaction
+### Approval Transaction
 
 ```text
 BEGIN
@@ -912,7 +917,7 @@ Rejection and withdrawal use the same transaction shape and map their internal o
 
 ---
 
-## Approval Does Not Complete Work
+### Approval Does Not Complete Work
 
 The following implementation is prohibited:
 
@@ -940,7 +945,7 @@ A separate asynchronous handler later records the outcome in Work.
 
 ---
 
-# Workflow 8: Reject Decision
+## Workflow 8: Reject Decision
 
 A Human reviewer explicitly rejects an InReview Decision.
 
@@ -969,7 +974,7 @@ A later Human action may start a new Draft revision.
 
 ---
 
-# Workflow 9: Withdraw Decision
+## Workflow 9: Withdraw Decision
 
 An authorized Human Member withdraws an InReview Decision.
 
@@ -996,7 +1001,7 @@ Withdrawal does not delete the submitted snapshot.
 
 ---
 
-# Workflow 10: Record Decision Outcome in Work
+## Workflow 10: Record Decision Outcome in Work
 
 This is an asynchronous Application Layer workflow.
 
@@ -1010,7 +1015,7 @@ Supported events include:
 
 ---
 
-## Approved Decision Flow
+### Approved Decision Flow
 
 ```text
 DecisionApproved
@@ -1035,7 +1040,7 @@ Save Work + Outbox + Commit
 
 ---
 
-## Approved Outcome Transaction
+### Approved Outcome Transaction
 
 ```text
 BEGIN
@@ -1070,7 +1075,7 @@ The handler does not set Work fields directly.
 
 ---
 
-## Rejected Outcome Transaction
+### Rejected Outcome Transaction
 
 ```text
 BEGIN
@@ -1109,7 +1114,7 @@ The exact transition remains owned by the Work Aggregate.
 
 ---
 
-## Withdrawn Outcome Transaction
+### Withdrawn Outcome Transaction
 
 ```text
 BEGIN
@@ -1142,7 +1147,7 @@ The Work Aggregate decides how withdrawal affects the Completion Gate.
 
 The handler only conveys the immutable Decision outcome.
 
-## Outcome Races and Terminal No-Ops
+### Outcome Races and Terminal No-Ops
 
 The handler matches the complete active blocking reference: `decisionId`, `revisionNumber`, and `submittedSnapshotId`. `decisionId` alone is not sufficient when a later revision reuses the same Decision identity.
 
@@ -1150,7 +1155,7 @@ On an optimistic-concurrency conflict, the handler reloads Work and re-evaluates
 
 ---
 
-# Workflow 11: Complete Work
+## Workflow 11: Complete Work
 
 A Human Member explicitly completes Work.
 
@@ -1179,7 +1184,7 @@ Save + Outbox + Commit
 
 ---
 
-## Complete Work Transaction
+### Complete Work Transaction
 
 ```text
 BEGIN
@@ -1210,7 +1215,7 @@ The Work Aggregate validates:
 
 ---
 
-## Prohibited Completion Flow
+### Prohibited Completion Flow
 
 The following is prohibited:
 
@@ -1238,7 +1243,7 @@ Human later invokes CompleteWork
 
 ---
 
-# Workflow 12: Start Memory Generation
+## Workflow 12: Start Memory Generation
 
 Memory generation begins asynchronously after Work completion and is classified as `ExternalComputation`, not `ExternalBusinessEffect`.
 
@@ -1271,13 +1276,13 @@ Memory + MemoryGenerated + Processed Event + Generation Result
 
 ---
 
-## Memory Generation Is Asynchronous
+### Memory Generation Is Asynchronous
 
 The Complete Work transaction does not wait for AI generation, document synthesis, source retrieval, Memory persistence, or review notification. Work remains Completed regardless of provider availability.
 
 ---
 
-## Memory Generation Preconditions
+### Memory Generation Preconditions
 
 The handler verifies:
 
@@ -1290,7 +1295,7 @@ The handler verifies:
 
 ---
 
-## Source and Operation Transaction
+### Source and Operation Transaction
 
 ```text
 BEGIN
@@ -1305,7 +1310,7 @@ The operation is globally stable for `organizationId + workId + generationPolicy
 
 ---
 
-## Generation Claim Transaction
+### Generation Claim Transaction
 
 A real provider attempt uses a short fenced transaction:
 
@@ -1322,7 +1327,7 @@ The AI provider call begins only after this transaction. Long calls renew the ge
 
 ---
 
-## Provider Call and Candidate Rule
+### Provider Call and Candidate Rule
 
 The provider receives only the committed source snapshot. No PostgreSQL transaction remains open. The bounded input excludes secrets, attachment binaries, unrestricted comments, and fields not allowlisted by the versioned generation policy.
 
@@ -1334,7 +1339,7 @@ Human review resolves and displays the exact committed source snapshot bound to 
 
 ---
 
-## Memory Creation Transaction
+### Memory Creation Transaction
 
 ```text
 BEGIN
@@ -1356,7 +1361,7 @@ A uniqueness conflict loads the existing Organization-scoped Memory, verifies th
 
 ---
 
-## Generation Timeout and Retry
+### Generation Timeout and Retry
 
 A timeout with no usable candidate does not create unknown external business state because the provider performs computation only.
 
@@ -1374,7 +1379,7 @@ Provider duplicate-call cost and latency are recorded operationally. They never 
 
 ---
 
-## Generation Lease Recovery
+### Generation Lease Recovery
 
 Expired `Generating` claims are fenced by `claimVersion`. Recovery changes them to `RetryPending`, preserves `attemptCount`, schedules `nextAttemptAt`, records `LeaseExpired`, and clears claim fields.
 
@@ -1382,7 +1387,7 @@ Recovery itself is not a provider attempt and cannot mark the processed event su
 
 ---
 
-## Generation Failure
+### Generation Failure
 
 Generation failure creates no partial Memory Aggregate and does not reopen Work. The committed source snapshot and generation operation remain as durable recovery evidence.
 
@@ -1390,7 +1395,7 @@ Failure is represented by the same operation becoming `RetryPending`, `Failed`, 
 
 ---
 
-# Workflow 13: Edit Generated Memory
+## Workflow 13: Edit Generated Memory
 
 A Human Member edits a Generated Memory before review.
 
@@ -1417,7 +1422,7 @@ The Memory Aggregate determines whether the current state is editable.
 
 ---
 
-# Workflow 14: Submit Memory for Review
+## Workflow 14: Submit Memory for Review
 
 A Human Member explicitly submits Generated Memory.
 
@@ -1444,7 +1449,7 @@ The submitted Memory snapshot is locked for review.
 
 ---
 
-# Workflow 15: Approve Memory
+## Workflow 15: Approve Memory
 
 A Human reviewer explicitly approves Memory.
 
@@ -1473,7 +1478,7 @@ Approval does not promote Memory to Knowledge.
 
 ---
 
-# Workflow 16: Reject Memory
+## Workflow 16: Reject Memory
 
 A Human reviewer rejects InReview Memory.
 
@@ -1500,13 +1505,13 @@ A later explicit command returns the rejected Memory to Generated for revision.
 
 ---
 
-# Transaction Boundary Patterns
+## Transaction Boundary Patterns
 
 Application Services use two primary transaction patterns.
 
 ---
 
-## Pattern A: Single-Aggregate Command
+### Pattern A: Single-Aggregate Command
 
 Used for:
 
@@ -1536,7 +1541,7 @@ COMMIT
 
 ---
 
-## Pattern B: Coordinated Aggregate Creation
+### Pattern B: Coordinated Aggregate Creation
 
 Used only when a use case must atomically establish a cross-aggregate relationship.
 
@@ -1570,7 +1575,7 @@ It must not become a general method for coupling aggregates.
 
 ---
 
-## Pattern C: Asynchronous Reaction
+### Pattern C: Asynchronous Reaction
 
 Used for:
 
@@ -1609,7 +1614,7 @@ A generic Worker must not inject or invoke `WorkRepository`, `DecisionRepository
 
 ---
 
-# Repository Coordination
+## Repository Coordination
 
 Repository ports belong to the Aggregate and module whose state they persist.
 
@@ -1630,7 +1635,7 @@ Application Services must not depend on database tables directly.
 
 ---
 
-## Repository Port Contract
+### Repository Port Contract
 
 Every authoritative Aggregate Repository exposes Aggregate-specific operations rather than a generic `Repository<T>`.
 
@@ -1664,7 +1669,7 @@ Repository methods must not return mutable child entities, ORM entities, unrestr
 
 ---
 
-## Loading Rules
+### Loading Rules
 
 An Application Service must:
 
@@ -1680,7 +1685,7 @@ All state needed to enforce Aggregate invariants must be available when the comm
 
 ---
 
-## Saving Rules
+### Saving Rules
 
 An Application Service must:
 
@@ -1693,7 +1698,7 @@ An Application Service must:
 
 ---
 
-## Transaction Context
+### Transaction Context
 
 The Application Service owns the transaction boundary.
 
@@ -1703,7 +1708,7 @@ The coordinated `RequestBlockingDecision` use case uses one transaction context 
 
 ---
 
-# Aggregate Event Collection
+## Aggregate Event Collection
 
 Aggregates may collect events internally during command execution.
 
@@ -1726,7 +1731,7 @@ The precise implementation may vary, but the following must remain true:
 
 ---
 
-# Application Service Result Types
+## Application Service Result Types
 
 Application Services return explicit result types.
 
@@ -1754,7 +1759,7 @@ Domain exceptions must be translated into stable application-level results.
 
 ---
 
-# Cross-Aggregate Reference Resolution
+## Cross-Aggregate Reference Resolution
 
 The producing module must create a consumer-ready Integration Event whenever the routing identifier is part of the coordinated domain relationship.
 
@@ -1798,7 +1803,7 @@ The receiving module validates the Organization and related Aggregate identifier
 
 ---
 
-# Synchronous Versus Asynchronous Coordination
+## Synchronous Versus Asynchronous Coordination
 
 Use synchronous coordination when:
 
@@ -1818,7 +1823,7 @@ Use asynchronous coordination when:
 
 ---
 
-# MVP Coordination Rules
+## MVP Coordination Rules
 
 Within the MVP:
 
@@ -1832,7 +1837,7 @@ Within the MVP:
 
 These rules define the operational boundary of the Application Layer.
 
-# Transactional Outbox
+## Transactional Outbox
 
 The Transactional Outbox guarantees reliable publication of committed Domain Events.
 
@@ -1842,7 +1847,7 @@ The Application Layer never publishes events directly before the transaction com
 
 ---
 
-# Outbox Purpose
+## Outbox Purpose
 
 The Outbox prevents the dual-write problem.
 
@@ -1867,7 +1872,7 @@ The Transactional Outbox removes this inconsistency.
 
 ---
 
-# Outbox Write Flow
+## Outbox Write Flow
 
 ```text
 BEGIN
@@ -1902,7 +1907,7 @@ Mark Outbox Record Published
 
 ---
 
-# Outbox Atomicity
+## Outbox Atomicity
 
 The following must commit atomically:
 
@@ -1917,7 +1922,7 @@ No externally visible event may exist for an uncommitted Aggregate change.
 
 ---
 
-# Outbox Record
+## Outbox Record
 
 A typical Outbox record contains:
 
@@ -1947,7 +1952,7 @@ lastError
 
 ---
 
-# Outbox Status
+## Outbox Status
 
 Canonical statuses:
 
@@ -1962,13 +1967,13 @@ A claim may instead be represented by lease fields while the durable status rema
 
 ---
 
-## Pending
+### Pending
 
 The event has been committed but not yet published successfully.
 
 ---
 
-## Publishing
+### Publishing
 
 A Worker has claimed the record for publication.
 
@@ -1976,7 +1981,7 @@ This status may be represented through row locking rather than persisted state.
 
 ---
 
-## Published
+### Published
 
 The configured transport durably accepted the event.
 
@@ -1986,7 +1991,7 @@ The publication timestamp, consumer-set version, and target count are recorded w
 
 ---
 
-## Failed
+### Failed
 
 The event exceeded the automated retry threshold or requires operational intervention.
 
@@ -1994,7 +1999,7 @@ Failed events remain recoverable.
 
 ---
 
-# Outbox Publication Semantics
+## Outbox Publication Semantics
 
 Outbox delivery is:
 
@@ -2008,7 +2013,7 @@ Consumers must be idempotent.
 
 ---
 
-# Background Worker
+## Background Worker
 
 The Background Worker publishes pending Outbox events and executes asynchronous handlers.
 
@@ -2016,7 +2021,7 @@ It operates independently from synchronous request processing.
 
 ---
 
-# Worker Responsibilities
+## Worker Responsibilities
 
 The Background Worker is responsible for:
 
@@ -2032,7 +2037,7 @@ The Background Worker is responsible for:
 
 ---
 
-# Worker Non-Responsibilities
+## Worker Non-Responsibilities
 
 The Background Worker does not:
 
@@ -2048,7 +2053,7 @@ All business state changes still occur through Aggregate commands.
 
 ---
 
-# Outbox Publication Worker Loop
+## Outbox Publication Worker Loop
 
 ```text
 Poll Pending Outbox Records
@@ -2077,7 +2082,7 @@ This loop owns Outbox publication and durable local handoff only. It does not ex
 
 ---
 
-# Safe Outbox Record Claiming
+## Safe Outbox Record Claiming
 
 Multiple publisher instances may run concurrently but must not publish the same active claim simultaneously.
 
@@ -2097,7 +2102,7 @@ The same short transaction changes claimed rows to `Claimed`, sets the publisher
 
 ---
 
-# Worker Batch Size
+## Worker Batch Size
 
 Workers should process bounded batches.
 
@@ -2113,7 +2118,7 @@ Large unbounded batches are prohibited.
 
 ---
 
-# Graceful Shutdown
+## Graceful Shutdown
 
 During shutdown, a Worker should:
 
@@ -2127,7 +2132,7 @@ Shutdown must not cause event loss.
 
 ---
 
-# Event Dispatcher
+## Event Dispatcher
 
 The Event Dispatcher maps validated event contracts to versioned ConsumerRegistration entries.
 
@@ -2151,7 +2156,7 @@ WorkCompleted
 
 ---
 
-# Handler Independence
+## Handler Independence
 
 Each handler is independently retryable.
 
@@ -2161,7 +2166,7 @@ Where one event has multiple handlers, the implementation must track handler-lev
 
 ---
 
-# Local Domain Events and Integration Events
+## Local Domain Events and Integration Events
 
 The Modular Monolith may use one event contract internally during the MVP.
 
@@ -2169,7 +2174,7 @@ However, two conceptual roles must remain distinct.
 
 ---
 
-## Domain Event
+### Domain Event
 
 Represents a fact inside the domain model.
 
@@ -2181,7 +2186,7 @@ Examples:
 
 ---
 
-## Integration Event
+### Integration Event
 
 Represents a stable message intended for asynchronous consumers.
 
@@ -2191,7 +2196,7 @@ They should avoid exposing internal implementation details.
 
 ---
 
-# Event Translation
+## Event Translation
 
 An Application Layer translator may convert:
 
@@ -2215,7 +2220,7 @@ For the MVP, direct use of Domain Event payloads is acceptable only when contrac
 
 ---
 
-# Event Contract Requirements
+## Event Contract Requirements
 
 Every asynchronously processed event must include:
 
@@ -2234,7 +2239,7 @@ payload
 
 ---
 
-# Event Schema Versioning
+## Event Schema Versioning
 
 Event payloads evolve through explicit schema versions.
 
@@ -2251,7 +2256,7 @@ Silent misinterpretation is prohibited.
 
 ---
 
-# Backward Compatibility
+## Backward Compatibility
 
 Compatible event changes may include:
 
@@ -2267,7 +2272,7 @@ Breaking changes require:
 
 ---
 
-# Event Correlation
+## Event Correlation
 
 Correlation metadata connects all operations belonging to one business flow.
 
@@ -2297,7 +2302,7 @@ correlationId
 
 ---
 
-# Causation
+## Causation
 
 Each operation records which prior operation caused it.
 
@@ -2314,7 +2319,7 @@ This creates a traceable chain.
 
 ---
 
-# Correlation Metadata Rules
+## Correlation Metadata Rules
 
 Every Application Service command should contain:
 
@@ -2342,7 +2347,7 @@ causationId = incomingEvent.eventId
 
 ---
 
-# Command Idempotency
+## Command Idempotency
 
 Synchronous commands may be delivered more than once.
 
@@ -2357,7 +2362,7 @@ Every authoritative command should carry a unique command identifier.
 
 ---
 
-# Processed Command Store
+## Processed Command Store
 
 A processed command record may contain:
 
@@ -2373,7 +2378,7 @@ processedAt
 
 ---
 
-# Duplicate Command Behavior
+## Duplicate Command Behavior
 
 When the same command identifier is received again:
 
@@ -2384,7 +2389,7 @@ When the same command identifier is received again:
 
 ---
 
-# Command Payload Mismatch
+## Command Payload Mismatch
 
 If the same command identifier is reused with different payload content:
 
@@ -2399,7 +2404,7 @@ A command identifier cannot represent two different intents.
 
 ---
 
-# Event Idempotency
+## Event Idempotency
 
 Every asynchronous consumer uses the durable identity:
 
@@ -2417,7 +2422,7 @@ The canonical processed-event statuses are `Pending`, `Processing`, `Processed`,
 
 ---
 
-# Consumer Claim and Execution Boundary
+## Consumer Claim and Execution Boundary
 
 A local delivery first exists durably as `Pending`. The Consumer Worker then acquires a short, durable `Processing` claim from an eligible `Pending`, `RetryPending`, or unblocked `Blocked` row. Claiming validates the consumer registration, Organization scope, ordering key, prior processed-event state, and predecessor state. A real claim increments `attemptCount` and `claimVersion`; duplicate, deferred, or predecessor-blocked delivery does not.
 
@@ -2425,7 +2430,7 @@ External work executes only after the claim transaction commits. It holds no tar
 
 ---
 
-# Processed Event Success Transaction
+## Processed Event Success Transaction
 
 For a domain-changing handler, the terminal `Processed` transition—not necessarily initial creation of the delivery row—must commit in the same transaction as the Aggregate effect:
 
@@ -2452,7 +2457,7 @@ This prevents both state change without a success marker and a success marker wi
 
 ---
 
-# Retry and Failure Transactions
+## Retry and Failure Transactions
 
 A transient failure uses a short fenced transaction to change `Processing -> RetryPending`, calculate `nextAttemptAt`, preserve the completed attempt count, record bounded failure metadata, and clear claim fields.
 
@@ -2462,7 +2467,7 @@ Expired-lease recovery changes the expired `Processing` row to `RetryPending`; r
 
 ---
 
-# Duplicate Event Behavior
+## Duplicate Event Behavior
 
 - `Processed` returns the stable prior result without executing the handler;
 - `Processing` with a valid lease defers to the current Worker;
@@ -2475,7 +2480,7 @@ Duplicate delivery is expected, not exceptional.
 
 ---
 
-# Handler Idempotency and Business Idempotency
+## Handler Idempotency and Business Idempotency
 
 Technical deduplication does not replace domain-level protection.
 
@@ -2494,7 +2499,7 @@ Both layers are required:
 
 ---
 
-# Event Ordering
+## Event Ordering
 
 Events from one Aggregate are ordered by:
 
@@ -2513,7 +2518,7 @@ A consumer must not apply version 4 before required version 3 state is available
 
 ---
 
-# Ordering Scope
+## Ordering Scope
 
 Ordering is required only per Aggregate.
 
@@ -2531,7 +2536,7 @@ No business rule may depend on global event ordering.
 
 ---
 
-# Out-of-Order Event Handling
+## Out-of-Order Event Handling
 
 If a handler receives an event that cannot yet be applied:
 
@@ -2549,7 +2554,7 @@ The handler must distinguish:
 
 ---
 
-# Retry Policy
+## Retry Policy
 
 Retries apply to transient failures.
 
@@ -2563,7 +2568,7 @@ Examples:
 
 ---
 
-# Retry Schedule
+## Retry Schedule
 
 Recommended retry pattern:
 
@@ -2578,7 +2583,7 @@ Jitter should be added to prevent synchronized retries.
 
 ---
 
-# Retry Limits
+## Retry Limits
 
 Retries must be bounded.
 
@@ -2595,7 +2600,7 @@ After the retry threshold, the record moves to operational failure handling.
 
 ---
 
-# Retry Classification
+## Retry Classification
 
 Errors should be classified as:
 
@@ -2610,7 +2615,7 @@ Unknown
 
 ---
 
-## Transient
+### Transient
 
 Retry automatically.
 
@@ -2622,7 +2627,7 @@ Examples:
 
 ---
 
-## Permanent
+### Permanent
 
 Do not retry automatically without intervention.
 
@@ -2635,7 +2640,7 @@ Examples:
 
 ---
 
-## Concurrency
+### Concurrency
 
 Reload and retry only when the use case remains valid.
 
@@ -2643,7 +2648,7 @@ Retries must be bounded.
 
 ---
 
-## Authorization
+### Authorization
 
 Do not retry automatically.
 
@@ -2651,7 +2656,7 @@ Authorization failure indicates an invalid execution context or security issue.
 
 ---
 
-## Validation
+### Validation
 
 Do not retry unchanged input.
 
@@ -2659,7 +2664,7 @@ Validation failure is a business rejection, not an infrastructure failure.
 
 ---
 
-## Unknown
+### Unknown
 
 Retry conservatively, then escalate.
 
@@ -2667,7 +2672,7 @@ Unknown failures require diagnosis.
 
 ---
 
-# Concurrency Retry
+## Concurrency Retry
 
 An asynchronous handler may encounter optimistic concurrency conflicts.
 
@@ -2695,7 +2700,7 @@ The Aggregate must revalidate all invariants after reload.
 
 ---
 
-# Retry Safety
+## Retry Safety
 
 A retry must never assume the previous attempt failed before commit.
 
@@ -2710,7 +2715,7 @@ Therefore every retry must first check:
 
 ---
 
-# Memory Generation Operation
+## Memory Generation Operation
 
 The Memory generation consumer uses one stable `memory_generation_operation`, not one mutable row per provider retry.
 
@@ -2737,7 +2742,7 @@ The one-Memory-per-Work guarantee is reinforced by:
 
 ---
 
-# External AI Call Boundary
+## External AI Call Boundary
 
 Memory generation is `ExternalComputation`. Correctness depends on local fencing and final PostgreSQL commit, not on treating a provider request as an external business effect.
 
@@ -2745,7 +2750,7 @@ Provider idempotency may reduce duplicate billable calls when supported, but it 
 
 ---
 
-# External Business Effect Execution Pattern
+## External Business Effect Execution Pattern
 
 `PostgreSQLLocal` consumers use the ordinary atomic consumer transaction. A consumer registered as `ExternalBusinessEffect` uses a different Application Service pattern.
 
@@ -2780,7 +2785,7 @@ Compensation is a separate typed operation and ledger row. It never deletes or r
 
 ---
 
-# AI Response Validation
+## AI Response Validation
 
 Generated content must be validated before creating Memory.
 
@@ -2799,7 +2804,7 @@ A generated Memory remains in Generated state.
 
 ---
 
-# Poison Event Handling
+## Poison Event Handling
 
 A poison consumer delivery reaches `Failed` because a failure is permanent or bounded retry policy is exhausted.
 
@@ -2814,7 +2819,7 @@ Examples include:
 
 ---
 
-# Poison Event State
+## Poison Event State
 
 The processed-event row preserves the current execution result:
 
@@ -2835,7 +2840,7 @@ Sensitive payloads are referenced through protected storage and are not copied i
 
 ---
 
-# Failed Consumer Recovery Application Service
+## Failed Consumer Recovery Application Service
 
 The Operations Application Service owns consumer recovery orchestration. Repositories expose persistence; they do not authorize replay, decide whether a skip is safe, or mark a dead letter resolved independently.
 
@@ -2851,7 +2856,7 @@ The actor, Membership, Organization, and policy context come from trusted `Execu
 
 ---
 
-# RequestConsumerReplay Flow
+## RequestConsumerReplay Flow
 
 ```text
 Authenticate HumanMemberPrincipal
@@ -2877,7 +2882,7 @@ The request transaction does not change the processed-event, dead-letter, or ord
 
 ---
 
-# Canonical Replay Modes
+## Canonical Replay Modes
 
 Application Services use exactly:
 
@@ -2892,7 +2897,7 @@ Aliases such as “Retry Original Processing” or “Reprocess With New Handler
 
 ---
 
-# Replay Validation Worker
+## Replay Validation Worker
 
 A narrowly capable System Worker may claim a `Requested` replay but cannot create or broaden it.
 
@@ -2914,7 +2919,7 @@ It does not acquire a processed-event claim.
 
 ---
 
-# Replay Execution Claim
+## Replay Execution Claim
 
 For `RetryOriginal` or `ReprocessWithCurrentHandler`, a short transaction:
 
@@ -2936,7 +2941,7 @@ A `RebuildProjection` execution uses a dedicated rebuild session and shadow or d
 
 ---
 
-# Replay Completion Transaction
+## Replay Completion Transaction
 
 For a PostgreSQL-local domain effect, completion uses one transaction and invokes the owning module's typed handler or command. The Operations service MUST NOT update Aggregate tables directly.
 
@@ -2961,7 +2966,7 @@ For an external effect, the handler uses the registered effect ledger and provid
 
 ---
 
-# Replay Failure Transaction
+## Replay Failure Transaction
 
 A transient infrastructure failure schedules retry only while the replay and consumer claims remain valid and retry policy permits it.
 
@@ -2981,7 +2986,7 @@ No failure path marks the dead letter resolved or advances ordering.
 
 ---
 
-# SkipDeadLetter Flow
+## SkipDeadLetter Flow
 
 `SkipDeadLetter` requires current Human authorization, registered skip policy, expected dead-letter and ordering versions, reason, ordering-impact analysis, and required reconciliation or compensation evidence.
 
@@ -3004,7 +3009,7 @@ There is no generic `ResolveDeadLetter` mutation. `Resolved` is derived only fro
 
 ---
 
-# CancelConsumerReplay
+## CancelConsumerReplay
 
 Cancellation is allowed for `Requested` or `Validating`, and for `Running` only before the owning handler or external effect begins.
 
@@ -3012,7 +3017,7 @@ Cancellation uses expected replay version and current authorization. It does not
 
 ---
 
-# Terminal Processed-Event Rule
+## Terminal Processed-Event Rule
 
 `Processed` and `Skipped` are terminal. Application Services MUST NOT reset, delete, or supersede these rows for generic replay.
 
@@ -3020,9 +3025,9 @@ Re-executing an already successful authoritative consumer is outside the MVP and
 
 ---
 
-# Failure Recovery Scenarios
+## Failure Recovery Scenarios
 
-## Scenario 1: Decision Commits, Publication Fails
+### Scenario 1: Decision Commits, Publication Fails
 
 ```text
 Decision Approved
@@ -3043,7 +3048,7 @@ Result:
 
 ---
 
-## Scenario 2: Publication Succeeds, Handler Fails
+### Scenario 2: Publication Succeeds, Handler Fails
 
 ```text
 DecisionApproved Published
@@ -3061,7 +3066,7 @@ Result:
 
 ---
 
-## Scenario 3: Handler Commits, Acknowledgement Fails
+### Scenario 3: Handler Commits, Acknowledgement Fails
 
 ```text
 Work Outcome Transaction Commits
@@ -3078,7 +3083,7 @@ Result:
 
 ---
 
-## Scenario 4: Memory Generation Times Out
+### Scenario 4: Memory Generation Times Out
 
 ```text
 WorkCompleted
@@ -3099,7 +3104,7 @@ Result:
 
 ---
 
-## Scenario 5: Memory Persists, Worker Crashes
+### Scenario 5: Memory Persists, Worker Crashes
 
 ```text
 Memory Created
@@ -3119,7 +3124,7 @@ Result:
 
 ---
 
-# Timeout Policy
+## Timeout Policy
 
 Every external operation must have a defined timeout.
 
@@ -3134,7 +3139,7 @@ Infinite waits are prohibited.
 
 ---
 
-# Circuit Breaking
+## Circuit Breaking
 
 External services with repeated failures may use circuit breakers.
 
@@ -3151,7 +3156,7 @@ They do not change domain state automatically.
 
 ---
 
-# Backpressure
+## Backpressure
 
 The Worker must handle event backlog safely.
 
@@ -3167,7 +3172,7 @@ Possible controls:
 
 ---
 
-# Fair Processing
+## Fair Processing
 
 One failing Organization or handler must not indefinitely block unrelated work.
 
@@ -3182,7 +3187,7 @@ Memory generation may use a separate queue or Worker pool from lightweight event
 
 ---
 
-# Operational Consistency
+## Operational Consistency
 
 The system may temporarily contain:
 
@@ -3204,7 +3209,7 @@ They must be observable and recoverable.
 
 ---
 
-# Reconciliation
+## Reconciliation
 
 Periodic reconciliation jobs may detect missing asynchronous outcomes.
 
@@ -3221,7 +3226,7 @@ They must not modify Aggregate state directly.
 
 ---
 
-# Reconciliation Idempotency
+## Reconciliation Idempotency
 
 Reconciliation produces the same commands and events used by normal processing.
 
@@ -3244,7 +3249,7 @@ Insert Memory row directly
 
 ---
 
-# Delivery Guarantees Summary
+## Delivery Guarantees Summary
 
 The MVP provides:
 
@@ -3273,7 +3278,7 @@ Per-Aggregate Concurrency:
 
 ---
 
-# Application Layer Reliability Rules
+## Application Layer Reliability Rules
 
 The following rules are mandatory:
 
@@ -3290,7 +3295,7 @@ The following rules are mandatory:
 
 ---
 
-# MVP Infrastructure Topology
+## MVP Infrastructure Topology
 
 Recommended MVP deployment:
 
@@ -3313,7 +3318,7 @@ Both remain part of the Modular Monolith.
 
 ---
 
-# Broker Requirement
+## Broker Requirement
 
 A separate external message broker is optional for the MVP.
 
@@ -3323,7 +3328,7 @@ The architecture must preserve the ability to introduce a broker later without c
 
 ---
 
-# Future Broker Migration
+## Future Broker Migration
 
 A later phase may publish Outbox events to:
 
@@ -3336,7 +3341,7 @@ This migration affects Infrastructure and event contracts.
 
 It must not move Aggregate-local rules, Domain Policies, Authorization Policies, or durable process rules into transport infrastructure.
 
-# Security Integration
+## Security Integration
 
 Application Services enforce authentication and invoke authorization policies before Aggregate commands are executed.
 
@@ -3355,7 +3360,7 @@ Each Aggregate continues to enforce the invariants of its own state and lifecycl
 
 ---
 
-# Authorization Flow
+## Authorization Flow
 
 ```text
 Incoming Request
@@ -3377,7 +3382,7 @@ The Application Service must never bypass authorization.
 
 ---
 
-# Authorization Responsibilities
+## Authorization Responsibilities
 
 The Application Layer is responsible for:
 
@@ -3391,7 +3396,7 @@ The Aggregate is responsible for the business correctness of its own state trans
 
 ---
 
-# Human Authority
+## Human Authority
 
 The MVP recognizes three actor categories:
 
@@ -3403,7 +3408,7 @@ Only Human Members possess business authority.
 
 ---
 
-## Human Member
+### Human Member
 
 Human Members may:
 
@@ -3424,7 +3429,7 @@ Business authority always belongs to Humans.
 
 ---
 
-## Secretary
+### Secretary
 
 The Secretary may:
 
@@ -3452,7 +3457,7 @@ The Secretary-facing interface contains only allowlisted advisory operations. Hu
 
 ---
 
-## System
+### System
 
 The System performs operational responsibilities such as:
 
@@ -3466,7 +3471,7 @@ The System never performs business decisions.
 
 ---
 
-# Organization Isolation
+## Organization Isolation
 
 Every Application Service executes within exactly one Organization.
 
@@ -3476,7 +3481,7 @@ Cross-Organization coordination is prohibited.
 
 ---
 
-## Organization Validation
+### Organization Validation
 
 Before loading an Aggregate:
 
@@ -3500,7 +3505,7 @@ No Aggregate may be modified across Organization boundaries.
 
 ---
 
-# Request Context
+## Request Context
 
 Every Application Service receives a request context.
 
@@ -3520,7 +3525,7 @@ The context flows through the complete use case.
 
 ---
 
-# Correlation Propagation
+## Correlation Propagation
 
 Every command generated from an incoming event inherits:
 
@@ -3533,7 +3538,7 @@ This enables complete traceability across asynchronous workflows.
 
 ---
 
-# Observability
+## Observability
 
 The Application Layer should expose metrics for operational visibility.
 
@@ -3552,7 +3557,7 @@ Recommended metrics include:
 
 ---
 
-# Logging
+## Logging
 
 Application Services should log:
 
@@ -3577,7 +3582,7 @@ Sensitive business content should not be logged by default.
 
 ---
 
-# Tracing
+## Tracing
 
 Distributed tracing is optional for the MVP.
 
@@ -3592,7 +3597,7 @@ These identifiers should appear consistently in logs and metrics.
 
 ---
 
-# Health Checks
+## Health Checks
 
 Operational health checks should verify:
 
@@ -3608,7 +3613,7 @@ Health checks do not evaluate business correctness.
 
 ---
 
-# Application Service Testing
+## Application Service Testing
 
 Application Services should be tested independently from transport mechanisms.
 
@@ -3618,7 +3623,7 @@ Tests follow rule ownership: Aggregate tests cover local invariants, Domain Poli
 
 ---
 
-## Unit Tests
+### Unit Tests
 
 Unit tests verify:
 
@@ -3633,7 +3638,7 @@ Unit tests verify:
 
 ---
 
-## Integration Tests
+### Integration Tests
 
 Integration tests verify:
 
@@ -3647,11 +3652,11 @@ Integration tests verify:
 
 ---
 
-## End-to-End Tests
+### End-to-End Tests
 
 Representative end-to-end scenarios include:
 
-### Work Lifecycle
+#### Work Lifecycle
 
 ```text
 Create Work
@@ -3671,7 +3676,7 @@ Memory Approved
 
 ---
 
-### Decision Workflow
+#### Decision Workflow
 
 ```text
 Create Decision
@@ -3694,7 +3699,7 @@ Human Completes Work
 
 ---
 
-### Rejected Decision Workflow
+#### Rejected Decision Workflow
 
 ```text
 Create Decision
@@ -3717,7 +3722,7 @@ Approve
 
 ---
 
-### Memory Review Workflow
+#### Memory Review Workflow
 
 ```text
 Work Completed
@@ -3737,7 +3742,7 @@ Approve
 
 ---
 
-# Performance Considerations
+## Performance Considerations
 
 Application Services should remain lightweight.
 
@@ -3762,7 +3767,7 @@ Not allowed:
 
 ---
 
-# Scalability
+## Scalability
 
 The Application Layer should scale independently from the Presentation Layer.
 
@@ -3774,7 +3779,7 @@ Optimistic concurrency guarantees Aggregate consistency.
 
 ---
 
-# Configuration
+## Configuration
 
 Operational settings should remain configurable.
 
@@ -3800,7 +3805,7 @@ Configuration values must not alter domain behavior.
 
 ---
 
-# Implementation Guidance
+## Implementation Guidance
 
 A recommended package structure is:
 
@@ -3848,7 +3853,7 @@ Responsibilities should remain equivalent.
 
 ---
 
-# Dependency Direction
+## Dependency Direction
 
 Dependencies point inward toward policies, not downward toward infrastructure.
 
@@ -3877,13 +3882,13 @@ The Domain Layer must never depend on:
 
 ---
 
-# Common Anti-Patterns
+## Common Anti-Patterns
 
 The following practices are prohibited.
 
 ---
 
-## Fat Application Service
+### Fat Application Service
 
 Application Services must not duplicate Aggregate-local transition rules or Domain Policy semantics. They may enforce documented external and cross-Aggregate preconditions that require repository facts.
 
@@ -3902,7 +3907,7 @@ Work.CompleteWork()
 
 ---
 
-## Aggregate-to-Aggregate Calls
+### Aggregate-to-Aggregate Calls
 
 Incorrect:
 
@@ -3934,7 +3939,7 @@ WorkAggregate
 
 ---
 
-## Infrastructure Inside Aggregates
+### Infrastructure Inside Aggregates
 
 Aggregates must not:
 
@@ -3945,7 +3950,7 @@ Aggregates must not:
 
 ---
 
-## Long Transactions
+### Long Transactions
 
 Incorrect:
 
@@ -3977,7 +3982,7 @@ COMMIT
 
 ---
 
-# MVP Exclusions
+## MVP Exclusions
 
 The following capabilities are outside the MVP:
 
@@ -3996,7 +4001,7 @@ These capabilities may be introduced in future roadmap phases.
 
 ---
 
-# Design Summary
+## Design Summary
 
 The Application Layer guarantees:
 
@@ -4016,9 +4021,9 @@ Every rule is assigned to the narrowest correct owner under ADR-0009.
 
 ---
 
-# Architect Review
+## Architect Review
 
-## Responsibility Separation
+### Responsibility Separation
 
 **Rating: ★★★★★**
 
@@ -4028,7 +4033,7 @@ Aggregate-local rules remain inside Aggregates; other rule classes have explicit
 
 ---
 
-## Aggregate Coordination
+### Aggregate Coordination
 
 **Rating: ★★★★★**
 
@@ -4038,7 +4043,7 @@ Cross-aggregate interaction occurs only through Application Services and Domain 
 
 ---
 
-## Reliability
+### Reliability
 
 **Rating: ★★★★★**
 
@@ -4046,7 +4051,7 @@ Transactional Outbox, Background Workers, retry policies, and idempotency provid
 
 ---
 
-## Human Authority
+### Human Authority
 
 **Rating: ★★★★★**
 
@@ -4058,7 +4063,7 @@ System actors remain operational.
 
 ---
 
-## Scalability
+### Scalability
 
 **Rating: ★★★★★**
 
@@ -4066,7 +4071,7 @@ The architecture supports horizontal scaling of HTTP services and Background Wor
 
 ---
 
-## MVP Scope
+### MVP Scope
 
 **Rating: ★★★★★**
 
@@ -4074,7 +4079,7 @@ The design focuses exclusively on MVP requirements while preserving clear extens
 
 ---
 
-## Final Assessment
+### Final Assessment
 
 ```text
 Architecture Quality:        ★★★★★

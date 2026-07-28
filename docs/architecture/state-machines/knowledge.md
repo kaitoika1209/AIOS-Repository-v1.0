@@ -30,7 +30,7 @@ The purpose of this state machine is to ensure that organizational Knowledge:
 
 ---
 
-# Lifecycle Overview
+## Lifecycle Overview
 
 ```text
                     Create Draft
@@ -65,9 +65,9 @@ The purpose of this state machine is to ensure that organizational Knowledge:
 
 ---
 
-# States
+## States
 
-## Draft
+### Draft
 
 The initial state of a newly created Knowledge.
 
@@ -87,7 +87,7 @@ Only human Members may publish.
 
 ---
 
-## Published
+### Published
 
 Published Knowledge is the current authoritative organizational guidance.
 
@@ -106,7 +106,7 @@ Any change requires a new Revision Draft.
 
 ---
 
-## Revision Draft
+### Revision Draft
 
 Represents a proposed update to an existing Published Knowledge.
 
@@ -125,7 +125,7 @@ The previous Published revision remains active until the Revision Draft is publi
 
 ---
 
-## Deprecated
+### Deprecated
 
 Knowledge that is no longer recommended.
 
@@ -148,7 +148,7 @@ A new Knowledge should normally replace deprecated Knowledge.
 
 ---
 
-## Archived
+### Archived
 
 Represents permanently inactive Knowledge.
 
@@ -163,9 +163,9 @@ Archive is the terminal state in Blueprint v0.2.0.
 
 ---
 
-# Allowed Transitions
+## Allowed Transitions
 
-## Draft → Published
+### Draft → Published
 
 Requirements:
 
@@ -183,7 +183,7 @@ KnowledgePublished
 
 ---
 
-## Published → Revision Draft
+### Published → Revision Draft
 
 Requirements:
 
@@ -201,7 +201,7 @@ KnowledgeRevisionCreated
 
 ---
 
-## Revision Draft → Published
+### Revision Draft → Published
 
 Requirements:
 
@@ -217,7 +217,7 @@ The new revision replaces the previous Published revision.
 
 ---
 
-## Published → Deprecated
+### Published → Deprecated
 
 Requirements:
 
@@ -232,7 +232,7 @@ KnowledgeDeprecated
 
 ---
 
-## Deprecated → Archived
+### Deprecated → Archived
 
 Requirements:
 
@@ -247,7 +247,7 @@ KnowledgeArchived
 
 ---
 
-# Forbidden Transitions
+## Forbidden Transitions
 
 The following transitions are not permitted:
 
@@ -278,7 +278,7 @@ Archived Knowledge cannot be restored in Blueprint v0.2.0.
 
 ---
 
-# Human Authority
+## Human Authority
 
 Only human Members may:
 
@@ -290,7 +290,7 @@ Only human Members may:
 
 ---
 
-# AI Authority
+## AI Authority
 
 The Secretary may:
 
@@ -312,7 +312,7 @@ The Secretary must never:
 
 ---
 
-# Invariants
+## Invariants
 
 The following conditions must always hold:
 
@@ -327,7 +327,7 @@ The following conditions must always hold:
 
 ---
 
-# Domain Events
+## Domain Events
 
 The following events are emitted during lifecycle transitions:
 
@@ -361,7 +361,7 @@ These recommendation events never change lifecycle state directly.
 
 ---
 
-# Relationship to Memory
+## Relationship to Memory
 
 Memory and Knowledge have different lifecycles.
 
@@ -392,7 +392,7 @@ Knowledge always references Memory through Evidence.
 
 ---
 
-# Blueprint Notes
+## Blueprint Notes
 
 Blueprint v0.2.0 intentionally limits the lifecycle to a conservative governance model.
 

@@ -1,5 +1,10 @@
 # Context Map
 
+> **Scope classification:** Mixed — MVP Normative boundaries and Future Hypothesis contexts  
+> **MVP implementation authority:** Yes for sections labelled MVP Normative  
+> **Promotion requirement:** Accepted implementation ADR and scope-document update  
+> **Authority rank:** see [Document Governance](../document-governance.md)
+
 > **Document status:** Proposed  
 > **Blueprint version:** 0.2.1  
 > **MVP architecture:** Modular Monolith
@@ -22,7 +27,7 @@ The MVP deploys multiple Bounded Contexts together in one Modular Monolith and o
 
 ---
 
-# Boundary Classification
+## Boundary Classification
 
 AIOS uses three distinct architectural classifications.
 
@@ -40,18 +45,18 @@ Transactional Outbox, processed-event handling, Workers, replay, reconciliation,
 
 ---
 
-# Domain Bounded Contexts
+## Domain Bounded Contexts
 
-## Identity & Organization Context
+### Identity & Organization Context
 
 **Classification:** Supporting Domain  
 **MVP:** Implemented
 
-### Purpose
+#### Purpose
 
 Defines durable Human identity, Organization tenancy, Membership, and Organization-scoped participation.
 
-### Owns
+#### Owns
 
 - Human Identity Aggregate;
 - Organization Aggregate;
@@ -64,7 +69,7 @@ A Human Identity is global and may participate in multiple Organizations through
 
 An Organization is the tenant, ownership, authorization-scope, and data-isolation boundary. It is not a transaction boundary containing all Organization-owned Aggregates.
 
-### Publishes representative facts
+#### Publishes representative facts
 
 - `HumanIdentityCreated`
 - `HumanIdentityDisabled`
@@ -75,7 +80,7 @@ An Organization is the tenant, ownership, authorization-scope, and data-isolatio
 - `MembershipSuspended`
 - `MembershipRevoked`
 
-### Does not own
+#### Does not own
 
 - Work, Decision, or Memory lifecycle;
 - authorization decisions for every use case;
@@ -86,16 +91,16 @@ Authorization policies consume current Identity, Membership, role, Organization,
 
 ---
 
-## Work Management Context
+### Work Management Context
 
 **Classification:** Core Domain  
 **MVP:** Implemented
 
-### Purpose
+#### Purpose
 
 Represents organizational activity and explicit Human-controlled completion.
 
-### Owns
+#### Owns
 
 - Work Aggregate;
 - Work lifecycle;
@@ -105,7 +110,7 @@ Represents organizational activity and explicit Human-controlled completion.
 - recorded Decision outcome snapshots; and
 - completion or cancellation history.
 
-### Publishes representative facts
+#### Publishes representative facts
 
 - `WorkCreated`
 - `WorkStarted`
@@ -118,16 +123,16 @@ Decision approval never completes Work. Work completion is an explicit Human-aut
 
 ---
 
-## Decision Management Context
+### Decision Management Context
 
 **Classification:** Core Domain  
 **MVP:** Implemented
 
-### Purpose
+#### Purpose
 
 Represents an explicit organizational question, stable review snapshot, and Human resolution.
 
-### Owns
+#### Owns
 
 - Decision Aggregate;
 - Decision revisions;
@@ -137,7 +142,7 @@ Represents an explicit organizational question, stable review snapshot, and Huma
 - approval, rejection, withdrawal, and revision behavior; and
 - blocking designation.
 
-### Publishes representative facts
+#### Publishes representative facts
 
 - `DecisionCreated`
 - `DecisionDraftEdited`
@@ -151,16 +156,16 @@ The Decision Context does not modify Work directly. The Work Context records aut
 
 ---
 
-## Organizational Memory Context
+### Organizational Memory Context
 
 **Classification:** Core Domain  
 **MVP:** Implemented
 
-### Purpose
+#### Purpose
 
 Creates one Human-reviewable historical record from one completed Work and preserves the approved result as immutable organizational history.
 
-### Owns
+#### Owns
 
 - Memory Aggregate;
 - editable generated draft;
@@ -170,7 +175,7 @@ Creates one Human-reviewable historical record from one completed Work and prese
 - immutable source-snapshot references; and
 - approval or rejection history.
 
-### Publishes representative facts
+#### Publishes representative facts
 
 - `MemoryGenerated`
 - `MemoryEdited`
@@ -185,13 +190,13 @@ The Memory Context does not emit Knowledge promotion or publication events in th
 
 ---
 
-## Knowledge Management Context
+### Knowledge Management Context
 
 **Domain classification:** Candidate Future Core Domain  
 **Scope classification:** Future Hypothesis  
 **MVP implementation authority:** None
 
-### Purpose
+#### Purpose
 
 Will govern reusable organizational guidance, Evidence, publication, revision, supersession, and deprecation.
 
@@ -203,13 +208,13 @@ The detailed future model creates no reserved MVP port or module. Promotion requ
 
 ---
 
-## Capability Management Context
+### Capability Management Context
 
 **Domain classification:** Candidate Future Domain  
 **Scope classification:** Future Hypothesis  
 **MVP implementation authority:** None
 
-### Purpose
+#### Purpose
 
 Will organize reusable Knowledge and measurable organizational competence.
 
@@ -221,7 +226,7 @@ Capability is not a Reserved Extension Point. Promotion requires an accepted imp
 
 ---
 
-# MVP Implementation Modules
+## MVP Implementation Modules
 
 The following modules are code and persistence ownership boundaries inside one deployable Modular Monolith.
 
@@ -248,9 +253,9 @@ Cross-context writes occur only through an explicit Application Service or idemp
 
 ---
 
-# Context Relationships
+## Context Relationships
 
-## Identity & Organization → Organization-Owned Contexts
+### Identity & Organization → Organization-Owned Contexts
 
 Identity & Organization supplies trusted identity, active Membership, role, Organization status, and tenant-scope facts.
 
@@ -266,7 +271,7 @@ Published Language / Application Policy Input
 
 ---
 
-## Work Management ↔ Decision Management
+### Work Management ↔ Decision Management
 
 A Decision belongs to one Work in the MVP.
 
@@ -284,7 +289,7 @@ The MVP commits submission of a blocking Decision revision and Work's matching t
 
 ---
 
-## Work Management → Organizational Memory
+### Work Management → Organizational Memory
 
 Successful Human Work completion stores `WorkCompleted` in the Transactional Outbox.
 
@@ -300,7 +305,7 @@ Work does not own Memory. Generation failure does not reopen or roll back comple
 
 ---
 
-## Decision Management → Organizational Memory
+### Decision Management → Organizational Memory
 
 Memory generation may use only immutable Decision submitted or resolved snapshots identified by revision or snapshot identity and content hash.
 
@@ -314,7 +319,7 @@ Memory does not depend on the current mutable Decision draft or a search project
 
 ---
 
-## Organizational Memory → Knowledge Management
+### Organizational Memory → Knowledge Management
 
 **Future relationship — not active in the MVP.**
 
@@ -324,7 +329,7 @@ No Memory state transition automatically enters the Knowledge lifecycle.
 
 ---
 
-## Knowledge Management → Capability Management
+### Knowledge Management → Capability Management
 
 **Future relationship — not active in the MVP.**
 
@@ -332,7 +337,7 @@ Published Knowledge may later support Capability classification or measurement. 
 
 ---
 
-# AI Secretary
+## Secretary
 
 The Secretary is an Organization-scoped AI Principal and cross-cutting participant. It is not a Bounded Context, Aggregate, cross-context Domain Service, or domain-owning central service.
 
@@ -365,7 +370,7 @@ Generation authorizes only a proposal or attributable advisory contribution. A l
 
 ---
 
-# Integration Rules
+## Integration Rules
 
 Contexts collaborate through:
 
@@ -387,7 +392,7 @@ Within the Modular Monolith, in-process calls are permitted only through explici
 
 ---
 
-# Consistency and Transaction Boundaries
+## Consistency and Transaction Boundaries
 
 An Aggregate protects only invariants provable from its own state and command input.
 
@@ -413,7 +418,7 @@ Every rule has one primary enforcement owner, failure outcome, and test boundary
 
 ---
 
-# Evolution Rules
+## Evolution Rules
 
 A Bounded Context becomes an independently deployed service only when a demonstrated need exists, such as independent scale, deployment, operational isolation, stable external contract, or team ownership.
 
@@ -431,7 +436,7 @@ Microservice extraction is not an MVP objective.
 
 ---
 
-# Canonical Document Responsibilities
+## Canonical Document Responsibilities
 
 | Concern | Canonical document |
 |---|---|

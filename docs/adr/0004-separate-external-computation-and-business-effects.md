@@ -1,14 +1,14 @@
 # ADR-0004: Separate External Computation from External Business Effects
 
-- Status: Accepted
-- Date: 2026-07-26
-- Blueprint Version: v0.2.0
-- Decision Owner: Platform Runtime and Organizational Learning
-- Review Trigger: before enabling the first ExternalBusinessEffect consumer, when a provider idempotency or outcome-query contract changes, when external notification delivery enters MVP scope, or when recovery requirements change materially
+**Status:** Accepted  
+**Date:** 2026-07-26  
+**Blueprint Version:** 0.2.0  
+**Decision Owner:** Platform Runtime and Organizational Learning  
+**Review Trigger:** before enabling the first ExternalBusinessEffect consumer, when a provider idempotency or outcome-query contract changes, when external notification delivery enters MVP scope, or when recovery requirements change materially
 
 ---
 
-# Context
+## Context
 
 AIOS uses a Modular Monolith, PostgreSQL as the authoritative data store, a Transactional Outbox, background Workers, and at-least-once delivery.
 
@@ -31,7 +31,7 @@ The decision must remain practical for a one-to-three-person team. The MVP shoul
 
 ---
 
-# Decision
+## Decision
 
 Every event consumer declares one canonical `sideEffectClass`:
 
@@ -45,7 +45,7 @@ The side-effect class and provider capability modes are version-controlled Consu
 
 ---
 
-# PostgreSQLLocal
+## PostgreSQLLocal
 
 `PostgreSQLLocal` means the effect is fully represented inside the authoritative PostgreSQL consistency boundary.
 
@@ -55,7 +55,7 @@ MVP domain coordination, projections, and in-app notification records use this c
 
 ---
 
-# ExternalComputation
+## ExternalComputation
 
 `ExternalComputation` means a provider computes candidate data but does not become the source of an AIOS business outcome.
 
@@ -98,7 +98,7 @@ Duplicate provider cost is an operational risk. It is not duplicate business sta
 
 ---
 
-# ExternalBusinessEffect
+## ExternalBusinessEffect
 
 `ExternalBusinessEffect` means the provider changes externally visible state that PostgreSQL rollback cannot undo.
 
@@ -132,7 +132,7 @@ The same logical effect always reuses the same operation and provider idempotenc
 
 ---
 
-# Provider Capability Contract
+## Provider Capability Contract
 
 ConsumerRegistration records:
 
@@ -154,7 +154,7 @@ A non-idempotent and non-queryable external business effect is prohibited for au
 
 ---
 
-# OutcomeUnknown
+## OutcomeUnknown
 
 Timeout, acknowledgement loss, post-send lease loss, or local commit uncertainty after a provider call is not proof of failure.
 
@@ -179,7 +179,7 @@ Compensation never rewrites the original effect as if it did not occur.
 
 ---
 
-# Transaction Boundary
+## Transaction Boundary
 
 The external provider effect cannot be atomic with PostgreSQL.
 
@@ -202,7 +202,7 @@ If the final local commit fails after provider success, recovery queries the pro
 
 ---
 
-# MVP Activation Boundary
+## MVP Activation Boundary
 
 The baseline MVP has no enabled `ExternalBusinessEffect` consumer.
 
@@ -221,37 +221,37 @@ Such a consumer cannot be enabled until registration, provider adapter, credenti
 
 ---
 
-# Alternatives Considered
+## Alternatives Considered
 
-## Treat Every Remote Call as ExternalBusinessEffect
+### Treat Every Remote Call as ExternalBusinessEffect
 
 Rejected because AI computation does not create authoritative provider-side business state. Requiring Human reconciliation for every generation timeout would add unnecessary operational cost and delay.
 
-## Treat Every Remote Call as Retryable Computation
+### Treat Every Remote Call as Retryable Computation
 
 Rejected because timeout is not proof that an externally visible effect did not occur. Blind retry can duplicate email, webhook, payment, or remote mutation.
 
-## Use Only Processed Events
+### Use Only Processed Events
 
 Rejected because a processed-event row cannot prove whether a provider effect occurred during the crash window. It lacks provider operation identity, request fingerprint, idempotency retention, and reconciliation state.
 
-## Implement the External-Effect Ledger for Every MVP Call
+### Implement the External-Effect Ledger for Every MVP Call
 
 Rejected as over-engineering. The baseline MVP has no external business-effect consumer. Memory generation needs a smaller typed operation optimized for computation and local finalization.
 
-## Rely Only on Provider Idempotency
+### Rely Only on Provider Idempotency
 
 Rejected because provider guarantees vary, may expire, and do not replace local Organization scope, request fingerprint, claim fencing, audit, ordering, or recovery state.
 
-## Use Distributed Transactions or Event Sourcing
+### Use Distributed Transactions or Event Sourcing
 
 Rejected for the MVP. External providers generally do not participate in PostgreSQL distributed transactions, and Event Sourcing does not remove the external outcome ambiguity.
 
 ---
 
-# Consequences
+## Consequences
 
-## Positive
+### Positive
 
 - AI generation retry remains practical and bounded.
 - Externally visible effects cannot be blindly resent after ambiguous failure.
@@ -261,7 +261,7 @@ Rejected for the MVP. External providers generally do not participate in Postgre
 - The baseline MVP avoids implementing unused integration infrastructure.
 - Memory uniqueness and Human review remain independent of provider behavior.
 
-## Negative
+### Negative
 
 - Consumer registration becomes more detailed.
 - Future external-effect adapters require provider-specific reconciliation.
@@ -272,7 +272,7 @@ Rejected for the MVP. External providers generally do not participate in Postgre
 
 ---
 
-# Required Verification
+## Required Verification
 
 Before implementation approval, tests must cover:
 
@@ -292,11 +292,11 @@ Before implementation approval, tests must cover:
 
 ---
 
-# Related Documents
+## Related Documents
 
-- `docs/architecture/events-and-outbox.md`
-- `docs/architecture/application-services.md`
-- `docs/architecture/persistence-and-data-model.md`
-- `docs/architecture/aggregates/memory.md`
-- `observability-and-operations.md`
-- `docs/product/mvp.md`
+- [Events and Outbox](../architecture/events-and-outbox.md)
+- [Application Services](../architecture/application-services.md)
+- [Persistence and Data Model](../architecture/persistence-and-data-model.md)
+- [Memory Aggregate](../architecture/aggregates/memory.md)
+- [Observability and Operations](../architecture/observability-and-operations.md)
+- [MVP Scope](../product/mvp.md)

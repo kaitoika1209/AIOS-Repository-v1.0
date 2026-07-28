@@ -1,5 +1,9 @@
 # MVP Use Cases
 
+> **Scope classification:** MVP Normative  
+> **MVP implementation authority:** Yes, subject to [`docs/product/mvp.md`](mvp.md)  
+> **Promotion requirement:** Not applicable
+
 ## Purpose
 
 This document defines the primary use case for the AIOS Minimum Viable Product (MVP).
@@ -10,26 +14,26 @@ Future use cases should be validated only after this workflow has proven success
 
 ---
 
-# Primary Use Case
+## Primary Use Case
 
 A small product team collaborates with AI to research, discuss, approve, and complete work while automatically capturing organizational experience.
 
 ---
 
-# Target Team
+## Target Team
 
 The representative team consists of:
 
 - 2–10 members
 - One organization
 - One shared workspace
-- One AI Secretary
+- One Secretary
 
 The team works together to plan and deliver business activities.
 
 ---
 
-# Scenario
+## Scenario
 
 A member creates a new work item.
 
@@ -39,13 +43,14 @@ Members collaborate, discuss options, and create decisions when required.
 
 Once the work is completed, AIOS automatically generates an organizational Memory.
 
-The generated Memory can later be reviewed and promoted into reusable Knowledge.
+The generated Memory is reviewed by a human and, once approved, becomes authoritative
+organizational history.
 
 ---
 
-# User Journey
+## User Journey
 
-## Step 1 — Create Work
+### Step 1 — Create Work
 
 A member creates a new Work.
 
@@ -59,7 +64,7 @@ The Work includes:
 
 ---
 
-## Step 2 — Collaborate
+### Step 2 — Collaborate
 
 Members collaborate inside the Work.
 
@@ -74,7 +79,7 @@ The Secretary provides recommendations but does not make decisions.
 
 ---
 
-## Step 3 — Make Decisions
+### Step 3 — Make Decisions
 
 Members create Decisions when approval is required.
 
@@ -87,7 +92,7 @@ Approved Decisions become part of the Work history.
 
 ---
 
-## Step 4 — Complete Work
+### Step 4 — Complete Work
 
 Once the objective has been achieved, the Work is marked as completed.
 
@@ -100,7 +105,7 @@ Completion records:
 
 ---
 
-## Step 5 — Generate Memory
+### Step 5 — Generate Memory
 
 Completing a Work automatically creates a Memory.
 
@@ -116,7 +121,7 @@ Generated Memories remain unreviewed.
 
 ---
 
-## Step 6 — Review Memory
+### Step 6 — Review Memory
 
 A designated member reviews the Memory.
 
@@ -126,11 +131,14 @@ The reviewer may:
 - Revise
 - Reject
 
-Only approved Memories become reusable organizational Knowledge.
+Approved Memory is immutable and becomes the organization's authoritative record of the
+completed Work. Approved Memory is **not** Knowledge. Promoting Memory into reusable
+Knowledge is a separate business process introduced in Phase 4 and is out of scope for
+the MVP.
 
 ---
 
-# Success Criteria
+## Success Criteria
 
 The MVP is successful if a team can:
 
@@ -139,26 +147,38 @@ The MVP is successful if a team can:
 - Record Decisions
 - Complete Work
 - Generate organizational Memories
-- Build a growing repository of organizational experience
+- Review and approve those Memories
+- Build a growing repository of human-approved organizational experience
 
 ---
 
-# Out of Scope
+## Out of Scope
 
 The following are intentionally excluded:
 
-- Multiple AI Employees
+- Knowledge and Knowledge promotion
+- Evidence
+- Capability
+- MemoryRevision after approval
+- AI Employees
 - Autonomous AI collaboration
 - Workflow automation
-- External integrations
+- External integrations and external knowledge ingestion
+- Semantic retrieval
 - Marketplace
 - Organization Brain
 - Advanced governance
 
+See the scope classification table in [`docs/product/mvp.md`](mvp.md) for the
+authoritative list.
+
 ---
 
-# Guiding Principle
+## Guiding Principle
 
 The MVP validates one simple hypothesis:
 
-> Organizations become smarter when everyday work is captured, reviewed, and transformed into reusable knowledge.
+> Organizations become smarter when everyday work is captured and reviewed into trustworthy organizational Memory.
+
+Whether that Memory can be transformed into reusable Knowledge is a separate hypothesis
+that the MVP does not attempt to prove.

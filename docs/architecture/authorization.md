@@ -1,5 +1,10 @@
 # Authorization Architecture
 
+> **Scope classification:** MVP Normative  
+> **MVP implementation authority:** Yes  
+> **Promotion requirement:** Not applicable  
+> **Authority rank:** see [Document Governance](../document-governance.md)
+
 **Status:** Draft  
 **Phase:** MVP  
 **Architecture:** Modular Monolith  
@@ -7,7 +12,7 @@
 
 ---
 
-# Purpose
+## Purpose
 
 This document defines the authorization model for AIOS.
 
@@ -21,7 +26,7 @@ Aggregate-local invariants remain enforced inside the owning Aggregate. Other ru
 
 ---
 
-# Goals
+## Goals
 
 The authorization architecture must ensure that:
 
@@ -37,7 +42,7 @@ The authorization architecture must ensure that:
 
 ---
 
-# Non-Goals
+## Non-Goals
 
 This document does not define:
 
@@ -58,7 +63,7 @@ Those concerns belong to separate security or future-phase designs.
 
 ---
 
-# Security Model
+## Security Model
 
 AIOS uses an Organization-scoped authorization model.
 
@@ -80,7 +85,7 @@ Authorization succeeds only when all required conditions are satisfied.
 
 ---
 
-# Core Authorization Question
+## Core Authorization Question
 
 Every command evaluation answers:
 
@@ -98,13 +103,13 @@ No implicit fallback grants authority.
 
 ---
 
-# Authentication and Authorization
+## Authentication and Authorization
 
 Authentication and authorization are separate concerns.
 
 ---
 
-## Authentication
+### Authentication
 
 Authentication establishes actor identity.
 
@@ -125,7 +130,7 @@ authenticatedAt
 
 ---
 
-## Authorization
+### Authorization
 
 Authorization evaluates permission.
 
@@ -137,7 +142,7 @@ Authentication alone never grants business authority.
 
 ---
 
-# Architectural Position
+## Architectural Position
 
 ```text
 Incoming Request
@@ -164,9 +169,9 @@ The Aggregate still validates its own lifecycle and state invariants after autho
 
 ---
 
-# Responsibility Separation
+## Responsibility Separation
 
-## Authentication Layer
+### Authentication Layer
 
 Responsible for:
 
@@ -177,7 +182,7 @@ Responsible for:
 
 ---
 
-## Authorization Layer
+### Authorization Layer
 
 Responsible for:
 
@@ -190,7 +195,7 @@ Responsible for:
 
 ---
 
-## Application Layer
+### Application Layer
 
 Responsible for:
 
@@ -204,7 +209,7 @@ Responsible for:
 
 ---
 
-## Domain Layer
+### Domain Layer
 
 Responsible for:
 
@@ -217,7 +222,7 @@ The Domain Layer does not query permission stores or repositories. Facts require
 
 ---
 
-## Infrastructure Layer
+### Infrastructure Layer
 
 Responsible for:
 
@@ -232,7 +237,7 @@ Infrastructure does not decide business meaning.
 
 ---
 
-# Principal Types
+## Principal Types
 
 The MVP recognizes three principal types:
 
@@ -248,7 +253,7 @@ Every command must be associated with exactly one principal.
 
 ---
 
-# Human Member Principal
+## Human Member Principal
 
 A Human Member represents an authenticated person who belongs to an Organization.
 
@@ -271,7 +276,7 @@ Examples include:
 
 ---
 
-# Human Authority Principle
+## Human Authority Principle
 
 All final business decisions require explicit Human action.
 
@@ -299,7 +304,7 @@ Neither Secretary nor System may originate these transitions.
 
 ---
 
-# Secretary Principal
+## Secretary Principal
 
 The Secretary represents an AI-assisted advisory actor.
 
@@ -334,7 +339,7 @@ The authorization term `assistanceOperation` is not the future Capability domain
 
 ---
 
-# Secretary Prohibitions
+## Secretary Prohibitions
 
 The Secretary may never:
 
@@ -354,7 +359,7 @@ The Secretary may never:
 
 ---
 
-# Advisory-Only Rule
+## Advisory-Only Rule
 
 Secretary output remains advisory until a Human Member explicitly incorporates or accepts it.
 
@@ -377,7 +382,7 @@ The Secretary contribution does not become authoritative content automatically.
 
 ---
 
-# System Principal
+## System Principal
 
 The System principal represents trusted internal automation.
 
@@ -395,7 +400,7 @@ The System has no business authority.
 
 ---
 
-# System Prohibitions
+## System Prohibitions
 
 The System may never:
 
@@ -411,7 +416,7 @@ The System may never:
 
 ---
 
-# Operational Authority
+## Operational Authority
 
 System authority is limited to actions required for reliable execution.
 
@@ -433,7 +438,7 @@ They do not create new business intent.
 
 ---
 
-# Principal Identity
+## Principal Identity
 
 Every principal has a stable identifier.
 
@@ -450,7 +455,7 @@ Principal identifiers must remain auditable over time.
 
 ---
 
-# Actor Reference
+## Actor Reference
 
 Aggregate commands receive an ActorReference representing the actor responsible for the operation.
 
@@ -467,7 +472,7 @@ The ActorReference is stored in domain history where attribution is required.
 
 ---
 
-# Principal and Actor Distinction
+## Principal and Actor Distinction
 
 A Principal represents the authenticated execution identity.
 
@@ -493,7 +498,7 @@ The original Human authority remains traceable through correlation and causation
 
 ---
 
-# No Anonymous Authority
+## No Anonymous Authority
 
 Anonymous principals may access only explicitly public or unauthenticated endpoints.
 
@@ -501,7 +506,7 @@ Anonymous principals may never execute authoritative domain commands.
 
 ---
 
-# No Shared Human Identity
+## No Shared Human Identity
 
 Shared Human accounts are prohibited.
 
@@ -521,7 +526,7 @@ must not be used for business approval or completion.
 
 ---
 
-# Organization Membership
+## Organization Membership
 
 A Human Member must belong to the Organization containing the target resource.
 
@@ -539,7 +544,7 @@ Cross-Organization access is denied by default.
 
 ---
 
-# Organization Boundary
+## Organization Boundary
 
 Every protected resource belongs to exactly one Organization.
 
@@ -555,7 +560,7 @@ Authorization never permits a command to cross Organization boundaries.
 
 ---
 
-# Default Deny
+## Default Deny
 
 AIOS uses a default-deny model.
 
@@ -569,7 +574,7 @@ Missing policy data never results in permission.
 
 ---
 
-# Least Privilege
+## Least Privilege
 
 Principals receive only the minimum permissions required for their responsibilities.
 
@@ -582,7 +587,7 @@ Examples:
 
 ---
 
-# Explicit Authority
+## Explicit Authority
 
 Authority must be explicit.
 
@@ -599,13 +604,13 @@ Each authoritative command requires a matching policy decision.
 
 ---
 
-# Separation of Advisory and Authoritative Actions
+## Separation of Advisory and Authoritative Actions
 
 AIOS distinguishes two action categories.
 
 ---
 
-## Advisory Actions
+### Advisory Actions
 
 Examples:
 
@@ -619,7 +624,7 @@ These may be performed by Secretary or Human Members.
 
 ---
 
-## Authoritative Actions
+### Authoritative Actions
 
 Examples:
 
@@ -634,7 +639,7 @@ These require Human Member authority.
 
 ---
 
-# Authority Cannot Be Delegated to AI
+## Authority Cannot Be Delegated to AI
 
 A Human Member cannot delegate final business authority to the Secretary or System.
 
@@ -654,7 +659,7 @@ Human authority is a domain constraint, not an optional preference.
 
 ---
 
-# Policy Inputs
+## Policy Inputs
 
 Authorization policies may evaluate:
 
@@ -676,7 +681,7 @@ Policies should use only data required for the decision.
 
 ---
 
-# Resource State Usage
+## Resource State Usage
 
 Authorization may consider resource state when access meaning changes.
 
@@ -691,7 +696,7 @@ Authorization must not duplicate Aggregate state-transition logic.
 
 ---
 
-# Authorization Versus Business Validation
+## Authorization Versus Business Validation
 
 Example:
 
@@ -719,7 +724,7 @@ Both checks are required.
 
 ---
 
-# Policy Decision
+## Policy Decision
 
 A policy evaluation returns a structured result.
 
@@ -747,7 +752,7 @@ Infrastructure errors result in denial.
 
 ---
 
-# Deny on Failure
+## Deny on Failure
 
 If authorization data cannot be loaded or evaluated safely:
 
@@ -766,7 +771,7 @@ Security-critical failures must never fail open.
 
 ---
 
-# Policy Reason Codes
+## Policy Reason Codes
 
 Recommended denial reason codes include:
 
@@ -796,7 +801,7 @@ Detailed reason codes belong in secure audit logs.
 
 ---
 
-# Human Presence Requirement
+## Human Presence Requirement
 
 Authoritative commands require a directly authenticated Human Member.
 
@@ -814,7 +819,7 @@ It does not authorize a new Human-only command such as Work completion.
 
 ---
 
-# Causation Does Not Grant Authority
+## Causation Does Not Grant Authority
 
 An authoritative event may trigger operational follow-up.
 
@@ -840,7 +845,7 @@ because Work completion requires new Human intent.
 
 ---
 
-# Authority Preservation Across Events
+## Authority Preservation Across Events
 
 Asynchronous handlers must preserve:
 
@@ -859,7 +864,7 @@ The System must never record itself as the Human decision maker.
 
 ---
 
-# Authorization Invariants
+## Authorization Invariants
 
 The following rules must always hold:
 
@@ -876,7 +881,7 @@ The following rules must always hold:
 
 ---
 
-# Guiding Principle
+## Guiding Principle
 
 The authorization architecture answers:
 
@@ -888,7 +893,7 @@ The Domain Model answers:
 
 The Application Layer coordinates both answers before committing any state change.
 
-# Authorization Model
+## Authorization Model
 
 AIOS uses a hybrid authorization model combining:
 
@@ -904,7 +909,7 @@ The complete policy must evaluate the actor, command, Organization, and target r
 
 ---
 
-# Organization Roles
+## Organization Roles
 
 The MVP defines four Human Member roles:
 
@@ -921,7 +926,7 @@ Roles never cross Organization boundaries.
 
 ---
 
-## OrganizationOwner
+### OrganizationOwner
 
 The OrganizationOwner has the highest administrative authority within one Organization.
 
@@ -939,7 +944,7 @@ The Owner cannot delegate Human-only authority to the Secretary or System.
 
 ---
 
-## OrganizationAdmin
+### OrganizationAdmin
 
 An OrganizationAdmin manages day-to-day access and Organization resources.
 
@@ -955,7 +960,7 @@ An Admin cannot redefine Human-authority invariants.
 
 ---
 
-## Member
+### Member
 
 A Member performs ordinary organizational work.
 
@@ -976,7 +981,7 @@ A Member does not receive approval authority automatically.
 
 ---
 
-## Reviewer
+### Reviewer
 
 A Reviewer is authorized to perform Human review actions.
 
@@ -992,7 +997,7 @@ Reviewer authority remains Organization-scoped.
 
 ---
 
-# Role Assignment Rules
+## Role Assignment Rules
 
 Role assignments must contain:
 
@@ -1012,7 +1017,7 @@ Revoked assignments remain available for audit.
 
 ---
 
-# Role Assignment Authority
+## Role Assignment Authority
 
 Recommended MVP rules:
 
@@ -1032,7 +1037,7 @@ The final Organization membership design may live in a separate Organization Agg
 
 ---
 
-# Permission Model
+## Permission Model
 
 Roles are mapped to named permissions.
 
@@ -1073,7 +1078,7 @@ authorization.read_audit
 
 ---
 
-# Permission Assignment
+## Permission Assignment
 
 Recommended MVP mapping:
 
@@ -1094,7 +1099,7 @@ Recommended MVP mapping:
 
 ---
 
-# Resource Relationships
+## Resource Relationships
 
 Role permissions are narrowed by relationships between the Human Member and the target resource.
 
@@ -1115,7 +1120,7 @@ OrganizationAdministrator
 
 ---
 
-# Relationship-Based Authorization
+## Relationship-Based Authorization
 
 Example:
 
@@ -1136,7 +1141,7 @@ Without the required relationship, the same command may be denied.
 
 ---
 
-# Administrative Override
+## Administrative Override
 
 Owner and Admin roles may receive broader resource access.
 
@@ -1152,7 +1157,7 @@ Administrative authority is not a domain-state override.
 
 ---
 
-# Resource Scope
+## Resource Scope
 
 Every authorization request identifies the target scope.
 
@@ -1173,7 +1178,7 @@ For creation commands without an existing resource, the Organization is the prim
 
 ---
 
-# Policy Evaluation Order
+## Policy Evaluation Order
 
 Policies should be evaluated in the following order:
 
@@ -1192,7 +1197,7 @@ A failure at any step results in Deny.
 
 ---
 
-# Policy Evaluation Algorithm
+## Policy Evaluation Algorithm
 
 ```text
 Authorize(request):
@@ -1218,11 +1223,11 @@ Aggregate lifecycle validation occurs after this evaluation.
 
 ---
 
-# Command Policy Types
+## Command Policy Types
 
 Authorization policies fall into three categories.
 
-## Organization-Scoped Policy
+### Organization-Scoped Policy
 
 Used when no resource exists yet.
 
@@ -1232,7 +1237,7 @@ Examples:
 - CreateDecision
 - invite Member
 
-## Resource-Scoped Policy
+### Resource-Scoped Policy
 
 Used when operating on an existing Aggregate.
 
@@ -1242,7 +1247,7 @@ Examples:
 - StartWork
 - EditGeneratedMemory
 
-## Human-Authority Policy
+### Human-Authority Policy
 
 Used for authoritative lifecycle transitions.
 
@@ -1261,7 +1266,7 @@ principalType = HumanMember
 
 ---
 
-# Work Authorization Matrix
+## Work Authorization Matrix
 
 | Command | Human Required | Typical Permission | Required Relationship |
 |---|---:|---|---|
@@ -1285,7 +1290,7 @@ The System may not complete or cancel Work.
 
 ---
 
-# Decision Authorization Matrix
+## Decision Authorization Matrix
 
 | Command | Human Required | Typical Permission | Required Relationship |
 |---|---:|---|---|
@@ -1302,7 +1307,7 @@ Secretary and System principals are denied all review outcomes.
 
 ---
 
-# Memory Authorization Matrix
+## Memory Authorization Matrix
 
 | Command | Human Required | Typical Permission | Required Relationship |
 |---|---:|---|---|
@@ -1320,7 +1325,7 @@ It does not approve Memory.
 
 ---
 
-# Secretary Authorization Matrix
+## Secretary Authorization Matrix
 
 | Operation | Secretary |
 |---|---:|
@@ -1340,7 +1345,7 @@ It does not approve Memory.
 
 ---
 
-# System Authorization Matrix
+## System Authorization Matrix
 
 | Operation | System |
 |---|---:|
@@ -1360,7 +1365,7 @@ It does not approve Memory.
 
 ---
 
-# Source Event Authorization
+## Source Event Authorization
 
 Operational System commands require a trusted source event.
 
@@ -1383,7 +1388,7 @@ The System cannot invoke the command without causation.
 
 ---
 
-# Consumer Recovery Authorization Boundary
+## Consumer Recovery Authorization Boundary
 
 Consumer recovery is an Operations Application Service capability, not an Aggregate permission and not unrestricted System authority.
 
@@ -1393,7 +1398,7 @@ The immutable source event determines `organizationId`. The command payload cann
 
 ---
 
-# Consumer Recovery Permission Matrix
+## Consumer Recovery Permission Matrix
 
 Canonical permissions and default role policy are:
 
@@ -1413,7 +1418,7 @@ The MVP does not require universal four-eyes approval. The authenticated authori
 
 ---
 
-# Replay Authorization Timing
+## Replay Authorization Timing
 
 Authorization is evaluated twice:
 
@@ -1432,7 +1437,7 @@ Expected dead-letter, ordering-state, processed-event, and target Aggregate vers
 
 ---
 
-# System Worker Recovery Authority
+## System Worker Recovery Authority
 
 A recovery Worker may:
 
@@ -1455,7 +1460,7 @@ A recovery Worker may not:
 
 ---
 
-# Skip Authorization
+## Skip Authorization
 
 `SkipDeadLetter` is a distinct Human command. It requires current `events.skip`, a registered ConsumerRegistration skip policy, explicit reason, expected versions, ordering-impact confirmation, and reconciliation or compensation evidence where required.
 
@@ -1465,7 +1470,7 @@ A successful skip is terminal for that consumer result. It does not state that t
 
 ---
 
-# Platform Access Is Not Organization Authority
+## Platform Access Is Not Organization Authority
 
 The MVP does not model a cross-Organization Human PlatformOperator principal. Deployment or database operators may pause Workers, preserve evidence, and restore infrastructure under the Operations controls, but they cannot use that access to authorize Organization-scoped replay or skip.
 
@@ -1473,7 +1478,7 @@ Cross-Organization replay, support impersonation, and break-glass recovery requi
 
 ---
 
-# Self-Review Policy
+## Self-Review Policy
 
 The MVP does not require universal separation between author and reviewer.
 
@@ -1491,7 +1496,7 @@ It must not be assumed silently.
 
 ---
 
-# Multiple Reviewer Roles
+## Multiple Reviewer Roles
 
 The MVP records one authoritative review outcome per submitted revision.
 
@@ -1507,7 +1512,7 @@ A later phase may extend the policy model without changing Human-authority princ
 
 ---
 
-# Permission Revocation
+## Permission Revocation
 
 Permission changes affect future commands.
 
@@ -1525,7 +1530,7 @@ The approval remains valid because the Member was authorized when the command ex
 
 ---
 
-# Time-of-Check Rule
+## Time-of-Check Rule
 
 Authorization is evaluated immediately before command execution.
 
@@ -1542,7 +1547,7 @@ Long-lived authorization tokens must not substitute for current permission check
 
 ---
 
-# Authorization Decision Caching
+## Authorization Decision Caching
 
 Caching is optional.
 
@@ -1558,7 +1563,7 @@ Human-authority commands should prefer current policy evaluation.
 
 ---
 
-# Policy Version
+## Policy Version
 
 Authorization decisions should record the policy version used.
 
@@ -1573,7 +1578,7 @@ This supports later audit and investigation.
 
 ---
 
-# Command Authorization Summary
+## Command Authorization Summary
 
 A command is authorized only when:
 
@@ -1595,7 +1600,7 @@ Authorization success permits the command attempt.
 
 The Aggregate still decides whether the requested state transition is valid.
 
-# Authorization Execution Flow
+## Authorization Execution Flow
 
 Authorization is evaluated for every protected Application Service command.
 
@@ -1638,7 +1643,7 @@ Authorization must succeed before the Aggregate command is invoked.
 
 ---
 
-# Request Context Resolution
+## Request Context Resolution
 
 Every protected command requires a trusted request context.
 
@@ -1660,7 +1665,7 @@ The Application Service must not accept principal identity from untrusted comman
 
 ---
 
-# Trusted Identity Source
+## Trusted Identity Source
 
 The principal must be resolved from trusted authentication infrastructure.
 
@@ -1687,7 +1692,7 @@ The correct actor is resolved from the authenticated request context.
 
 ---
 
-# Resource Identification
+## Resource Identification
 
 The command identifies the target resource.
 
@@ -1712,7 +1717,7 @@ from trusted context.
 
 ---
 
-# Authorization Context
+## Authorization Context
 
 An Authorization Context contains the data needed to evaluate one policy.
 
@@ -1736,7 +1741,7 @@ Only required data should be loaded.
 
 ---
 
-# Authorization Before Resource Loading
+## Authorization Before Resource Loading
 
 Where possible, Organization scope should be included in repository queries.
 
@@ -1759,7 +1764,7 @@ The implementation must not:
 
 ---
 
-# Safe Resource Lookup
+## Safe Resource Lookup
 
 Recommended result behavior:
 
@@ -1775,7 +1780,7 @@ The API should not reveal whether a resource exists in another Organization.
 
 ---
 
-# Application Service Integration
+## Application Service Integration
 
 Every state-changing Application Service follows the same authorization pattern.
 
@@ -1795,7 +1800,7 @@ Authorization must not be implemented inconsistently across individual services.
 
 ---
 
-# Application Service Template
+## Application Service Template
 
 ```text
 Execute(command, requestContext):
@@ -1841,7 +1846,7 @@ Transaction and idempotency behavior remain defined by the Application Services 
 
 ---
 
-# Authorization Service Interface
+## Authorization Service Interface
 
 A conceptual interface may be defined as:
 
@@ -1879,7 +1884,7 @@ AuthorizationDecision
 
 ---
 
-# Policy Enforcement Point
+## Policy Enforcement Point
 
 The Application Service is the primary Policy Enforcement Point.
 
@@ -1894,7 +1899,7 @@ It is responsible for:
 
 ---
 
-# Policy Decision Point
+## Policy Decision Point
 
 The Authorization Service is the Policy Decision Point.
 
@@ -1911,7 +1916,7 @@ The Authorization Service must not mutate domain state.
 
 ---
 
-# Policy Information Point
+## Policy Information Point
 
 Authorization data may be supplied by:
 
@@ -1927,7 +1932,7 @@ They do not make the final authorization decision independently.
 
 ---
 
-# Work Application Service Example
+## Work Application Service Example
 
 ```text
 CompleteWorkService.Execute(command, context):
@@ -1977,7 +1982,7 @@ The Work Aggregate verifies completion validity.
 
 ---
 
-# Decision Application Service Example
+## Decision Application Service Example
 
 ```text
 ApproveDecisionService.Execute(command, context):
@@ -2024,7 +2029,7 @@ directly.
 
 ---
 
-# Memory Application Service Example
+## Memory Application Service Example
 
 ```text
 ApproveMemoryService.Execute(command, context):
@@ -2065,7 +2070,7 @@ Memory approval remains a Human-authoritative action.
 
 ---
 
-# Creation Command Authorization
+## Creation Command Authorization
 
 Creation commands have no existing Aggregate to load.
 
@@ -2106,7 +2111,7 @@ The command must not supply a different Organization identifier than the trusted
 
 ---
 
-# Coordinated Application Service Authorization
+## Coordinated Application Service Authorization
 
 A use case may coordinate multiple Aggregates.
 
@@ -2127,7 +2132,7 @@ Required checks may include:
 
 ---
 
-# Coordinated Authorization Flow
+## Coordinated Authorization Flow
 
 ```text
 Human Command
@@ -2155,7 +2160,7 @@ A partial authorization result must not lead to a partial domain change.
 
 ---
 
-# Transactional Authorization Considerations
+## Transactional Authorization Considerations
 
 Authorization should be evaluated close to the state-changing transaction.
 
@@ -2181,7 +2186,7 @@ This reduces the gap between authorization evaluation and state mutation.
 
 ---
 
-# Authorization Data Consistency
+## Authorization Data Consistency
 
 The MVP may use the same PostgreSQL database for:
 
@@ -2195,7 +2200,7 @@ This permits consistent authorization reads within the same transaction where re
 
 ---
 
-# Authorization Race Conditions
+## Authorization Race Conditions
 
 A role may be revoked while a command is executing.
 
@@ -2217,7 +2222,7 @@ Stronger locking may be introduced for highly sensitive operations.
 
 ---
 
-# Expected Version and Authorization
+## Expected Version and Authorization
 
 Optimistic concurrency and authorization solve different problems.
 
@@ -2237,7 +2242,7 @@ Both checks are required where applicable.
 
 ---
 
-# Read Authorization
+## Read Authorization
 
 Read operations must also be Organization-scoped.
 
@@ -2262,7 +2267,7 @@ The MVP may grant broad read access within an Organization, but this must be exp
 
 ---
 
-# Read Model Filtering
+## Read Model Filtering
 
 List queries must apply authorization filtering before returning results.
 
@@ -2292,7 +2297,7 @@ Authorization-aware query services may use:
 
 ---
 
-# Field-Level Authorization
+## Field-Level Authorization
 
 Field-level authorization is not required for most MVP domain content.
 
@@ -2308,7 +2313,7 @@ Complex field-level business authorization is outside the MVP.
 
 ---
 
-# Secretary Invocation Flow
+## Secretary Invocation Flow
 
 A Human Member may request Secretary assistance.
 
@@ -2335,7 +2340,7 @@ It does not pre-authorize later authoritative use.
 
 ---
 
-# Secretary Principal Resolution
+## Secretary Principal Resolution
 
 When the Secretary records an advisory contribution:
 
@@ -2357,7 +2362,7 @@ The Secretary must not be recorded as a Human Member.
 
 ---
 
-# Secretary Contribution Authorization
+## Secretary Contribution Authorization
 
 A Secretary contribution may be accepted only when:
 
@@ -2376,7 +2381,7 @@ Unknown, disabled, revoked, or version-mismatched assistance operations fail clo
 
 ---
 
-# Secretary Output Adoption
+## Secretary Output Adoption
 
 A Human Member adopts Secretary output through a separate Human command.
 
@@ -2399,7 +2404,7 @@ The audit trail records:
 
 ---
 
-# No Implicit Adoption
+## No Implicit Adoption
 
 The following is prohibited:
 
@@ -2415,7 +2420,7 @@ The correct flow requires explicit Human action.
 
 ---
 
-# Event Handler Authorization
+## Event Handler Authorization
 
 Asynchronous event handlers execute as the System principal.
 
@@ -2425,7 +2430,7 @@ Instead, they require narrowly scoped operational policies.
 
 ---
 
-# Operational Policy Inputs
+## Operational Policy Inputs
 
 An event-handler authorization request may include:
 
@@ -2443,7 +2448,7 @@ causationId
 
 ---
 
-# Event Handler Preconditions
+## Event Handler Preconditions
 
 Before executing an operational command, a handler verifies:
 
@@ -2458,7 +2463,7 @@ Before executing an operational command, a handler verifies:
 
 ---
 
-# Decision Outcome Handler
+## Decision Outcome Handler
 
 The System may execute:
 
@@ -2480,7 +2485,7 @@ The handler cannot invent an outcome.
 
 ---
 
-# Decision Outcome Authorization Flow
+## Decision Outcome Authorization Flow
 
 ```text
 Decision Outcome Event
@@ -2509,7 +2514,7 @@ Commit
 
 ---
 
-# Work Completion Prohibition
+## Work Completion Prohibition
 
 A Decision outcome handler must never call:
 
@@ -2523,7 +2528,7 @@ Work completion requires a new Human-authoritative command.
 
 ---
 
-# Memory Generation Handler
+## Memory Generation Handler
 
 The System may execute:
 
@@ -2549,7 +2554,7 @@ The handler may not submit or approve Memory.
 
 ---
 
-# Memory Generation Authorization Flow
+## Memory Generation Authorization Flow
 
 ```text
 WorkCompleted
@@ -2572,7 +2577,7 @@ Commit
 
 ---
 
-# Reconciliation Authorization
+## Reconciliation Authorization
 
 Reconciliation jobs execute as the System principal.
 
@@ -2593,7 +2598,7 @@ They may not:
 
 ---
 
-# Retry Authorization
+## Retry Authorization
 
 An immediate technical retry does not require a new Human command when it repeats the same already-authorized operation within the same idempotency and authorization scope.
 
@@ -2617,7 +2622,7 @@ Once a replayId has been authorized, a Worker may retry its own transient execut
 
 ---
 
-# Stale Authorization on Retry
+## Stale Authorization on Retry
 
 For Human commands, a delayed retry should not rely indefinitely on an old authorization decision.
 
@@ -2630,7 +2635,7 @@ Recommended rules:
 
 ---
 
-# Background Worker Identity
+## Background Worker Identity
 
 Each Worker instance should have a stable internal identity.
 
@@ -2649,7 +2654,7 @@ A Worker must not possess permissions unrelated to its function.
 
 ---
 
-# Worker Capability Separation
+## Worker Capability Separation
 
 Recommended operational identities:
 
@@ -2669,7 +2674,7 @@ A single physical process may host multiple logical System principals.
 
 ---
 
-# Worker Organization Scope
+## Worker Organization Scope
 
 A Worker may process events for multiple Organizations.
 
@@ -2679,7 +2684,7 @@ The Worker must never combine data from different Organizations in one domain co
 
 ---
 
-# Internal Service Authentication
+## Internal Service Authentication
 
 System principals must be authenticated through trusted internal mechanisms.
 
@@ -2698,7 +2703,7 @@ principalType = System
 
 ---
 
-# Impersonation Prohibition
+## Impersonation Prohibition
 
 Impersonation is prohibited in the MVP.
 
@@ -2718,7 +2723,7 @@ Support operator completes Work as customer
 
 ---
 
-# Actor Override Prohibition
+## Actor Override Prohibition
 
 Commands must not contain an arbitrary actor override.
 
@@ -2742,7 +2747,7 @@ The actor is derived from trusted context.
 
 ---
 
-# Administrative Operations
+## Administrative Operations
 
 An Owner or Admin may perform an operation under their own identity when policy permits.
 
@@ -2758,7 +2763,7 @@ It must not record the Work assignee as the actor unless that assignee executed 
 
 ---
 
-# Support Access
+## Support Access
 
 Customer support impersonation is outside the MVP.
 
@@ -2775,7 +2780,7 @@ Such features must not be implemented as silent impersonation.
 
 ---
 
-# Delegation
+## Delegation
 
 Business authority delegation is not included in the MVP.
 
@@ -2796,7 +2801,7 @@ Future delegation must preserve the identities of:
 
 ---
 
-# Authorization Audit
+## Authorization Audit
 
 Every authoritative command must produce an auditable authorization record.
 
@@ -2823,13 +2828,13 @@ evaluatedAt
 
 ---
 
-# Domain Audit and Security Audit
+## Domain Audit and Security Audit
 
 Domain audit and authorization audit serve different purposes.
 
 ---
 
-## Domain Audit
+### Domain Audit
 
 Records what happened in the business domain.
 
@@ -2841,7 +2846,7 @@ Examples:
 
 ---
 
-## Authorization Audit
+### Authorization Audit
 
 Records why the actor was permitted or denied.
 
@@ -2856,7 +2861,7 @@ Both records may share correlation metadata.
 
 ---
 
-# Allow Audit
+## Allow Audit
 
 Successful authoritative actions should record:
 
@@ -2872,7 +2877,7 @@ This supports traceability from permission decision to state change.
 
 ---
 
-# Deny Audit
+## Deny Audit
 
 Security-relevant denials should record:
 
@@ -2893,7 +2898,7 @@ Repeated denials may indicate:
 
 ---
 
-# Denial Privacy
+## Denial Privacy
 
 External error messages should avoid leaking sensitive information.
 
@@ -2913,7 +2918,7 @@ The external response should not reveal another Organization’s resource existe
 
 ---
 
-# Audit Transaction Boundary
+## Audit Transaction Boundary
 
 For allowed state-changing commands, authorization metadata should be committed consistently with the domain operation where practical.
 
@@ -2939,7 +2944,7 @@ If the transaction rolls back, the system must not record the command as success
 
 ---
 
-# Denied Command Audit Boundary
+## Denied Command Audit Boundary
 
 Denied commands do not enter a domain mutation transaction.
 
@@ -2949,7 +2954,7 @@ Failure to write a denial audit record must not grant access.
 
 ---
 
-# Audit Immutability
+## Audit Immutability
 
 Authorization audit records are append-only.
 
@@ -2959,7 +2964,7 @@ Corrections should be represented by additional records.
 
 ---
 
-# Audit Retention
+## Audit Retention
 
 Retention policy should account for:
 
@@ -2973,7 +2978,7 @@ The exact retention duration is an implementation and compliance decision.
 
 ---
 
-# Sensitive Audit Data
+## Sensitive Audit Data
 
 Audit records should not store unnecessary business content.
 
@@ -2995,7 +3000,7 @@ Avoid storing:
 
 ---
 
-# Security Monitoring
+## Security Monitoring
 
 Authorization events should support monitoring for:
 
@@ -3009,7 +3014,7 @@ Authorization events should support monitoring for:
 
 ---
 
-# Alerting
+## Alerting
 
 High-severity alerts should be considered for:
 
@@ -3031,7 +3036,7 @@ It must not alter Aggregate state automatically.
 
 ---
 
-# Authorization Observability
+## Authorization Observability
 
 Recommended metrics include:
 
@@ -3057,7 +3062,7 @@ Metrics should not include sensitive content.
 
 ---
 
-# Correlation and Audit Trace
+## Correlation and Audit Trace
 
 A complete authoritative workflow should be traceable.
 
@@ -3082,7 +3087,7 @@ All records share the same correlationId.
 
 ---
 
-# Policy Change Audit
+## Policy Change Audit
 
 Role and permission changes must also be audited.
 
@@ -3104,7 +3109,7 @@ Policy changes affect future authorization decisions only.
 
 ---
 
-# Authorization Failure Semantics
+## Authorization Failure Semantics
 
 Authorization failures must produce no domain mutation.
 
@@ -3118,7 +3123,7 @@ The following must not occur after Deny:
 
 ---
 
-# Stable Application Errors
+## Stable Application Errors
 
 Recommended application-level authorization errors:
 
@@ -3138,7 +3143,7 @@ Detailed internal reason codes remain in secure logs and audit records.
 
 ---
 
-# HTTP Mapping Guidance
+## HTTP Mapping Guidance
 
 A transport layer may map errors as follows:
 
@@ -3163,7 +3168,7 @@ Transport mapping is outside the Domain Layer.
 
 ---
 
-# Authorization Rules for Events
+## Authorization Rules for Events
 
 An event is evidence of a committed fact.
 
@@ -3191,7 +3196,7 @@ ApproveMemory
 
 ---
 
-# Capability Whitelisting
+## Capability Whitelisting
 
 Each System handler should use an explicit capability whitelist.
 
@@ -3212,7 +3217,7 @@ memory.approve
 
 ---
 
-# Authorization Enforcement Rules
+## Authorization Enforcement Rules
 
 The following rules are mandatory:
 
@@ -3232,7 +3237,7 @@ The following rules are mandatory:
 14. Do not permit authorization failure to produce domain state changes.
 15. Do not duplicate Aggregate lifecycle rules inside authorization policies.
 
-# Failure and Recovery Semantics
+## Failure and Recovery Semantics
 
 Authorization failures and authorization infrastructure failures must be handled explicitly.
 
@@ -3246,7 +3251,7 @@ Deny
 
 ---
 
-# Failure Categories
+## Failure Categories
 
 Authorization failures are classified as:
 
@@ -3272,7 +3277,7 @@ Each category has different operational handling.
 
 ---
 
-# Authentication Failure
+## Authentication Failure
 
 Authentication failure means the request has no trusted principal.
 
@@ -3298,7 +3303,7 @@ No Outbox message created
 
 ---
 
-# Authorization Denial
+## Authorization Denial
 
 Authorization denial means the principal is authenticated but lacks permission.
 
@@ -3325,7 +3330,7 @@ Authorization denial is not retried automatically.
 
 ---
 
-# Policy Data Failure
+## Policy Data Failure
 
 Policy data failure occurs when required authorization facts cannot be loaded safely.
 
@@ -3346,7 +3351,7 @@ The system must not infer permission from cached or incomplete data unless the c
 
 ---
 
-# Policy Evaluation Failure
+## Policy Evaluation Failure
 
 Policy evaluation failure occurs when the policy engine cannot produce a reliable result.
 
@@ -3369,7 +3374,7 @@ Alert where appropriate
 
 ---
 
-# Organization Scope Failure
+## Organization Scope Failure
 
 Organization scope failure occurs when:
 
@@ -3390,7 +3395,7 @@ Record security-relevant audit event
 
 ---
 
-# Audit Persistence Failure
+## Audit Persistence Failure
 
 Authorization audit persistence failure must not change the authorization outcome.
 
@@ -3408,7 +3413,7 @@ For allowed state-changing commands, two strategies are acceptable.
 
 ---
 
-## Strategy A: Transactional Audit
+### Strategy A: Transactional Audit
 
 Authorization audit metadata is written in the same transaction as the domain change.
 
@@ -3438,7 +3443,7 @@ This provides the strongest consistency.
 
 ---
 
-## Strategy B: Reliable Asynchronous Audit
+### Strategy B: Reliable Asynchronous Audit
 
 The domain transaction stores a durable audit event in the Transactional Outbox.
 
@@ -3464,7 +3469,7 @@ The audit event must be durable and retryable.
 
 ---
 
-# Recommended MVP Audit Strategy
+## Recommended MVP Audit Strategy
 
 For authoritative state-changing commands, use one of:
 
@@ -3477,7 +3482,7 @@ Silent loss of successful authorization evidence is prohibited.
 
 ---
 
-# Concurrency Failure
+## Concurrency Failure
 
 Authorization and domain concurrency may fail independently.
 
@@ -3503,7 +3508,7 @@ A retry must re-evaluate current authorization.
 
 ---
 
-# Configuration Failure
+## Configuration Failure
 
 Configuration failure includes:
 
@@ -3525,7 +3530,7 @@ Missing policy configuration must never fall back to broad access.
 
 ---
 
-# Recovery Principles
+## Recovery Principles
 
 Authorization recovery follows these principles:
 
@@ -3540,7 +3545,7 @@ Authorization recovery follows these principles:
 
 ---
 
-# Human Command Recovery
+## Human Command Recovery
 
 A failed Human command may be resubmitted.
 
@@ -3557,7 +3562,7 @@ A previous Allow decision is not a permanent authorization token.
 
 ---
 
-# System Handler Recovery
+## System Handler Recovery
 
 A failed System handler may retry the same operational action when:
 
@@ -3571,7 +3576,7 @@ The retry preserves the original causation chain.
 
 ---
 
-# Authorization Replay
+## Authorization Replay
 
 Authorization audit records may be replayed for reporting or analysis.
 
@@ -3585,7 +3590,7 @@ It does not grant present authority.
 
 ---
 
-# Break-Glass Access
+## Break-Glass Access
 
 Break-glass administrative access is outside the MVP.
 
@@ -3607,7 +3612,7 @@ Emergency access requires a separate future design.
 
 ---
 
-# Authorization Testing Strategy
+## Authorization Testing Strategy
 
 Authorization tests must verify both permission success and permission failure.
 
@@ -3625,7 +3630,7 @@ Testing should cover:
 
 ---
 
-# Test Layers
+## Test Layers
 
 Authorization is tested at four layers:
 
@@ -3641,7 +3646,7 @@ End-to-End Security Tests
 
 ---
 
-# Policy Unit Tests
+## Policy Unit Tests
 
 Policy unit tests verify authorization decisions from controlled inputs.
 
@@ -3664,7 +3669,7 @@ Then:
 
 ---
 
-## Policy Denial Test
+### Policy Denial Test
 
 ```text
 Given:
@@ -3681,7 +3686,7 @@ Then:
 
 ---
 
-# Role Mapping Tests
+## Role Mapping Tests
 
 Role mapping tests verify:
 
@@ -3695,7 +3700,7 @@ Role mapping tests verify:
 
 ---
 
-# Relationship Tests
+## Relationship Tests
 
 Resource relationship tests verify:
 
@@ -3708,7 +3713,7 @@ Resource relationship tests verify:
 
 ---
 
-# Human Authority Tests
+## Human Authority Tests
 
 Mandatory tests include:
 
@@ -3738,7 +3743,7 @@ These tests protect the central authority model.
 
 ---
 
-# Organization Isolation Tests
+## Organization Isolation Tests
 
 Every protected command should have a cross-Organization denial test.
 
@@ -3761,7 +3766,7 @@ Then:
 
 ---
 
-# Creation Scope Tests
+## Creation Scope Tests
 
 Creation tests must verify:
 
@@ -3773,7 +3778,7 @@ Creation tests must verify:
 
 ---
 
-# Actor Attribution Tests
+## Actor Attribution Tests
 
 Tests must verify that:
 
@@ -3786,7 +3791,7 @@ Tests must verify that:
 
 ---
 
-# Event Handler Authorization Tests
+## Event Handler Authorization Tests
 
 Example:
 
@@ -3807,7 +3812,7 @@ Then:
 
 ---
 
-## Invalid Source Event Test
+### Invalid Source Event Test
 
 ```text
 Given:
@@ -3825,7 +3830,7 @@ Then:
 
 ---
 
-# Event Causation Tests
+## Event Causation Tests
 
 Tests must verify:
 
@@ -3838,7 +3843,7 @@ Tests must verify:
 
 ---
 
-# Application Service Tests
+## Application Service Tests
 
 Application Service tests verify the enforcement sequence.
 
@@ -3868,7 +3873,7 @@ A denied authorization must stop execution before mutation.
 
 ---
 
-# Denied Command Side-Effect Tests
+## Denied Command Side-Effect Tests
 
 For every denial scenario, verify:
 
@@ -3886,7 +3891,7 @@ No Domain Event emitted
 
 ---
 
-# Aggregate Validation After Authorization
+## Aggregate Validation After Authorization
 
 Tests must verify that authorization success does not bypass domain validation.
 
@@ -3906,7 +3911,7 @@ No approval event is emitted.
 
 ---
 
-# Authorization Infrastructure Tests
+## Authorization Infrastructure Tests
 
 Integration tests should use real persistence for:
 
@@ -3921,7 +3926,7 @@ The tests should verify Organization-scoped indexes and constraints.
 
 ---
 
-# Transaction Tests
+## Transaction Tests
 
 Transactional tests should verify:
 
@@ -3933,7 +3938,7 @@ Transactional tests should verify:
 
 ---
 
-# Cache Tests
+## Cache Tests
 
 Where authorization caching is implemented, verify:
 
@@ -3946,7 +3951,7 @@ Where authorization caching is implemented, verify:
 
 ---
 
-# Failure Injection Tests
+## Failure Injection Tests
 
 Failure injection should cover:
 
@@ -3966,7 +3971,7 @@ No unauthorized mutation
 
 ---
 
-# Security Regression Suite
+## Security Regression Suite
 
 The following cases should be permanent regression tests:
 
@@ -3983,7 +3988,7 @@ The following cases should be permanent regression tests:
 
 ---
 
-# Property-Based Tests
+## Property-Based Tests
 
 Property-based tests are recommended for core invariants.
 
@@ -4006,7 +4011,7 @@ For every authorization Deny:
 
 ---
 
-# Implementation Guidance
+## Implementation Guidance
 
 Authorization should be implemented as an explicit application capability.
 
@@ -4020,7 +4025,7 @@ It should not be scattered across:
 
 ---
 
-# Recommended Package Structure
+## Recommended Package Structure
 
 ```text
 authorization/
@@ -4062,7 +4067,7 @@ The responsibility boundaries should remain equivalent.
 
 ---
 
-# Permission Constants
+## Permission Constants
 
 Permission names should be centrally defined.
 
@@ -4083,7 +4088,7 @@ String literals distributed across services should be avoided.
 
 ---
 
-# Command-to-Policy Registry
+## Command-to-Policy Registry
 
 Every protected command should have an explicit policy registration.
 
@@ -4107,7 +4112,7 @@ Startup validation should fail when a protected command has no policy mapping.
 
 ---
 
-# Typed Principal Model
+## Typed Principal Model
 
 Principal types should use explicit types or discriminated representations.
 
@@ -4131,7 +4136,7 @@ Runtime validation remains required at trust boundaries.
 
 ---
 
-# Human Actor Construction
+## Human Actor Construction
 
 Human ActorReference should be constructed only from a trusted Human principal.
 
@@ -4150,7 +4155,7 @@ This constructor must reject:
 
 ---
 
-# System Actor Construction
+## System Actor Construction
 
 System ActorReference should preserve:
 
@@ -4167,7 +4172,7 @@ It must not create a Human actor representation.
 
 ---
 
-# Repository Scoping
+## Repository Scoping
 
 Protected repositories should require Organization scope.
 
@@ -4192,7 +4197,7 @@ unless the repository is used only after a verified globally trusted lookup.
 
 ---
 
-# Relationship Resolver
+## Relationship Resolver
 
 Resource relationships should be resolved through explicit interfaces.
 
@@ -4225,7 +4230,7 @@ The policy determines whether those facts grant permission.
 
 ---
 
-# Policy Composition
+## Policy Composition
 
 Policies may be composed from reusable predicates.
 
@@ -4244,7 +4249,7 @@ Composition must remain readable and auditable.
 
 ---
 
-# Avoid Role Checks in Application Services
+## Avoid Role Checks in Application Services
 
 Avoid:
 
@@ -4266,7 +4271,7 @@ This supports role evolution without rewriting each service.
 
 ---
 
-# Policy Data Versioning
+## Policy Data Versioning
 
 Role and permission configuration should have explicit versions where practical.
 
@@ -4282,7 +4287,7 @@ This improves historical explainability.
 
 ---
 
-# Database Constraints
+## Database Constraints
 
 Database constraints provide defense in depth.
 
@@ -4290,7 +4295,7 @@ They do not replace authorization policies.
 
 ---
 
-# Organization Membership Constraint
+## Organization Membership Constraint
 
 Recommended uniqueness:
 
@@ -4305,7 +4310,7 @@ Where membership history requires multiple records, use an active-record uniquen
 
 ---
 
-# Active Role Assignment Constraint
+## Active Role Assignment Constraint
 
 Recommended uniqueness:
 
@@ -4322,7 +4327,7 @@ This prevents duplicate active assignments.
 
 ---
 
-# Principal Type Constraint
+## Principal Type Constraint
 
 Persisted principal types should be constrained to supported values:
 
@@ -4338,7 +4343,7 @@ Unknown types must not be treated as Human.
 
 ---
 
-# Organization Foreign Keys
+## Organization Foreign Keys
 
 Organization-owned records should include:
 
@@ -4357,7 +4362,7 @@ Examples:
 
 ---
 
-# Cross-Organization Relationship Constraint
+## Cross-Organization Relationship Constraint
 
 Where supported by schema design, relationship tables should use composite foreign keys.
 
@@ -4375,7 +4380,7 @@ The referenced Work and membership must belong to the same Organization.
 
 ---
 
-# Permission Mapping Constraint
+## Permission Mapping Constraint
 
 Role-to-permission mappings should prevent duplicate entries.
 
@@ -4392,7 +4397,7 @@ Custom Organization permission models are outside the MVP unless explicitly intr
 
 ---
 
-# Audit Append-Only Constraint
+## Audit Append-Only Constraint
 
 Authorization audit records should not be updated through ordinary application commands.
 
@@ -4405,7 +4410,7 @@ Recommended controls:
 
 ---
 
-# Processed Event Constraints
+## Processed Event Constraints
 
 Operational System handlers should use uniqueness such as:
 
@@ -4420,7 +4425,7 @@ This supports idempotent authorization and execution.
 
 ---
 
-# System Capability Constraints
+## System Capability Constraints
 
 System principal capability mappings should be explicit.
 
@@ -4444,7 +4449,7 @@ UNIQUE (
 
 ---
 
-# Data Access Security
+## Data Access Security
 
 Application-level Organization scoping is mandatory.
 
@@ -4458,7 +4463,7 @@ RLS is not required for the MVP if:
 
 ---
 
-# Row-Level Security Considerations
+## Row-Level Security Considerations
 
 If RLS is used:
 
@@ -4472,7 +4477,7 @@ RLS must not replace application policy evaluation.
 
 ---
 
-# Policy Storage
+## Policy Storage
 
 MVP policies should preferably be defined in version-controlled code.
 
@@ -4488,7 +4493,7 @@ Dynamic user-authored policies are outside the MVP.
 
 ---
 
-# Feature Flags
+## Feature Flags
 
 Feature flags must not weaken authority invariants.
 
@@ -4506,7 +4511,7 @@ Feature flags may enable optional non-authoritative functionality only.
 
 ---
 
-# Administrative Interfaces
+## Administrative Interfaces
 
 Role management interfaces must:
 
@@ -4519,7 +4524,7 @@ Role management interfaces must:
 
 ---
 
-# User Interface Guidance
+## User Interface Guidance
 
 The UI should reflect authorization results but must not enforce security alone.
 
@@ -4534,7 +4539,7 @@ The server must always re-evaluate authorization.
 
 ---
 
-# Error Message Guidance
+## Error Message Guidance
 
 User-facing messages should be clear without exposing sensitive detail.
 
@@ -4556,7 +4561,7 @@ Detailed security reason codes remain internal.
 
 ---
 
-# Logging Guidance
+## Logging Guidance
 
 Authorization logs should use structured fields.
 
@@ -4580,7 +4585,7 @@ Logs must not include credentials or full protected content.
 
 ---
 
-# Performance Guidance
+## Performance Guidance
 
 Authorization evaluation should remain predictable and bounded.
 
@@ -4595,7 +4600,7 @@ Recommended practices:
 
 ---
 
-# MVP Exclusions
+## MVP Exclusions
 
 The following authorization capabilities are outside the MVP:
 
@@ -4627,7 +4632,7 @@ These may be introduced only through explicit future architecture.
 
 ---
 
-# Future Extension Principles
+## Future Extension Principles
 
 Future authorization extensions must preserve:
 
@@ -4646,7 +4651,7 @@ They must not silently grant Human authority to non-Human principals.
 
 ---
 
-# AI Employee Future Phase
+## AI Employee Future Phase
 
 AI Employees are planned for a later roadmap phase.
 
@@ -4666,7 +4671,7 @@ They must not inherit unrestricted Human Member authority.
 
 ---
 
-# Knowledge Future Phase
+## Knowledge Future Phase
 
 Knowledge promotion is outside the MVP.
 
@@ -4683,7 +4688,7 @@ Approved Memory must not be treated as authorized Knowledge in the MVP.
 
 ---
 
-# Implementation Checklist
+## Implementation Checklist
 
 Before implementation is considered complete, verify:
 
@@ -4705,7 +4710,7 @@ Before implementation is considered complete, verify:
 
 ---
 
-# Design Summary
+## Design Summary
 
 The AIOS authorization architecture uses:
 
@@ -4735,7 +4740,7 @@ The Domain Model determines whether that command is valid.
 
 ---
 
-# Core Guarantees
+## Core Guarantees
 
 The authorization model guarantees:
 
@@ -4753,9 +4758,9 @@ The authorization model guarantees:
 
 ---
 
-# Architect Review
+## Architect Review
 
-## Human Authority
+### Human Authority
 
 **Rating: ★★★★★**
 
@@ -4765,7 +4770,7 @@ Final business authority remains exclusively Human.
 
 ---
 
-## Organization Isolation
+### Organization Isolation
 
 **Rating: ★★★★★**
 
@@ -4775,7 +4780,7 @@ Cross-Organization access fails closed.
 
 ---
 
-## Policy Clarity
+### Policy Clarity
 
 **Rating: ★★★★★**
 
@@ -4785,7 +4790,7 @@ This supports maintainable policy evolution.
 
 ---
 
-## Secretary Safety
+### Secretary Safety
 
 **Rating: ★★★★★**
 
@@ -4795,7 +4800,7 @@ The design prevents submission, approval, rejection, completion, and promotion b
 
 ---
 
-## System Safety
+### System Safety
 
 **Rating: ★★★★★**
 
@@ -4805,7 +4810,7 @@ System automation cannot create new Human business intent.
 
 ---
 
-## Auditability
+### Auditability
 
 **Rating: ★★★★★**
 
@@ -4815,7 +4820,7 @@ Historical actions remain explainable after role changes.
 
 ---
 
-## Failure Safety
+### Failure Safety
 
 **Rating: ★★★★★**
 
@@ -4825,7 +4830,7 @@ No authorization failure path grants implicit permission.
 
 ---
 
-## Testability
+### Testability
 
 **Rating: ★★★★★**
 
@@ -4833,7 +4838,7 @@ The policy model supports focused unit tests, Application Service tests, integra
 
 ---
 
-## MVP Scope Discipline
+### MVP Scope Discipline
 
 **Rating: ★★★★★**
 
@@ -4843,7 +4848,7 @@ Future extension points remain explicit.
 
 ---
 
-## Final Assessment
+### Final Assessment
 
 ```text
 Architecture Quality:        ★★★★★

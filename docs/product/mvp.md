@@ -24,7 +24,7 @@ The complete AIOS Blueprint describes a broader target system. A concept appeari
 
 ---
 
-# Product Hypothesis
+## Product Hypothesis
 
 AIOS is based on the following hypothesis:
 
@@ -52,9 +52,9 @@ In particular, it does not convert approved Memory into reusable Knowledge or Ca
 
 ---
 
-# Product Goal
+## Product Goal
 
-Enable small organizations to collaborate with one AI Secretary on everyday work, record meaningful decisions, and accumulate human-approved organizational Memory.
+Enable small organizations to collaborate with one Secretary on everyday work, record meaningful decisions, and accumulate human-approved organizational Memory.
 
 The MVP must provide value even without:
 
@@ -69,7 +69,7 @@ The first release is successful when the core loop is understandable, trustworth
 
 ---
 
-# Target Users
+## Target Users
 
 The initial target users are:
 
@@ -90,51 +90,51 @@ A person may belong to more than one Organization, but information owned by one 
 
 ---
 
-# MVP Design Principles
+## MVP Design Principles
 
-## Human Authority
+### Human Authority
 
 Human Members retain all organizational authority.
 
 AI may assist with analysis, drafting, summarization, and suggestions, but AI must never perform a business approval that belongs to a human.
 
-## Review Before Trust
+### Review Before Trust
 
 AI-generated content is not automatically trusted organizational history.
 
 A generated Memory becomes approved organizational history only after human review.
 
-## History Before Knowledge
+### History Before Knowledge
 
 The MVP captures what happened.
 
 It does not yet determine which experience should become reusable organizational Knowledge.
 
-## Explicit State Transitions
+### Explicit State Transitions
 
 Business state changes must be explicit, authorized, and auditable.
 
 Derived assumptions must not silently change Work, Decision, or Memory state.
 
-## Organization Isolation
+### Organization Isolation
 
 Organization is the primary ownership and authorization boundary.
 
 It is not a transaction boundary across all domain objects.
 
-## Simple Initial Architecture
+### Simple Initial Architecture
 
 The first implementation must favor a Modular Monolith and durable internal event delivery over premature service decomposition.
 
-## Blueprint Is Larger Than MVP
+### Blueprint Is Larger Than MVP
 
 Knowledge, Evidence, Capability, AI Employees, external knowledge, and advanced retrieval remain valid Blueprint concepts even though they are not implemented in the MVP.
 
 ---
 
-# MVP Boundary
+## MVP Boundary
 
-## Included Domains and Capabilities
+### Included Domains and Capabilities
 
 The MVP includes:
 
@@ -156,7 +156,7 @@ The MVP includes:
 - audit and traceability; and
 - durable asynchronous processing for Memory generation.
 
-## Explicitly Excluded Domains and Capabilities
+### Explicitly Excluded Domains and Capabilities
 
 The MVP excludes:
 
@@ -186,7 +186,7 @@ The MVP excludes:
 
 ---
 
-# Core Product Flow
+## Core Product Flow
 
 The canonical MVP flow is:
 
@@ -210,9 +210,9 @@ Memory generation failure does not reverse Work completion.
 
 ---
 
-# Functional Scope
+## Functional Scope
 
-## Authentication
+### Authentication
 
 The MVP must support:
 
@@ -235,7 +235,7 @@ The MVP does not require:
 
 ---
 
-## Organization
+### Organization
 
 A human may create an Organization.
 
@@ -267,7 +267,7 @@ Deleting an Organization and long-term retention policy are not required for the
 
 ---
 
-## Member
+### Member
 
 A Member represents a human participant within an Organization.
 
@@ -294,11 +294,11 @@ Advanced custom roles and policy editors are outside the MVP.
 
 ---
 
-## Workspace
+### Workspace
 
 The MVP provides two workspace experiences.
 
-### Personal Workspace
+#### Personal Workspace
 
 The Personal Workspace is a personalized view for a human Member.
 
@@ -317,7 +317,7 @@ Items displayed there remain owned by their Organization.
 
 The MVP is not a general-purpose private task manager outside an Organization.
 
-### Organization Workspace
+#### Organization Workspace
 
 The Organization Workspace is a shared view of organization-owned activity.
 
@@ -336,7 +336,7 @@ It is not an Aggregate and does not create a transaction boundary across the Org
 
 ---
 
-## Work
+### Work
 
 Work represents a unit of organizational activity that produces an outcome.
 
@@ -369,7 +369,7 @@ The Secretary must not:
 - complete Work; or
 - bypass Work invariants.
 
-### Work Completion
+#### Work Completion
 
 Completing Work must be an explicit action performed by an authorized human Member.
 
@@ -389,7 +389,7 @@ Detailed state transitions belong to the Work state machine document.
 
 ---
 
-## Decision
+### Decision
 
 Decision represents an explicit organizational choice made in the context of Work or organizational activity.
 
@@ -430,7 +430,7 @@ Detailed state transitions belong to the Decision state machine document.
 
 ---
 
-## Secretary
+### Secretary
 
 The MVP supports one Secretary for each Organization.
 
@@ -480,7 +480,7 @@ The MVP does not include:
 
 ---
 
-## Memory
+### Memory
 
 Memory is a human-reviewable historical record generated from completed Work.
 
@@ -510,7 +510,7 @@ Approval confirms that the Memory is an acceptable historical representation of 
 
 Approval does not prove that every lesson is universally valid, and it does not create Knowledge.
 
-### Generation
+#### Generation
 
 Memory generation begins only after Work has been completed.
 
@@ -528,7 +528,7 @@ The MVP maintains at most one active Memory Aggregate for each completed Work.
 
 Generation retries must be idempotent.
 
-### Draft Editing
+#### Draft Editing
 
 A generated Memory begins as an editable draft.
 
@@ -544,7 +544,7 @@ The Secretary may suggest or apply draft changes only when those changes remain 
 
 Submitting a Memory for review locks its content until the review outcome is recorded.
 
-### Review
+#### Review
 
 Memory review must be performed by an authorized human Member.
 
@@ -564,7 +564,7 @@ Review actions must record:
 - timestamp; and
 - comments or rejection reason when required.
 
-### Rejection and Resubmission
+#### Rejection and Resubmission
 
 A Rejected Memory remains part of the audit history.
 
@@ -574,7 +574,7 @@ The MVP does not create a separate MemoryRevision object for pre-approval draft 
 
 Draft edits and review transitions must remain auditable.
 
-### Approval
+#### Approval
 
 An Approved Memory is immutable.
 
@@ -590,7 +590,7 @@ The MVP does not support correcting an Approved Memory in place.
 
 A future MemoryRevision process may provide post-approval correction while preserving the original record.
 
-### Memory Lifecycle
+#### Memory Lifecycle
 
 ```mermaid
 stateDiagram-v2
@@ -619,7 +619,7 @@ Retention and visibility may be managed operationally without changing the histo
 
 ---
 
-## Notifications
+### Notifications
 
 The MVP requires basic in-app notifications for actions that need human attention. Notification state is stored in PostgreSQL and is therefore a `PostgreSQLLocal` consumer effect.
 
@@ -645,7 +645,7 @@ The MVP does not require:
 
 ---
 
-## Audit and Traceability
+### Audit and Traceability
 
 The MVP must preserve traceability across:
 
@@ -683,21 +683,21 @@ The MVP does not require a separate enterprise audit-management product or confi
 
 ---
 
-# Authority Model
+## Authority Model
 
 The MVP distinguishes three actor categories conceptually.
 
-## Human Member
+### Human Member
 
 A Human Member may receive organizational permissions and perform business approvals.
 
-## AI Principal
+### AI Principal
 
 The Secretary is an AI Principal.
 
 It may assist and generate content but cannot receive human approval authority.
 
-## System Principal
+### System Principal
 
 A System Principal performs technical operations such as background processing, event delivery, and retries.
 
@@ -714,7 +714,7 @@ The detailed Actor Model is defined separately from this product scope document.
 
 ---
 
-# Data Ownership and Isolation
+## Data Ownership and Isolation
 
 The following rules apply throughout the MVP:
 
@@ -734,9 +734,9 @@ It is not a single Aggregate and does not require one transaction for all organi
 
 ---
 
-# Implementation Constraints
+## Implementation Constraints
 
-## Architecture
+### Architecture
 
 The initial implementation must use a Modular Monolith.
 
@@ -744,7 +744,7 @@ Logical module boundaries should remain explicit even when modules are deployed 
 
 The MVP does not require independent microservices.
 
-## Persistence
+### Persistence
 
 PostgreSQL is the default relational persistence technology for the MVP.
 
@@ -752,7 +752,7 @@ Domain invariants must not depend solely on user-interface validation.
 
 Database constraints should reinforce domain rules where appropriate.
 
-## Event Delivery
+### Event Delivery
 
 Events that trigger asynchronous work must use durable delivery.
 
@@ -765,7 +765,7 @@ The MVP should use:
 
 An external message broker is not required for the MVP.
 
-## AI Integration
+### AI Integration
 
 AI calls must occur outside critical domain transactions.
 
@@ -775,7 +775,7 @@ AI failure must not corrupt committed domain state. Timeout with no usable candi
 
 Generated output must be treated as untrusted input until validated and, where required, reviewed by a Human. Provider success does not approve Memory.
 
-## Authorization
+### Authorization
 
 Authorization follows default deny.
 
@@ -786,13 +786,13 @@ Every command must validate:
 - required permission; and
 - current target state.
 
-## Immutability
+### Immutability
 
 Approved Memory must be immutable at the domain and persistence layers.
 
 Immutability must not rely only on disabling an edit button.
 
-## Observability
+### Observability
 
 The implementation must provide enough logging and operational visibility to diagnose:
 
@@ -807,9 +807,9 @@ The MVP does not require a full enterprise observability platform.
 
 ---
 
-# Out of Scope
+## Out of Scope
 
-## Knowledge and Organizational Learning
+### Knowledge and Organizational Learning
 
 The following are outside the MVP:
 
@@ -833,7 +833,7 @@ Approved Memory
 MVP boundary ends here
 ```
 
-## AI Organization
+### AI Organization
 
 The following are outside the MVP:
 
@@ -845,7 +845,7 @@ The following are outside the MVP:
 - AI role marketplace; and
 - AI performance management.
 
-## Workflow Engine
+### Workflow Engine
 
 The following are outside the MVP:
 
@@ -856,7 +856,7 @@ The following are outside the MVP:
 - conditional routing; and
 - organization-specific automation rules.
 
-## Platform
+### Platform
 
 The following are outside the MVP:
 
@@ -869,7 +869,7 @@ The following are outside the MVP:
 
 Internal application interfaces may exist, but they are not a supported public platform contract.
 
-## Enterprise Governance
+### Enterprise Governance
 
 The following are outside the MVP:
 
@@ -884,7 +884,7 @@ The following are outside the MVP:
 - enterprise SSO; and
 - multi-level administrative delegation.
 
-## Advanced Retrieval
+### Advanced Retrieval
 
 The following are outside the MVP:
 
@@ -899,11 +899,11 @@ Basic structured retrieval of Work, Decision, and approved Memory remains in sco
 
 ---
 
-# Release Acceptance Criteria
+## Release Acceptance Criteria
 
 The MVP is release-ready only when the following end-to-end behavior is demonstrable.
 
-## Organization and Access
+### Organization and Access
 
 - A person can create an Organization.
 - A person can invite another person.
@@ -911,21 +911,21 @@ The MVP is release-ready only when the following end-to-end behavior is demonstr
 - Members cannot access another Organization without permission.
 - Protected actions are denied by default.
 
-## Work
+### Work
 
 - An authorized human can create, update, assign, and complete Work.
 - Invalid Work transitions are rejected.
 - Secretary suggestions do not change Work state automatically.
 - Approving a Decision does not complete Work.
 
-## Decision
+### Decision
 
 - A human can create and submit a Decision.
 - An authorized human can approve or reject it.
 - The acting human and outcome are recorded.
 - The Secretary cannot approve or reject it.
 
-## Memory Generation
+### Memory Generation
 
 - Completing Work records a durable generation request.
 - Generation occurs without holding the Work transaction open.
@@ -933,7 +933,7 @@ The MVP is release-ready only when the following end-to-end behavior is demonstr
 - Retry does not create duplicate active Memory.
 - Generated Memory preserves source traceability.
 
-## Memory Review
+### Memory Review
 
 - Generated Memory is editable before submission.
 - Submitting for review locks the draft.
@@ -942,7 +942,7 @@ The MVP is release-ready only when the following end-to-end behavior is demonstr
 - The Secretary cannot approve or reject it.
 - Approved Memory cannot be edited.
 
-## Auditability
+### Auditability
 
 - Important state transitions identify the acting principal.
 - AI-generated content is attributable to the Secretary.
@@ -950,7 +950,7 @@ The MVP is release-ready only when the following end-to-end behavior is demonstr
 - Review history remains available.
 - Cross-Organization references are prevented.
 
-## Scope Control
+### Scope Control
 
 - The product works without Knowledge, Capability, or AI Employees.
 - No MVP flow requires semantic retrieval.
@@ -959,7 +959,7 @@ The MVP is release-ready only when the following end-to-end behavior is demonstr
 
 ---
 
-# Product Validation Criteria
+## Product Validation Criteria
 
 The MVP should provide enough evidence to answer these questions:
 
@@ -977,7 +977,7 @@ That hypothesis belongs to a later phase.
 
 ---
 
-# Relationship to the Complete Blueprint
+## Relationship to the Complete Blueprint
 
 The Blueprint defines the target domain model and long-term direction.
 
@@ -1007,7 +1007,7 @@ The existence of deferred concepts in architecture documents must not be interpr
 
 ---
 
-# Roadmap Boundary
+## Roadmap Boundary
 
 The MVP ends when an Organization can accumulate approved Memory.
 
@@ -1032,7 +1032,7 @@ Roadmap sequencing may evolve, but later phases must preserve these MVP guarante
 
 ---
 
-# Guiding Principle
+## Guiding Principle
 
 The MVP should remain focused on one complete and trustworthy loop:
 
@@ -1050,7 +1050,7 @@ Everything that does not directly support this loop should be deferred unless it
 
 ---
 
-# Related Documents
+## Related Documents
 
 - `docs/architecture/overview.md`
 - `docs/product/roadmap.md`

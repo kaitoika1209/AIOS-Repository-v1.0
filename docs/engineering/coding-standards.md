@@ -10,7 +10,7 @@ These standards apply to all source code in the repository.
 
 ---
 
-# Philosophy
+## Philosophy
 
 Code is read far more often than it is written.
 
@@ -22,21 +22,21 @@ Business rules should be easy to discover, understand, and modify.
 
 ---
 
-# General Principles
+## General Principles
 
-## Keep Business Logic in the Domain
+### Keep Business Logic in the Domain
 
 Business rules belong in the domain layer.
 
 Controllers, application services, and infrastructure should coordinate behavior rather than implement business logic.
 
-### Good
+#### Good
 
 ```typescript
 work.complete()
 ```
 
-### Bad
+#### Bad
 
 ```typescript
 work.status = "completed"
@@ -44,17 +44,17 @@ work.status = "completed"
 
 ---
 
-## Prefer Behavior over State Mutation
+### Prefer Behavior over State Mutation
 
 Expose business actions instead of public state changes.
 
-### Good
+#### Good
 
 ```typescript
 decision.approve()
 ```
 
-### Bad
+#### Bad
 
 ```typescript
 decision.status = "approved"
@@ -62,7 +62,7 @@ decision.status = "approved"
 
 ---
 
-## One Responsibility per Class
+### One Responsibility per Class
 
 Each class should have a single, well-defined responsibility.
 
@@ -70,7 +70,7 @@ Avoid classes that coordinate unrelated concerns.
 
 ---
 
-## Keep Methods Small
+### Keep Methods Small
 
 Methods should perform one logical operation.
 
@@ -78,11 +78,11 @@ If a method requires extensive comments to explain its behavior, consider extrac
 
 ---
 
-## Avoid Deep Nesting
+### Avoid Deep Nesting
 
 Return early whenever possible.
 
-### Good
+#### Good
 
 ```typescript
 if (!work.canComplete()) {
@@ -92,7 +92,7 @@ if (!work.canComplete()) {
 work.complete();
 ```
 
-### Bad
+#### Bad
 
 ```typescript
 if (work.canComplete()) {
@@ -106,9 +106,9 @@ if (work.canComplete()) {
 
 ---
 
-# Layer Responsibilities
+## Layer Responsibilities
 
-## Presentation Layer
+### Presentation Layer
 
 Responsible for:
 
@@ -121,7 +121,7 @@ Should not contain business rules.
 
 ---
 
-## Application Layer
+### Application Layer
 
 Responsible for:
 
@@ -133,7 +133,7 @@ Should not contain business rules.
 
 ---
 
-## Domain Layer
+### Domain Layer
 
 Responsible for:
 
@@ -147,7 +147,7 @@ The domain layer must not depend on frameworks.
 
 ---
 
-## Infrastructure Layer
+### Infrastructure Layer
 
 Responsible for:
 
@@ -161,7 +161,7 @@ Infrastructure should depend on the domain, never the opposite.
 
 ---
 
-# Error Handling
+## Error Handling
 
 Use exceptions only for exceptional situations.
 
@@ -171,7 +171,7 @@ Error messages should be clear and actionable.
 
 ---
 
-# Logging
+## Logging
 
 Log meaningful events.
 
@@ -181,7 +181,7 @@ Never log secrets or sensitive information.
 
 ---
 
-# Comments
+## Comments
 
 Write self-explanatory code.
 
@@ -193,7 +193,7 @@ Comments should explain **why**, not **what**.
 // Retry because the external provider may be temporarily unavailable.
 ```
 
-### Bad
+#### Bad
 
 ```typescript
 // Increment i.
@@ -202,7 +202,7 @@ i++;
 
 ---
 
-# Code Reuse
+## Code Reuse
 
 Avoid duplication.
 
@@ -212,7 +212,7 @@ Do not create utility classes prematurely.
 
 ---
 
-# Dependencies
+## Dependencies
 
 Depend on abstractions rather than concrete implementations.
 
@@ -220,7 +220,7 @@ Keep dependencies pointing inward toward the domain.
 
 ---
 
-# Testing
+## Testing
 
 Every business rule should be testable.
 
@@ -232,7 +232,7 @@ Use end-to-end tests to validate user workflows.
 
 ---
 
-# Refactoring
+## Refactoring
 
 Leave the codebase in a better state than you found it.
 
@@ -240,7 +240,7 @@ Small, continuous improvements are preferred over large rewrites.
 
 ---
 
-# AI-Generated Code
+## AI-Generated Code
 
 AI-generated code must be reviewed before merging.
 
@@ -250,7 +250,7 @@ Never merge code simply because it compiles.
 
 ---
 
-# Definition of Done
+## Definition of Done
 
 A change is considered complete when:
 

@@ -212,7 +212,7 @@ A single Knowledge record may be supported by multiple Memories.
 
 ---
 
-# Naming Consistency
+## Naming Consistency
 
 The following terms should be used consistently throughout AIOS.
 
@@ -225,5 +225,7 @@ The following terms should be used consistently throughout AIOS.
 | Memory | History |
 | Organization | Company |
 | AI Employee | Assistant |
-| Secretary | Chatbot |
+| Secretary | Chatbot, AI Secretary |
 | Knowledge | Documentation |
+
+The Secretary is already an AI Principal, so "AI Secretary" is redundant. Use "Secretary".

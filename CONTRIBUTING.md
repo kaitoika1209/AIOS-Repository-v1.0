@@ -6,22 +6,35 @@ This document explains how to contribute to the project and where to find the en
 
 ---
 
-# Before You Start
+## Before You Start
 
 Please read the following documents before making any changes.
 
 | Document | Purpose |
 |----------|---------|
-| README.md | Project overview |
-| docs/product/mvp.md | Current product scope |
-| docs/architecture/domain-model.md | Core business model |
-| docs/engineering/README.md | Engineering handbook |
+| [README.md](README.md) | Project overview |
+| [docs/product/mvp.md](docs/product/mvp.md) | Current product scope — authoritative |
+| [docs/document-governance.md](docs/document-governance.md) | Which document wins when documents disagree |
+| [docs/architecture/domain-model.md](docs/architecture/domain-model.md) | Core business model |
+| [docs/engineering/README.md](docs/engineering/README.md) | Engineering handbook |
 
 Understanding these documents will help ensure that new contributions remain consistent with the architecture of AIOS.
 
+## Scope discipline
+
+AIOS documents a long-term vision far beyond what the MVP implements. Before building
+anything, confirm it is classified **MVP Normative** in
+[docs/product/mvp.md](docs/product/mvp.md).
+
+A detailed design document does **not** mean the feature is approved. Per
+[ADR-0010](docs/adr/0010-classify-blueprint-scope-and-implementation-authority.md), a
+`MUST` inside a Future Hypothesis document means "required *if* this is later adopted",
+not "required now". Knowledge, Evidence, Capability, and AI Employees are all documented
+but explicitly out of MVP scope.
+
 ---
 
-# Development Workflow
+## Development Workflow
 
 1. Create a feature branch.
 2. Implement a single logical change.
@@ -31,32 +44,32 @@ Understanding these documents will help ensure that new contributions remain con
 
 Please follow the Git workflow described in:
 
-`docs/engineering/git-workflow.md`
+[docs/engineering/git-workflow.md](docs/engineering/git-workflow.md)
 
 ---
 
-# Coding Standards
+## Coding Standards
 
 All contributions should follow the project's coding standards.
 
 See:
 
-- docs/engineering/coding-standards.md
-- docs/engineering/naming.md
+- [docs/engineering/coding-standards.md](docs/engineering/coding-standards.md)
+- [docs/engineering/naming.md](docs/engineering/naming.md)
 
 ---
 
-# Architecture Changes
+## Architecture Changes
 
 Changes that affect architecture should be documented using an Architecture Decision Record (ADR).
 
 Before introducing new architectural patterns, create or update an ADR in:
 
-`docs/adr/`
+[docs/adr/](docs/adr/)
 
 ---
 
-# Pull Requests
+## Pull Requests
 
 Before submitting a Pull Request, ensure that:
 
@@ -67,12 +80,12 @@ Before submitting a Pull Request, ensure that:
 
 Refer to:
 
-- docs/engineering/pull-request.md
-- docs/engineering/review-checklist.md
+- [docs/engineering/pull-request.md](docs/engineering/pull-request.md)
+- [docs/engineering/review-checklist.md](docs/engineering/review-checklist.md)
 
 ---
 
-# Reporting Issues
+## Reporting Issues
 
 When reporting bugs or requesting features, include as much relevant information as possible.
 
@@ -86,7 +99,7 @@ Useful information includes:
 
 ---
 
-# Questions
+## Questions
 
 If you are unsure about a design or implementation decision, discuss it before writing code.
 
@@ -94,7 +107,7 @@ Architecture decisions are easier to change before implementation than after dep
 
 ---
 
-# Our Philosophy
+## Our Philosophy
 
 AIOS is built around a simple principle:
 

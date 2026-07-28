@@ -10,13 +10,21 @@ The goal is to ensure consistency, maintainability, and high code quality as AIO
 
 | Document | Purpose |
 |----------|---------|
-| tech-stack.md | Technology choices |
-| folder-structure.md | Repository layout |
-| coding-standards.md | Coding conventions |
-| naming.md | Naming rules |
-| git-workflow.md | Git workflow |
-| pull-request.md | Pull request guidelines |
-| review-checklist.md | Review checklist |
+| [tech-stack.md](tech-stack.md) | Technology choices |
+| [folder-structure.md](folder-structure.md) | Repository layout |
+| [coding-standards.md](coding-standards.md) | Coding conventions |
+| [naming.md](naming.md) | Naming rules |
+| [git-workflow.md](git-workflow.md) | Git workflow |
+| [pull-request.md](pull-request.md) | Pull request guidelines |
+| [review-checklist.md](review-checklist.md) | Review checklist, including ADR-0010 scope verification |
+
+## Related
+
+| Document | Purpose |
+|----------|---------|
+| [../document-governance.md](../document-governance.md) | Which document wins when documents disagree |
+| [../adr/README.md](../adr/README.md) | Architecture Decision Record index |
+| [../glossary.md](../glossary.md) | Canonical domain vocabulary |
 
 ## Principles
 
@@ -24,3 +32,4 @@ The goal is to ensure consistency, maintainability, and high code quality as AIO
 - Prefer clarity over cleverness.
 - Favor consistency over personal preference.
 - Document architectural decisions through ADRs.
+- Never let a document contradict a higher-ranked one — fix the contradiction, don't work around it.

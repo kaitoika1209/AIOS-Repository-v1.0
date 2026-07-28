@@ -1,14 +1,14 @@
 # ADR-0005: Adopt a Boundary-Enforced Modular Monolith for the MVP
 
-- Status: Accepted
-- Date: 2026-07-26
-- Blueprint Version: v0.2.1
-- Decision Owner: Platform Architecture
-- Review Trigger: before extracting any module into an independently deployed service, before introducing a second authoritative database or internal network boundary, when module-boundary tests cannot prevent recurring coupling, or when measured scaling, reliability, regulatory, deployment-cadence, or team-ownership requirements materially change
+**Status:** Accepted  
+**Date:** 2026-07-26  
+**Blueprint Version:** 0.2.1  
+**Decision Owner:** Platform Architecture  
+**Review Trigger:** before extracting any module into an independently deployed service, before introducing a second authoritative database or internal network boundary, when module-boundary tests cannot prevent recurring coupling, or when measured scaling, reliability, regulatory, deployment-cadence, or team-ownership requirements materially change
 
 ---
 
-# Context
+## Context
 
 AIOS is an early enterprise product intended to be implemented and operated by a team of one to three people.
 
@@ -30,7 +30,7 @@ AIOS therefore needs one deployable architecture with enforceable internal bound
 
 ---
 
-# Decision
+## Decision
 
 The MVP adopts a boundary-enforced Modular Monolith backed by one authoritative PostgreSQL database.
 
@@ -54,7 +54,7 @@ Knowledge Management and Capability Management are future Bounded Contexts. The 
 
 ---
 
-# Semantic Boundaries and Packaging Boundaries
+## Semantic Boundaries and Packaging Boundaries
 
 A DDD Bounded Context is a semantic boundary that owns business language, rules, and models.
 
@@ -79,7 +79,7 @@ Authorization is an Application and Security capability. It may evaluate trusted
 
 ---
 
-# Module Interface Contract
+## Module Interface Contract
 
 Each business module exposes explicit Application command and query interfaces.
 
@@ -106,7 +106,7 @@ A minimal shared technical kernel may contain identifiers, time abstractions, tr
 
 ---
 
-# Dependency Direction
+## Dependency Direction
 
 The permitted execution direction is:
 
@@ -142,7 +142,7 @@ Module dependency cycles are prohibited. If two modules require bidirectional in
 
 ---
 
-# Transaction Boundary
+## Transaction Boundary
 
 An Application Service owns the transaction boundary.
 
@@ -174,7 +174,7 @@ Remote provider calls and other external effects occur outside PostgreSQL transa
 
 ---
 
-# Persistence Ownership
+## Persistence Ownership
 
 The MVP uses one authoritative PostgreSQL database.
 
@@ -203,7 +203,7 @@ Read models and projections may combine data from multiple modules, but they are
 
 ---
 
-# Event and Worker Contract
+## Event and Worker Contract
 
 PostgreSQL Outbox records provide the durable boundary for required asynchronous reactions.
 
@@ -224,7 +224,7 @@ Because Outbox messages and Worker backlog may survive a deployment, Integration
 
 ---
 
-# Boundary Enforcement
+## Boundary Enforcement
 
 Implementation approval requires automated architecture checks appropriate to the selected language and framework.
 
@@ -250,7 +250,7 @@ These checks are part of the definition of done, not optional documentation guid
 
 ---
 
-# Operational Consequences
+## Operational Consequences
 
 A single application release and database reduce MVP deployment and on-call complexity.
 
@@ -270,7 +270,7 @@ A Worker role may be scaled independently at runtime while remaining part of the
 
 ---
 
-# Extraction Criteria
+## Extraction Criteria
 
 Module extraction is not a roadmap milestone and is not justified by the existence of a Bounded Context alone.
 
@@ -299,37 +299,37 @@ The extracted boundary must not depend on direct table access to the remaining m
 
 ---
 
-# Alternatives Considered
+## Alternatives Considered
 
-## One microservice per Bounded Context
+### One microservice per Bounded Context
 
 Rejected for the MVP because semantic separation does not require independent deployment. The operational and distributed-systems cost is not justified for a one-to-three-person team.
 
-## Unstructured layered monolith
+### Unstructured layered monolith
 
 Rejected because one deployment without enforceable ownership would permit hidden repository, table, and model coupling.
 
-## Multiple repositories and databases from the beginning
+### Multiple repositories and databases from the beginning
 
 Rejected because it increases migration, transaction, testing, observability, backup, and recovery cost before independent ownership is needed.
 
-## External event broker as the internal module boundary
+### External event broker as the internal module boundary
 
 Rejected as an MVP requirement. PostgreSQL Outbox and Workers provide durable asynchronous processing without adding a second authoritative delivery dependency.
 
-## Eventual consistency for every internal interaction
+### Eventual consistency for every internal interaction
 
 Rejected because local atomic coordination is useful for a small number of explicitly documented use cases inside one implementation module. Requiring asynchronous coordination everywhere would add complexity without improving independence.
 
-## One global transaction across arbitrary modules
+### One global transaction across arbitrary modules
 
 Rejected because it would turn one PostgreSQL database into hidden Aggregate and module coupling, enlarge lock scope, and obstruct later extraction.
 
 ---
 
-# Consequences
+## Consequences
 
-## Positive
+### Positive
 
 - The team operates one release and one authoritative database.
 - DDD boundaries remain explicit without premature distribution.
@@ -338,7 +338,7 @@ Rejected because it would turn one PostgreSQL database into hidden Aggregate and
 - Module extraction remains possible because repositories and mutation paths are not shared.
 - MVP infrastructure cost remains proportionate to team size.
 
-## Negative
+### Negative
 
 - Architecture boundaries require automated enforcement and disciplined review.
 - All modules share a release cadence.
@@ -349,7 +349,7 @@ Rejected because it would turn one PostgreSQL database into hidden Aggregate and
 
 ---
 
-# Required Verification
+## Required Verification
 
 Before implementation approval, verify that:
 
@@ -366,13 +366,13 @@ Before implementation approval, verify that:
 
 ---
 
-# Related Documents
+## Related Documents
 
-- `docs/architecture/overview.md`
-- `docs/architecture/context-map.md`
-- `docs/architecture/application-services.md`
-- `docs/architecture/persistence-and-data-model.md`
-- `docs/architecture/events-and-outbox.md`
-- `docs/architecture/authorization.md`
-- `docs/product/mvp.md`
-- `docs/product/roadmap.md`
+- [Architecture Overview](../architecture/overview.md)
+- [Context Map](../architecture/context-map.md)
+- [Application Services](../architecture/application-services.md)
+- [Persistence and Data Model](../architecture/persistence-and-data-model.md)
+- [Events and Outbox](../architecture/events-and-outbox.md)
+- [Authorization](../architecture/authorization.md)
+- [MVP Scope](../product/mvp.md)
+- [Product Roadmap](../product/roadmap.md)

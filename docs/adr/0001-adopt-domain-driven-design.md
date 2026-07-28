@@ -1,10 +1,8 @@
 # ADR-0001: Adopt Domain-Driven Design
 
-## Status
-
-Accepted
-
----
+**Status:** Accepted  
+**Date:** 2026-07-26  
+**Blueprint Version:** 0.2.1
 
 ## Context
 
@@ -44,6 +42,6 @@ Infrastructure and frameworks must support the domain rather than define it.
 
 ## Related Documents
 
-- docs/architecture/domain-model.md
-- docs/architecture/overview.md
-- docs/engineering/coding-standards.md
+- [Domain Model](../architecture/domain-model.md)
+- [Architecture Overview](../architecture/overview.md)
+- [Coding Standards](../engineering/coding-standards.md)

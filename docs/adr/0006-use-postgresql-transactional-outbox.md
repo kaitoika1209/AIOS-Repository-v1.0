@@ -1,14 +1,14 @@
 # ADR-0006: Use a PostgreSQL Transactional Outbox with Durable Local Consumer Handoff
 
-- Status: Accepted
-- Date: 2026-07-26
-- Blueprint Version: v0.2.1
-- Decision Owner: Platform Runtime
-- Review Trigger: before introducing an external broker, changing local fan-out persistence, independently deploying a required consumer, or materially changing delivery, retention, replay, or recovery requirements
+**Status:** Accepted  
+**Date:** 2026-07-26  
+**Blueprint Version:** 0.2.1  
+**Decision Owner:** Platform Runtime  
+**Review Trigger:** before introducing an external broker, changing local fan-out persistence, independently deploying a required consumer, or materially changing delivery, retention, replay, or recovery requirements
 
 ---
 
-# Context
+## Context
 
 AIOS commits authoritative Aggregate state to PostgreSQL and performs required downstream work asynchronously.
 
@@ -24,7 +24,7 @@ The MVP therefore needs an explicit atomic boundary between the source Outbox re
 
 ---
 
-# Decision
+## Decision
 
 AIOS uses PostgreSQL Transactional Outbox records as the durable source of required asynchronous publication.
 
@@ -42,7 +42,7 @@ Consumer effects occur later through independently claimed processed-event rows.
 
 ---
 
-# Scope of the Guarantee
+## Scope of the Guarantee
 
 A domain change that promises a required downstream reaction cannot commit without its required Outbox record.
 
@@ -52,7 +52,7 @@ Outbox records are reliable notifications and processing inputs. Aggregate table
 
 ---
 
-# Event Ownership
+## Event Ownership
 
 Aggregates emit Domain Events and never write Outbox rows, enumerate consumers, publish messages, manage retries, or know delivery outcomes.
 
@@ -62,7 +62,7 @@ Cross-Bounded-Context consumers subscribe to Integration Events rather than inte
 
 ---
 
-# Source Transaction
+## Source Transaction
 
 For a command with required asynchronous reactions:
 
@@ -83,7 +83,7 @@ The Outbox insert uses the same PostgreSQL transaction as Aggregate persistence.
 
 ---
 
-# Publication Destination
+## Publication Destination
 
 Each Outbox record has exactly one `destination`.
 
@@ -105,7 +105,7 @@ Destination-specific delivery state is Outbox metadata, not part of the immutabl
 
 ---
 
-# Durable Local Handoff
+## Durable Local Handoff
 
 The local publisher acquires a bounded, fenced claim in a short transaction.
 
@@ -141,7 +141,7 @@ A required local contract with no compatible enabled consumer fails visibly. Dir
 
 ---
 
-# Consumer Registration Snapshot
+## Consumer Registration Snapshot
 
 ConsumerRegistration is version-controlled configuration. Local publication stores a stable `consumerSetVersion` or equivalent hash identifying the exact target set.
 
@@ -154,7 +154,7 @@ ConsumerRegistration is version-controlled configuration. Local publication stor
 
 ---
 
-# Processed-Event Lifecycle
+## Processed-Event Lifecycle
 
 `processed_events` is the durable per-consumer delivery and execution record.
 
@@ -191,7 +191,7 @@ Processed and Skipped remain terminal for ordinary delivery.
 
 ---
 
-# Consumer Effect Transaction
+## Consumer Effect Transaction
 
 A PostgreSQL-local domain-changing consumer atomically commits:
 
@@ -210,7 +210,7 @@ Publication and consumer delivery are at least once. Business outcomes are effec
 
 ---
 
-# Meaning of Published
+## Meaning of Published
 
 Outbox Published means the configured transport durably accepted the message.
 
@@ -220,7 +220,7 @@ Published does not mean a consumer started, succeeded, reached a terminal state,
 
 ---
 
-# Failure and Recovery
+## Failure and Recovery
 
 - Crash before local handoff commit: no Published or partial fan-out commits; the claim expires and publication retries.
 - Crash after handoff commit: Published and every target delivery are durable; Consumer Workers continue.
@@ -231,7 +231,7 @@ Published does not mean a consumer started, succeeded, reached a terminal state,
 
 ---
 
-# Ordering
+## Ordering
 
 Publication order is enforced only for registered ordered streams:
 
@@ -246,7 +246,7 @@ No global Organization or platform order is provided.
 
 ---
 
-# External Broker Boundary
+## External Broker Boundary
 
 The MVP does not require an external broker.
 
@@ -261,7 +261,7 @@ When one is introduced:
 
 ---
 
-# Security and Multi-Tenant Rules
+## Security and Multi-Tenant Rules
 
 Organization scope, consumer name, consumer-set version, ordering key, source sequence, actor attribution, and capability are derived from trusted envelope and registration data, never caller input.
 
@@ -271,7 +271,7 @@ Global events require separately registered platform scope and are not inferred 
 
 ---
 
-# Retention
+## Retention
 
 Published Outbox cleanup requires durable transport acceptance, expiry of redelivery and recovery windows, satisfied audit and privacy policy, and no unresolved reconciliation dependency.
 
@@ -281,7 +281,7 @@ Processed-event retention is independent and must preserve required idempotency 
 
 ---
 
-# Observability
+## Observability
 
 Operations distinguishes:
 
@@ -297,7 +297,7 @@ Required evidence includes destination, consumer-set version, target count, cont
 
 ---
 
-# MVP Scope
+## MVP Scope
 
 The MVP uses PostgreSQL Outbox, bounded polling and claims, durable local fan-out into processed_events, Consumer Workers, at-least-once delivery, idempotent effects, dead letters, narrow replay, and reconciliation.
 
@@ -307,37 +307,37 @@ Using processed_events as both durable delivery and execution state is the pract
 
 ---
 
-# Alternatives Considered
+## Alternatives Considered
 
-## Direct in-process invocation
+### Direct in-process invocation
 
 Rejected because a process failure can lose a required consumer invocation and couples unrelated handler failures.
 
-## Mark Published before consumer rows exist
+### Mark Published before consumer rows exist
 
 Rejected because a crash can create permanent partial fan-out.
 
-## Mark Published after every consumer completes
+### Mark Published after every consumer completes
 
 Rejected because transport acknowledgement and business completion are different lifecycles; one slow consumer would couple all others.
 
-## Separate per-consumer queue table
+### Separate per-consumer queue table
 
 Rejected for the MVP because processed_events.Pending provides the required durable handoff and execution identity.
 
-## External broker from the beginning
+### External broker from the beginning
 
 Rejected because PostgreSQL already supplies the needed local atomicity without another production dependency.
 
-## Exactly-once delivery
+### Exactly-once delivery
 
 Rejected because crashes can occur after an effect and before acknowledgement. Idempotency and reconciliation remain necessary.
 
 ---
 
-# Consequences
+## Consequences
 
-## Positive
+### Positive
 
 - Required local consumers cannot be lost after publication.
 - Fan-out is atomic and each consumer remains independently retryable.
@@ -346,7 +346,7 @@ Rejected because crashes can occur after an effect and before acknowledgement. I
 - Registry changes become auditable.
 - Future broker migration preserves the source transaction.
 
-## Negative
+### Negative
 
 - Pending becomes an additional canonical status.
 - Local publication writes one row per target consumer.
@@ -357,7 +357,7 @@ Rejected because crashes can occur after an effect and before acknowledgement. I
 
 ---
 
-# Required Verification
+## Required Verification
 
 Tests must cover:
 
@@ -378,13 +378,13 @@ Tests must cover:
 
 ---
 
-# Related Documents
+## Related Documents
 
-- `docs/architecture/events-and-outbox.md`
-- `docs/architecture/persistence-and-data-model.md`
-- `docs/architecture/application-services.md`
-- `observability-and-operations.md`
-- `docs/architecture/overview.md`
-- `docs/product/mvp.md`
-- `docs/adr/0004-separate-external-computation-and-business-effects.md`
-- `docs/adr/0005-adopt-boundary-enforced-modular-monolith.md`
+- [Events and Outbox](../architecture/events-and-outbox.md)
+- [Persistence and Data Model](../architecture/persistence-and-data-model.md)
+- [Application Services](../architecture/application-services.md)
+- [Observability and Operations](../architecture/observability-and-operations.md)
+- [Architecture Overview](../architecture/overview.md)
+- [MVP Scope](../product/mvp.md)
+- [ADR-0004](0004-separate-external-computation-and-business-effects.md)
+- [ADR-0005](0005-adopt-boundary-enforced-modular-monolith.md)

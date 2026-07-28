@@ -1,4 +1,10 @@
 # Memory State Machine
+
+> **Scope classification:** MVP Normative  
+> **MVP implementation authority:** Yes  
+> **Promotion requirement:** Not applicable  
+> **Authority rank:** see [Document Governance](../../document-governance.md)
+
 > **Document status:** Proposed · **Blueprint version:** 0.2.1 · **Applies to:** Memory Aggregate
 ## Purpose
 This document defines the lifecycle of `Memory` within AIOS.
@@ -17,7 +23,7 @@ The central rules are:
 > Approved Memory is immutable organizational history.
 > Memory approval does not create Knowledge.
 ---
-# Scope
+## Scope
 This document defines the business lifecycle of one Memory Aggregate after a Memory draft has been generated successfully.
 It does not define:
 - the Work lifecycle;
@@ -33,7 +39,7 @@ Memory generation is triggered asynchronously after Work completion.
 A failed generation attempt does not create a Memory lifecycle state. Generation attempts and retries are operational process state outside the Memory Aggregate until a valid draft is created.
 Archival is an orthogonal visibility or retention concern in the MVP, not a Memory lifecycle state.
 ---
-# Source Snapshot Contract
+## Source Snapshot Contract
 
 Before AI generation begins, the Memory-generation workflow persists one immutable, Organization-scoped source snapshot derived from the committed `WorkCompleted` fact, the terminal Work version, and any immutable Decision submitted snapshots used as input.
 
@@ -54,7 +60,7 @@ A retry reuses the same source snapshot. The system must not reconstruct generat
 
 The submitted Memory snapshot binds to the source snapshot identifier and hash. Reviewers therefore evaluate one fixed Memory version against the same fixed source context used for generation.
 
-# State Summary
+## State Summary
 | State | Meaning | Content editable | Reviewable | Authoritative | Terminal |
 |---|---|---:|---:|---:|---:|
 | `Generated` | AI-generated or reopened draft | Yes | Not yet submitted | No | No |
@@ -64,7 +70,7 @@ The submitted Memory snapshot binds to the source snapshot identifier and hash. 
 Approved Memory cannot return to another state in the MVP.
 Rejected Memory may be reopened as the same Memory Aggregate.
 ---
-# Lifecycle
+## Lifecycle
 ```mermaid
 stateDiagram-v2
     [*] --> Generated
@@ -77,14 +83,14 @@ stateDiagram-v2
 Draft correction before approval does not create a separate `MemoryRevision` object.
 The Aggregate preserves edit and review history while retaining one Memory identity.
 ---
-# State Definitions
-## Generated
+## State Definitions
+### Generated
 `Generated` means the Memory exists as an editable draft.
 The state is used both:
 - immediately after successful AI generation; and
 - after a Rejected Memory is explicitly reopened for revision.
 A Generated Memory is not authoritative organizational history.
-### Allowed Actions
+#### Allowed Actions
 An authorized Human Member may:
 - view the generated draft;
 - compare the draft with its source references;
@@ -107,7 +113,7 @@ The Secretary may:
 - organize the timeline; and
 - propose lessons observed.
 Secretary changes must remain attributable and reviewable.
-### State Rules
+#### State Rules
 - Content is editable.
 - No active review cycle exists.
 - No approval record exists.
@@ -117,10 +123,10 @@ Secretary changes must remain attributable and reviewable.
 - Human and Secretary edits are auditable.
 - The Memory cannot be promoted to Knowledge.
 ---
-## InReview
+### InReview
 `InReview` means an authorized Human Member submitted a stable Memory draft for review.
 The submitted content is locked so the reviewer evaluates one specific snapshot.
-### Allowed Actions
+#### Allowed Actions
 An authorized Human Member may:
 - view the submitted snapshot;
 - inspect the immutable completed Work source snapshot identified by sourceSnapshotId and sourceSnapshotHash;
@@ -133,7 +139,7 @@ The Secretary may:
 - explain how the draft was generated;
 - summarize source references; and
 - answer questions using permitted source material.
-### Prohibited Actions
+#### Prohibited Actions
 While InReview, the system must not:
 - edit Memory content;
 - replace the submitted snapshot;
@@ -142,25 +148,25 @@ While InReview, the system must not:
 - allow AI to approve or reject;
 - create Knowledge from the unapproved Memory; or
 - allow more than one authoritative outcome for the review cycle.
-### State Rules
+#### State Rules
 - An immutable submitted snapshot exists.
 - Exactly one review cycle is active.
 - The Memory is not yet authoritative.
 - Only an authorized Human Member may resolve the review.
 - Review comments are append-only.
 ---
-## Rejected
+### Rejected
 `Rejected` means an authorized Human Member determined that the submitted Memory was inaccurate, incomplete, unsupported, or otherwise unsuitable for approval.
 Rejected Memory is retained for audit and correction.
 It is not approved organizational history and cannot be used as Published Knowledge.
-### Required Record
+#### Required Record
 A Rejected Memory contains:
 - the rejected submitted snapshot;
 - the rejecting Human Member;
 - a rejection reason;
 - the rejection timestamp; and
 - append-only review history.
-### Allowed Actions
+#### Allowed Actions
 An authorized Human Member may:
 - view the rejected snapshot;
 - view the rejection reason;
@@ -171,7 +177,7 @@ The Secretary may:
 - summarize reviewer feedback;
 - identify likely corrections; and
 - prepare non-authoritative revision suggestions.
-### State Rules
+#### State Rules
 - The rejected snapshot is immutable.
 - The rejection record is immutable.
 - No active review cycle exists.
@@ -179,13 +185,13 @@ The Secretary may:
 - Editing begins only after an explicit `Reopen for Revision` transition.
 - Rejection does not create another Memory.
 ---
-## Approved
+### Approved
 `Approved` means an authorized Human Member confirmed that the submitted Memory is an acceptable historical representation of the completed Work.
 Approval means:
 > This submitted Memory is accepted as organizational history for the source Work.
 Approval does not mean:
 > Every lesson is universally valid or reusable organizational Knowledge.
-### Required Record
+#### Required Record
 An Approved Memory contains:
 - the approved submitted snapshot;
 - the approving Human Member;
@@ -196,7 +202,7 @@ An Approved Memory contains:
 - complete edit history;
 - complete review history; and
 - permanent source references.
-### Allowed Actions
+#### Allowed Actions
 Users may:
 - view the Memory;
 - inspect its source Work;
@@ -204,7 +210,7 @@ Users may:
 - inspect generation and edit provenance;
 - cite it from future processes; and
 - hide or archive it through a separate retention or view mechanism.
-### State Rules
+#### State Rules
 - Approved content is immutable.
 - Approval identity and timestamp are immutable.
 - Source references are immutable.
@@ -213,15 +219,15 @@ Users may:
 - Future correction requires a separate append-only MemoryRevision process.
 - Approval does not automatically request or create Knowledge.
 ---
-# Commands and Transitions
-## Create Generated Memory
-### Transition
+## Commands and Transitions
+### Create Generated Memory
+#### Transition
 ```text
 [*] → Generated
 ```
 This is an internal domain creation operation invoked only after successful generation.
 It is not a manual end-user `CreateMemory` command.
-### Preconditions
+#### Preconditions
 - A valid `WorkCompleted` fact exists.
 - The source Work is completed.
 - The Work belongs to the target Organization.
@@ -229,7 +235,7 @@ It is not a manual end-user `CreateMemory` command.
 - Required source references are valid.
 - Generated content satisfies minimum structural validation.
 - The generation request is idempotent.
-### Effects
+#### Effects
 - Create one Memory in `Generated`.
 - Assign one immutable Memory identity.
 - Record Organization and source Work.
@@ -240,18 +246,18 @@ It is not a manual end-user `CreateMemory` command.
 - Emit `MemoryGenerated`.
 The Memory Aggregate does not complete Work and does not modify Decision state.
 ---
-## Edit Generated Memory
-### Transition
+### Edit Generated Memory
+#### Transition
 ```text
 Generated → Generated
 ```
-### Preconditions
+#### Preconditions
 - The actor is an authorized Human Member, or the change is an explicitly requested Secretary suggestion.
 - The Memory is Generated.
 - The command uses the expected Aggregate version.
 - The source Work and Organization remain unchanged.
 - Updated content satisfies local validation.
-### Effects
+#### Effects
 - Update editable draft content.
 - Append an edit record.
 - Attribute the edit to a Human Member or Secretary.
@@ -259,12 +265,12 @@ Generated → Generated
 - Emit `MemoryDraftEdited`.
 A Secretary suggestion must not be recorded as a human edit.
 ---
-## Submit for Review
-### Transition
+### Submit for Review
+#### Transition
 ```text
 Generated → InReview
 ```
-### Preconditions
+#### Preconditions
 - The actor is an authorized Human Member.
 - Required Memory sections are present.
 - The draft contains a valid Work outcome description.
@@ -272,7 +278,7 @@ Generated → InReview
 - Unsupported required placeholders are resolved.
 - No active review cycle exists.
 - The command uses the expected Aggregate version.
-### Effects
+#### Effects
 - Capture an immutable submitted snapshot.
 - Lock Memory content.
 - Record submitter and submission timestamp.
@@ -280,19 +286,19 @@ Generated → InReview
 - Emit `MemorySubmittedForReview`.
 Submission is not approval.
 ---
-## Approve Memory
-### Transition
+### Approve Memory
+#### Transition
 ```text
 InReview → Approved
 ```
-### Preconditions
+#### Preconditions
 - The actor is an authorized Human Member.
 - The Memory is InReview.
 - A submitted snapshot exists.
 - No review outcome already exists.
 - Required provenance is present.
 - The command uses the expected Aggregate version.
-### Effects
+#### Effects
 - Record the approving Human Member.
 - Record approval timestamp.
 - Record the approval comment or confirmation.
@@ -303,18 +309,18 @@ InReview → Approved
 For the MVP, the submitter may also approve the Memory unless Organization policy prohibits self-approval.
 AI cannot approve Memory under any policy.
 ---
-## Reject Memory
-### Transition
+### Reject Memory
+#### Transition
 ```text
 InReview → Rejected
 ```
-### Preconditions
+#### Preconditions
 - The actor is an authorized Human Member.
 - The Memory is InReview.
 - A rejection reason is provided.
 - No review outcome already exists.
 - The command uses the expected Aggregate version.
-### Effects
+#### Effects
 - Record the rejecting Human Member.
 - Record the rejection reason.
 - Record the rejection timestamp.
@@ -323,17 +329,17 @@ InReview → Rejected
 - Emit `MemoryRejected`.
 The rejected submitted snapshot remains unchanged.
 ---
-## Reopen for Revision
-### Transition
+### Reopen for Revision
+#### Transition
 ```text
 Rejected → Generated
 ```
-### Preconditions
+#### Preconditions
 - The actor is an authorized Human Member.
 - The Memory is Rejected.
 - A reopen explanation is provided.
 - The command uses the expected Aggregate version.
-### Effects
+#### Effects
 - Preserve the rejected snapshot and review record.
 - Create a new editable draft from the rejected content.
 - Increment the internal draft cycle number.
@@ -343,7 +349,7 @@ Rejected → Generated
 This operation keeps the same Memory identity.
 It does not create a `MemoryRevision` domain object.
 ---
-# Allowed Transition Table
+## Allowed Transition Table
 | From | Command | To | Primary Guard |
 |---|---|---|---|
 | `[*]` | Create Generated Memory | `Generated` | Completed Work and no existing Memory |
@@ -354,7 +360,7 @@ It does not create a `MemoryRevision` domain object.
 | `Rejected` | Reopen for Revision | `Generated` | Authorized Human Member and explanation |
 No other lifecycle transitions are permitted in the MVP.
 ---
-# Draft Cycles and Review History
+## Draft Cycles and Review History
 The MVP keeps one Memory identity while allowing multiple pre-approval draft cycles.
 A conceptual history may be:
 ```text
@@ -385,7 +391,7 @@ The implementation must preserve:
 - every relevant timestamp.
 Approved content is the final submitted snapshot from the approved review cycle.
 ---
-# Relationship to Work
+## Relationship to Work
 Every Memory originates from exactly one completed Work.
 The source relationship is immutable:
 ```text
@@ -404,7 +410,7 @@ The Memory Aggregate must never:
 - cancel Work;
 - modify Work content; or
 - change the Work completion record.
-## Generation Flow
+### Generation Flow
 ```text
 Human explicitly completes Work
         ↓
@@ -419,7 +425,7 @@ Create Generated Memory
 Memory creation may be eventually consistent after Work completion.
 Generation failure leaves Work Completed and creates no invalid Memory state.
 ---
-# Relationship to Decision
+## Relationship to Decision
 Memory may reference multiple Decisions associated with its source Work.
 The Decision Aggregate remains authoritative for:
 - Decision content;
@@ -437,7 +443,7 @@ A Memory must not rewrite or reinterpret Decision state as if it were authoritat
 Decision references included in an approved Memory become part of the immutable approved snapshot.
 The rule that referenced Decisions belong to the same Organization is a cross-Aggregate validation rule.
 ---
-# Relationship to Knowledge
+## Relationship to Knowledge
 Memory and Knowledge are different business objects.
 ```text
 Approved Memory
@@ -456,15 +462,15 @@ For the MVP:
 In a future phase, Approved Memory may serve as source Evidence for one or more Knowledge records.
 Future Knowledge must preserve permanent references to its source Memory without modifying that Memory.
 ---
-# Aggregate Invariants
+## Aggregate Invariants
 The Memory Aggregate must always enforce the following local invariants.
-## Identity and Ownership
+### Identity and Ownership
 - Every Memory has exactly one Memory identifier.
 - Every Memory belongs to exactly one Organization.
 - Every Memory references exactly one source Work.
 - Memory identity, Organization, and source Work never change.
 - One Memory Aggregate represents one Work only.
-## State
+### State
 - The Memory is in exactly one lifecycle state.
 - Only transitions listed in this document are valid.
 - Approved is terminal.
@@ -472,20 +478,20 @@ The Memory Aggregate must always enforce the following local invariants.
 - Exactly one current draft cycle exists.
 - At most one active review cycle exists.
 - At most one authoritative outcome exists per review cycle.
-## Draft Integrity
+### Draft Integrity
 - Only Generated content is editable.
 - Every edit is attributable.
 - Draft edits cannot change Organization or source Work.
 - Draft edits cannot rewrite prior submitted snapshots.
 - Generated content is not authoritative.
-## Review Integrity
+### Review Integrity
 - InReview requires an immutable submitted snapshot.
 - InReview content is locked.
 - Only a Human Member may approve or reject.
 - AI has no review authority.
 - Review records are append-only.
 - One review cycle cannot be both Approved and Rejected.
-## Rejection Integrity
+### Rejection Integrity
 A Rejected Memory always contains:
 - a submitted snapshot;
 - a rejecting Human Member;
@@ -493,7 +499,7 @@ A Rejected Memory always contains:
 - a rejection timestamp; and
 - no approval record for that cycle.
 The rejected snapshot and rejection record are immutable.
-## Approval Integrity
+### Approval Integrity
 An Approved Memory always contains:
 - a submitted snapshot;
 - an approving Human Member;
@@ -503,7 +509,7 @@ An Approved Memory always contains:
 - review history; and
 - an immutable approved content snapshot.
 Approved Memory cannot be edited or reopened.
-## Historical Integrity
+### Historical Integrity
 - Initial generation provenance is immutable.
 - Submitted snapshots are immutable.
 - Review records are append-only.
@@ -511,7 +517,7 @@ Approved Memory cannot be edited or reopened.
 - Actor identities and timestamps are immutable.
 - Human, AI, and system actions remain distinguishable.
 ---
-# Cross-Aggregate Preconditions
+## Cross-Aggregate Preconditions
 The following rules are required but cannot be proven by the Memory Aggregate alone:
 - the Organization exists;
 - the source Work exists and is Completed;
@@ -532,7 +538,7 @@ These rules are enforced through:
 They must not be mislabeled as local Memory Aggregate invariants.
 A database-level unique constraint on `workId` should reinforce one Memory per Work.
 ---
-# Domain Events
+## Domain Events
 The Memory Aggregate may emit:
 - `MemoryGenerated`
 - `MemoryDraftEdited`
@@ -556,8 +562,8 @@ Review events must include the Human Member who performed the action.
 Events that trigger required follow-up processing must be persisted durably through a Transactional Outbox or equivalent mechanism.
 Knowledge-related events are not emitted by the MVP Memory lifecycle.
 ---
-# Authority Model
-## Human Member
+## Authority Model
+### Human Member
 Only an authorized Human Member may:
 - edit a generated draft;
 - submit for review;
@@ -565,7 +571,7 @@ Only an authorized Human Member may:
 - reject; or
 - reopen a rejected Memory.
 For the MVP, the submitter may approve unless Organization policy prohibits it.
-## Secretary
+### Secretary
 The Secretary is an AI Principal.
 It may:
 - generate the initial draft;
@@ -583,7 +589,7 @@ It may not:
 - modify Approved Memory;
 - promote Knowledge; or
 - impersonate a Human Member.
-## System Principal
+### System Principal
 A System Principal may:
 - consume WorkCompleted;
 - coordinate generation;
@@ -597,7 +603,7 @@ Audit must distinguish:
 - the Human Member who edited or reviewed it; and
 - the System Principal that processed technical operations.
 ---
-# Generation Reliability
+## Generation Reliability
 Memory generation occurs outside the Work completion transaction.
 The generation process must support:
 - durable request persistence;
@@ -632,7 +638,7 @@ They must not be confused with the business review lifecycle.
 
 `MemoryGenerationRequested` and `MemoryGenerationFailed` are not registered Domain or Integration Events. `WorkCompleted` is the durable trigger, and generation-operation state is the authoritative process evidence.
 ---
-# Concurrency and Idempotency
+## Concurrency and Idempotency
 The implementation must use optimistic concurrency or an equivalent mechanism.
 Each state-changing command validates an expected Aggregate version.
 Only one conflicting transition may commit.
@@ -656,37 +662,37 @@ Infrastructure may use:
 - Aggregate version; and
 - a unique `workId` constraint.
 ---
-# Failure Semantics
-## Generation Failure
+## Failure Semantics
+### Generation Failure
 If generation fails before a Memory is created:
 - the source Work remains Completed;
 - no partial Memory is exposed as Generated;
 - the generation attempt is recorded;
 - retry is permitted; and
 - failure is visible operationally.
-## Draft Edit Failure
+### Draft Edit Failure
 If an edit transaction fails:
 - the previous draft remains unchanged;
 - no edit event is committed; and
 - the user may reload and retry.
-## Review Resolution Failure
+### Review Resolution Failure
 If approval or rejection fails before commit:
 - the Memory remains InReview;
 - no authoritative outcome exists; and
 - no review event is committed.
-## Downstream Failure After Approval
+### Downstream Failure After Approval
 If Memory approval succeeds but a projection, notification, or future process fails:
 - the Memory remains Approved;
 - the downstream action is retried; and
 - approval is not reversed.
-## Invalid AI Output
+### Invalid AI Output
 If generated output fails structural or safety validation:
 - no Memory is created from that output;
 - the attempt is recorded as failed;
 - retry or manual intervention is allowed; and
 - raw invalid output must not become authoritative history.
 ---
-# Audit Requirements
+## Audit Requirements
 Every Memory must preserve:
 - Memory identifier;
 - Organization identifier;
@@ -712,7 +718,7 @@ Every Memory must preserve:
 Audit records must distinguish human, AI, and system actions.
 Historical information must not be silently overwritten.
 ---
-# Related Documents
+## Related Documents
 - `docs/architecture/overview.md`
 - `docs/product/mvp.md`
 - `docs/product/roadmap.md`

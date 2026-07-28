@@ -1,5 +1,10 @@
 # Events and Transactional Outbox Architecture
 
+> **Scope classification:** MVP Normative  
+> **MVP implementation authority:** Yes  
+> **Promotion requirement:** Not applicable  
+> **Authority rank:** see [Document Governance](../document-governance.md)
+
 **Status:** Draft  
 **Phase:** MVP  
 **Architecture:** Modular Monolith  
@@ -9,7 +14,7 @@
 
 ---
 
-# Purpose
+## Purpose
 
 This document defines how AIOS represents, persists, publishes, consumes, retries, and audits events.
 
@@ -30,7 +35,7 @@ The event architecture supports:
 
 ---
 
-# Goals
+## Goals
 
 The event architecture must ensure that:
 
@@ -49,7 +54,7 @@ The event architecture must ensure that:
 
 ---
 
-# Non-Goals
+## Non-Goals
 
 This document does not define:
 
@@ -71,7 +76,7 @@ These capabilities require separate future architecture.
 
 ---
 
-# Core Event Model
+## Core Event Model
 
 AIOS distinguishes three event concepts:
 
@@ -87,7 +92,7 @@ These concepts may share infrastructure, but they serve different architectural 
 
 ---
 
-# Domain Event
+## Domain Event
 
 A Domain Event represents a business fact that occurred inside an Aggregate.
 
@@ -111,7 +116,7 @@ A Domain Event is emitted only after an Aggregate accepts a valid command.
 
 ---
 
-# Domain Event Meaning
+## Domain Event Meaning
 
 A Domain Event is written in past tense because it describes a committed fact.
 
@@ -133,7 +138,7 @@ Events express facts.
 
 ---
 
-# Domain Event Ownership
+## Domain Event Ownership
 
 Every Domain Event is owned by exactly one Aggregate type.
 
@@ -157,7 +162,7 @@ Only the owning Aggregate may originate that event.
 
 ---
 
-# Aggregate Event Authority
+## Aggregate Event Authority
 
 An Application Service must not fabricate a Domain Event on behalf of an Aggregate.
 
@@ -187,7 +192,7 @@ Work Aggregate emits WorkCompleted
 
 ---
 
-# Integration Event
+## Integration Event
 
 An Integration Event is a stable, versioned contract intended for consumers outside the producing Bounded Context.
 
@@ -206,7 +211,7 @@ A cross-module consumer subscribes to the Integration Event, not to the source A
 
 ---
 
-# Integration Event Purpose
+## Integration Event Purpose
 
 Integration Events provide:
 
@@ -218,7 +223,7 @@ Integration Events provide:
 
 ---
 
-# Domain Event Versus Integration Event
+## Domain Event Versus Integration Event
 
 ```text
 Domain Event
@@ -242,7 +247,7 @@ The same semantic name and payload may be reused in the MVP only when all of the
 
 ---
 
-# Operational Event
+## Operational Event
 
 An Operational Event is an explicitly modeled, durable operational fact that another component must process, reconcile, or replay.
 
@@ -260,7 +265,7 @@ A structured log such as `OutboxRelayFailed` or `ConsumerDeliveryRetryScheduled`
 
 ---
 
-# Operational Event Authority
+## Operational Event Authority
 
 Operational Events may be produced by Background Workers, reconciliation services, or infrastructure adapters only when durable downstream processing is required.
 
@@ -268,7 +273,7 @@ They MUST NOT approve a Decision, complete Work, approve Memory, grant Human aut
 
 ---
 
-# Event Categories
+## Event Categories
 
 The event contract registry uses:
 
@@ -282,7 +287,7 @@ Audit is a separate durable record class identified by `auditAction`; it is not 
 
 ---
 
-# Cross-Document Terminology Boundary
+## Cross-Document Terminology Boundary
 
 | Artifact | Semantic field | Identifier field | Meaning | Authoritative for |
 |---|---|---|---|---|
@@ -296,7 +301,7 @@ The generic `eventId`, `eventType`, and `eventCategory` names remain valid only 
 
 ---
 
-# Delivery-Stage Vocabulary
+## Delivery-Stage Vocabulary
 
 The following stages are distinct:
 
@@ -320,7 +325,7 @@ Publication success does not imply consumer success. Consumer handler return doe
 
 ---
 
-# Event Lifecycle
+## Event Lifecycle
 
 A typical event follows this lifecycle:
 
@@ -351,7 +356,7 @@ Consumer Commits Effects
 
 ---
 
-# Event Creation Boundary
+## Event Creation Boundary
 
 Events are created during Aggregate command execution.
 
@@ -372,7 +377,7 @@ The exact API may differ, but the responsibility boundary must remain unchanged.
 
 ---
 
-# Event Persistence Boundary
+## Event Persistence Boundary
 
 The Application Service persists:
 
@@ -386,7 +391,7 @@ in one PostgreSQL transaction.
 
 ---
 
-# Event Publication Boundary
+## Event Publication Boundary
 
 Publication occurs only after the source transaction commits.
 
@@ -396,7 +401,7 @@ The synchronous request does not directly publish to an external broker.
 
 ---
 
-# Event Consumption Boundary
+## Event Consumption Boundary
 
 Consumers process committed events.
 
@@ -412,7 +417,7 @@ A consumer must not directly mutate Aggregate persistence tables.
 
 ---
 
-# Event Authority Principle
+## Event Authority Principle
 
 An event proves that a fact already occurred.
 
@@ -440,7 +445,7 @@ because Work completion requires new Human intent.
 
 ---
 
-# Event Causation Principle
+## Event Causation Principle
 
 Every event should identify what caused it.
 
@@ -471,7 +476,7 @@ Each step preserves:
 
 ---
 
-# Event Contract
+## Event Contract
 
 Every asynchronously processed event must use an explicit contract.
 
@@ -497,7 +502,7 @@ EventEnvelope
 
 ---
 
-# Event Identifier
+## Event Identifier
 
 Every event has a globally unique:
 
@@ -511,7 +516,7 @@ Retries and repeated publication preserve the same eventId.
 
 ---
 
-# Event Type
+## Event Type
 
 The `eventType` identifies the semantic contract inside one `eventCategory`.
 
@@ -535,7 +540,7 @@ That key must resolve to exactly one payload schema and one owning module. Event
 
 ---
 
-# EventEnvelope Category
+## EventEnvelope Category
 
 Inside the versioned EventEnvelope, `eventCategory` uses:
 
@@ -551,7 +556,7 @@ Consumers may use the category to select the registered handling policy. Audit i
 
 ---
 
-# Schema Version
+## Schema Version
 
 Every event contract includes:
 
@@ -571,7 +576,7 @@ A consumer must know which schema versions it supports.
 
 ---
 
-# Aggregate Type
+## Aggregate Type
 
 The aggregateType identifies the source Aggregate category.
 
@@ -593,7 +598,7 @@ Membership
 
 ---
 
-# Aggregate Identifier
+## Aggregate Identifier
 
 The aggregateId identifies the source Aggregate instance.
 
@@ -607,7 +612,7 @@ aggregateId = decision-123
 
 ---
 
-# Aggregate Version
+## Aggregate Version
 
 The aggregateVersion is the version produced by the committed state transition.
 
@@ -625,7 +630,7 @@ This supports per-Aggregate ordering and stale-event detection.
 
 ---
 
-# Organization Identifier
+## Organization Identifier
 
 Every Organization-owned event includes:
 
@@ -643,7 +648,7 @@ Cross-Organization event processing is prohibited.
 
 ---
 
-# Global Identity Events
+## Global Identity Events
 
 Some Human Identity events may not originate inside one Organization.
 
@@ -665,7 +670,7 @@ Consumers must then derive affected Organizations through authorized internal qu
 
 ---
 
-# Occurred At
+## Occurred At
 
 ```text
 occurredAt
@@ -677,7 +682,7 @@ It is set once and remains unchanged through retries.
 
 ---
 
-# Recorded At
+## Recorded At
 
 ```text
 recordedAt
@@ -693,7 +698,7 @@ recordedAt >= occurredAt
 
 ---
 
-# Correlation Identifier
+## Correlation Identifier
 
 ```text
 correlationId
@@ -717,7 +722,7 @@ All share the same correlationId.
 
 ---
 
-# Causation Identifier
+## Causation Identifier
 
 ```text
 causationId
@@ -734,7 +739,7 @@ DecisionApproved.causationId
 
 ---
 
-# Root Correlation
+## Root Correlation
 
 When a command begins a new business flow:
 
@@ -752,7 +757,7 @@ causationId = incomingEvent.eventId
 
 ---
 
-# Actor Reference
+## Actor Reference
 
 Domain Events should include the ActorReference responsible for the source transition where business attribution matters.
 
@@ -768,7 +773,7 @@ System
 
 ---
 
-# Human Actor Event
+## Human Actor Event
 
 Example:
 
@@ -781,7 +786,7 @@ DecisionApproved
 
 ---
 
-# System Actor Event
+## System Actor Event
 
 Example:
 
@@ -795,7 +800,7 @@ The source WorkCompleted event preserves the Human who completed Work.
 
 ---
 
-# Secretary Actor Event
+## Secretary Actor Event
 
 Secretary events are advisory.
 
@@ -816,7 +821,7 @@ A Secretary event must not represent:
 
 ---
 
-# Event Payload
+## Event Payload
 
 The payload contains event-specific data.
 
@@ -839,7 +844,7 @@ The payload must contain enough immutable information for intended consumers.
 
 For Memory generation, every Decision reference identifies an immutable submitted or resolved snapshot by Decision identity, revision or submitted-snapshot identity, and content hash. Mutable Decision drafts are prohibited as generation sources.
 
-## Work-to-Memory Source Snapshot
+### Work-to-Memory Source Snapshot
 
 `WorkCompleted` is the durable trigger and version locator; it is not the complete AI prompt.
 
@@ -864,7 +869,7 @@ The canonical source snapshot is Organization-owned Restricted domain data. Its 
 
 ---
 
-# Event Payload Design
+## Event Payload Design
 
 Payloads should:
 
@@ -879,7 +884,7 @@ Payloads should:
 
 ---
 
-# Event Payload Prohibitions
+## Event Payload Prohibitions
 
 Events must not contain:
 
@@ -895,7 +900,7 @@ Events must not contain:
 
 ---
 
-# Large Content References
+## Large Content References
 
 Large content should be referenced rather than embedded.
 
@@ -912,7 +917,7 @@ Avoid embedding full Memory content when consumers can load it through authorize
 
 ---
 
-# Event Immutability
+## Event Immutability
 
 After an event is committed:
 
@@ -928,7 +933,7 @@ Corrections require a new event.
 
 ---
 
-# Event Correction
+## Event Correction
 
 An incorrect committed event must not be edited.
 
@@ -946,7 +951,7 @@ The correction must preserve reference to the original eventId.
 
 ---
 
-# Event Naming
+## Event Naming
 
 Event names must:
 
@@ -978,7 +983,7 @@ When two Aggregates could produce the same fact name, prefix it with the owning 
 
 ---
 
-# Event Granularity
+## Event Granularity
 
 An event should represent one meaningful fact.
 
@@ -1002,7 +1007,7 @@ Specific events improve consumer clarity and policy enforcement.
 
 ---
 
-# Event Completeness
+## Event Completeness
 
 An event should contain enough information to identify:
 
@@ -1016,7 +1021,7 @@ An event should contain enough information to identify:
 
 ---
 
-# Source of Truth
+## Source of Truth
 
 The Aggregate state is the current source of truth for domain state.
 
@@ -1028,7 +1033,7 @@ Aggregates are not reconstructed by replaying all historical events.
 
 ---
 
-# Event History
+## Event History
 
 Events provide:
 
@@ -1041,13 +1046,13 @@ They do not replace dedicated domain history where an Aggregate requires richer 
 
 ---
 
-# Domain Event Catalog
+## Domain Event Catalog
 
 The following names are the canonical MVP Domain Event contracts for the core Work, Decision, and Memory Aggregates. Aggregate documents remain authoritative for command behavior and invariants; this catalog is authoritative for registered event names.
 
 ---
 
-# Work Events
+## Work Events
 
 ```text
 WorkCreated
@@ -1065,7 +1070,7 @@ WorkCancelled
 
 ---
 
-# Decision Events
+## Decision Events
 
 ```text
 DecisionCreated
@@ -1080,7 +1085,7 @@ DecisionRevisionStarted
 
 ---
 
-# Memory Events
+## Memory Events
 
 ```text
 MemoryGenerated
@@ -1094,7 +1099,7 @@ MemoryReopenedForRevision
 
 ---
 
-# Supporting-Domain Events
+## Supporting-Domain Events
 
 Representative supporting-domain events include:
 
@@ -1126,7 +1131,7 @@ Before implementation, each supporting-domain Aggregate document must confirm it
 
 ---
 
-# Integration Event Catalog
+## Integration Event Catalog
 
 The canonical cross-module MVP contracts are:
 
@@ -1141,7 +1146,7 @@ No Knowledge or Capability Integration Event is registered in the MVP.
 
 ---
 
-# Decision Outcome Integration Contract
+## Decision Outcome Integration Contract
 
 `DecisionOutcomeOccurred` schema version 1 contains:
 
@@ -1173,7 +1178,7 @@ The generic dispatcher does not query Work or Decision tables to enrich this con
 
 ---
 
-# Event Catalog Ownership
+## Event Catalog Ownership
 
 Each producing module owns:
 
@@ -1189,7 +1194,7 @@ The catalog must never use a shortened alias that differs from the owning Aggreg
 
 ---
 
-# Event Consumer Registry
+## Event Consumer Registry
 
 Every asynchronously consumed contract has one explicit registration key:
 
@@ -1219,7 +1224,7 @@ A Domain Event must not be registered directly to a handler owned by another Bou
 
 ---
 
-# Unhandled Events
+## Unhandled Events
 
 A committed Domain Event may legitimately have no asynchronous consumer when it exists only for local audit, future projections, or internal module processing.
 
@@ -1227,7 +1232,7 @@ Consumer absence for an Integration Event is a deployment or configuration error
 
 ---
 
-# Unknown Event Types
+## Unknown Event Types
 
 When a Worker receives an unknown registry key:
 
@@ -1245,7 +1250,7 @@ Unknown keys may indicate deployment mismatch, configuration error, an unsupport
 
 ---
 
-# Unsupported Schema Versions
+## Unsupported Schema Versions
 
 When the category and event type are known but the schema version is unsupported:
 
@@ -1261,7 +1266,7 @@ The consumer must not guess field interpretation.
 
 ---
 
-# Event Ordering Model
+## Event Ordering Model
 
 AIOS requires ordering only within one Aggregate stream.
 
@@ -1275,7 +1280,7 @@ Events in one Aggregate stream use aggregateVersion for order.
 
 ---
 
-# Per-Aggregate Ordering Example
+## Per-Aggregate Ordering Example
 
 ```text
 Decision version 2
@@ -1292,7 +1297,7 @@ A consumer should not treat version 4 as preceding version 3.
 
 ---
 
-# No Global Ordering
+## No Global Ordering
 
 AIOS does not require a total order across:
 
@@ -1305,7 +1310,7 @@ No business invariant may depend on global publication order.
 
 ---
 
-# Eventual Consistency
+## Eventual Consistency
 
 Cross-Aggregate effects are eventually consistent.
 
@@ -1334,7 +1339,7 @@ These states must be:
 
 ---
 
-# Event Security Boundary
+## Event Security Boundary
 
 Events are trusted only after validation.
 
@@ -1353,7 +1358,7 @@ An event is not trusted merely because it exists in a queue.
 
 ---
 
-# Organization Event Isolation
+## Organization Event Isolation
 
 A consumer processing:
 
@@ -1372,7 +1377,7 @@ Organization mismatch is a permanent security failure.
 
 ---
 
-# Event Actor Authority
+## Event Actor Authority
 
 Consumers must distinguish:
 
@@ -1398,7 +1403,7 @@ It does not become the Decision approver.
 
 ---
 
-# Core Event Invariants
+## Core Event Invariants
 
 The following invariants must always hold:
 
@@ -1426,7 +1431,7 @@ The following invariants must always hold:
 
 ---
 
-# Guiding Principles
+## Guiding Principles
 
 Commands answer:
 
@@ -1448,7 +1453,7 @@ The Transactional Outbox answers:
 
 > How is that committed fact delivered reliably?
 
-# Transactional Outbox
+## Transactional Outbox
 
 The Transactional Outbox guarantees reliable publication of committed events.
 
@@ -1461,7 +1466,7 @@ Aggregate state and event records are committed in one local database transactio
 
 ---
 
-# Dual-Write Problem
+## Dual-Write Problem
 
 Without a Transactional Outbox, an Application Service might:
 
@@ -1489,7 +1494,7 @@ Downstream consumers would never learn about the committed fact.
 
 ---
 
-# Opposite Failure
+## Opposite Failure
 
 Publishing before commit is also unsafe.
 
@@ -1513,7 +1518,7 @@ This creates a false business fact.
 
 ---
 
-# Outbox Solution
+## Outbox Solution
 
 The correct command pattern is:
 
@@ -1561,7 +1566,7 @@ No Outbox record is visible to the publisher before commit.
 
 ---
 
-# Atomicity Guarantee
+## Atomicity Guarantee
 
 The following writes must be atomic:
 
@@ -1585,7 +1590,7 @@ Entire transaction rolls back
 
 ---
 
-# Outbox Ownership
+## Outbox Ownership
 
 The Outbox belongs to the Application and Infrastructure architecture.
 
@@ -1602,7 +1607,7 @@ Aggregates only emit Domain Events.
 
 ---
 
-# Outbox Writer
+## Outbox Writer
 
 The Application Layer uses an Outbox Writer inside the current transaction.
 
@@ -1628,7 +1633,7 @@ The writer must use the same PostgreSQL transaction as Aggregate persistence.
 
 ---
 
-# Event Envelope Creation
+## Event Envelope Creation
 
 The Application Layer or a dedicated event mapper creates the persisted envelope.
 
@@ -1652,7 +1657,7 @@ EventEnvelope persisted to Outbox
 
 ---
 
-# Metadata Enrichment
+## Metadata Enrichment
 
 The persisted envelope may add metadata not owned by the Aggregate.
 
@@ -1678,7 +1683,7 @@ Business facts inside the payload must still originate from the Aggregate.
 
 ---
 
-# Outbox Record
+## Outbox Record
 
 Recommended Outbox record:
 
@@ -1719,7 +1724,7 @@ The exact schema may be simplified while preserving required behavior.
 
 ---
 
-# Outbox Identifier
+## Outbox Identifier
 
 ```text
 outboxId
@@ -1737,7 +1742,7 @@ The same eventId must not produce multiple authoritative Outbox messages for the
 
 ---
 
-# Event Identifier Uniqueness
+## Event Identifier Uniqueness
 
 Each Outbox record has one canonical destination.
 
@@ -1751,7 +1756,7 @@ This permits one logical event to have independently acknowledged local or futur
 
 ---
 
-# Payload Storage
+## Payload Storage
 
 Recommended PostgreSQL payload type:
 
@@ -1770,7 +1775,7 @@ Payload validation must occur before persistence.
 
 ---
 
-# Headers Storage
+## Headers Storage
 
 Headers may be stored as:
 
@@ -1796,7 +1801,7 @@ Headers must not duplicate essential authoritative envelope fields unnecessarily
 
 ---
 
-# Outbox Status Model
+## Outbox Status Model
 
 Recommended statuses:
 
@@ -1814,7 +1819,7 @@ An implementation may represent Claimed through lock fields instead of a durable
 
 ---
 
-# Pending Status
+## Pending Status
 
 ```text
 Pending
@@ -1829,7 +1834,7 @@ means:
 
 ---
 
-# Claimed Status
+## Claimed Status
 
 ```text
 Claimed
@@ -1843,7 +1848,7 @@ A permanent lock is prohibited.
 
 ---
 
-# Published Status
+## Published Status
 
 ```text
 Published
@@ -1863,7 +1868,7 @@ Published does not imply that any consumer business effect completed.
 
 ---
 
-# Failed Status
+## Failed Status
 
 ```text
 Failed
@@ -1880,7 +1885,7 @@ Failed records remain durable and recoverable.
 
 ---
 
-# Recommended PostgreSQL Table
+## Recommended PostgreSQL Table
 
 Conceptual DDL:
 
@@ -1920,7 +1925,7 @@ CREATE TABLE outbox_messages (
 
 ---
 
-# Recommended Constraints
+## Recommended Constraints
 
 ```sql
 ALTER TABLE outbox_messages
@@ -1959,7 +1964,7 @@ CHECK (
 
 ---
 
-# Recommended Indexes
+## Recommended Indexes
 
 ```sql
 CREATE INDEX ix_outbox_pending
@@ -2004,7 +2009,7 @@ ON outbox_messages (
 
 ---
 
-# Outbox Insert Flow
+## Outbox Insert Flow
 
 For each Domain Event selected for durable handling and each mapped Integration Event:
 
@@ -2040,7 +2045,7 @@ All rows are inserted before transaction commit.
 
 ---
 
-# Multiple Events in One Command
+## Multiple Events in One Command
 
 An Aggregate command may emit multiple events.
 
@@ -2060,7 +2065,7 @@ The Application Service persists every emitted event in deterministic Aggregate 
 
 ---
 
-# Event Position Within Transaction
+## Event Position Within Transaction
 
 When one command emits multiple events for the same Aggregate version, the design should include a sequence.
 
@@ -2086,7 +2091,7 @@ eventSequence
 
 ---
 
-# Recommended Event Sequence
+## Recommended Event Sequence
 
 Conceptual record:
 
@@ -2111,7 +2116,7 @@ UNIQUE (
 
 ---
 
-# Aggregate Version Semantics
+## Aggregate Version Semantics
 
 The aggregateVersion in the event must match the committed Aggregate version resulting from the command.
 
@@ -2129,7 +2134,7 @@ WorkCompleted.aggregateVersion = 9
 
 ---
 
-# Publication Architecture
+## Publication Architecture
 
 The MVP may publish events using:
 
@@ -2149,7 +2154,7 @@ An external broker is optional.
 
 ---
 
-# Local Publication
+## Local Publication
 
 In the MVP Modular Monolith, local publication means a durable PostgreSQL handoff:
 
@@ -2175,7 +2180,7 @@ For `local-consumer-bus`, `Published` means every resolved target consumer has a
 
 ---
 
-# External Broker Publication
+## External Broker Publication
 
 A future deployment may publish to:
 
@@ -2189,7 +2194,7 @@ Broker introduction must not change Aggregate behavior.
 
 ---
 
-# Publication Destination
+## Publication Destination
 
 The Outbox record may include:
 
@@ -2213,7 +2218,7 @@ The MVP may use one local destination.
 
 ---
 
-# Publication Worker
+## Publication Worker
 
 The Publication Worker is responsible for:
 
@@ -2228,7 +2233,7 @@ The Publication Worker is responsible for:
 
 ---
 
-# Worker Polling
+## Worker Polling
 
 Conceptual loop:
 
@@ -2256,7 +2261,7 @@ Polling frequency is configurable.
 
 ---
 
-# Safe Claim Query
+## Safe Claim Query
 
 Recommended PostgreSQL pattern:
 
@@ -2274,7 +2279,7 @@ The Worker then updates claimed rows within the same short transaction.
 
 ---
 
-# Claim Transaction
+## Claim Transaction
 
 ```text
 BEGIN
@@ -2297,7 +2302,7 @@ Publication occurs after the claim transaction.
 
 ---
 
-# Why Publication Occurs Outside Claim Transaction
+## Why Publication Occurs Outside Claim Transaction
 
 Network or handler execution may be slow.
 
@@ -2312,7 +2317,7 @@ The lease preserves ownership without holding an open transaction.
 
 ---
 
-# Claim Lease
+## Claim Lease
 
 Every claim must have:
 
@@ -2324,7 +2329,7 @@ If the Worker crashes, another Worker may reclaim the event after lease expiry.
 
 ---
 
-# Claim Ownership
+## Claim Ownership
 
 A Worker may update publication outcome only when:
 
@@ -2336,7 +2341,7 @@ and the lease is still valid, or the implementation uses equivalent fencing prot
 
 ---
 
-# Fencing Token
+## Fencing Token
 
 For stronger protection, a claim may include:
 
@@ -2350,7 +2355,7 @@ A stale Worker cannot overwrite a newer Worker’s result.
 
 ---
 
-# Publication Success
+## Publication Success
 
 For `local-consumer-bus`, one short transaction performs:
 
@@ -2381,7 +2386,7 @@ For an external broker destination, the Outbox record is marked Published only a
 
 ---
 
-# Publication Failure
+## Publication Failure
 
 After failed publication:
 
@@ -2411,7 +2416,7 @@ preserve error metadata
 
 ---
 
-# Publication Acknowledgement
+## Publication Acknowledgement
 
 For `local-consumer-bus`, acknowledgement is the atomic commit of every target `Pending` processed-event row and the Outbox `Published` transition.
 
@@ -2421,7 +2426,7 @@ A local function call, task submission, or in-memory queue write is not durable 
 
 ---
 
-# At-Least-Once Publication
+## At-Least-Once Publication
 
 A Worker may publish successfully and crash before marking the Outbox row Published.
 
@@ -2439,7 +2444,7 @@ Consumers must be idempotent
 
 ---
 
-# Exactly-Once Prohibition
+## Exactly-Once Prohibition
 
 The MVP must not claim exactly-once end-to-end delivery.
 
@@ -2457,7 +2462,7 @@ This provides effectively-once business outcomes where implemented correctly.
 
 ---
 
-# Publication Ordering
+## Publication Ordering
 
 The Outbox Worker should preserve order within one Aggregate stream where consumers require it.
 
@@ -2469,7 +2474,7 @@ aggregateType + aggregateId
 
 ---
 
-# Ordering Challenge
+## Ordering Challenge
 
 Multiple Worker instances may claim consecutive events from the same Aggregate.
 
@@ -2487,7 +2492,7 @@ The design must address this when strict stream order is required.
 
 ---
 
-# MVP Ordering Strategy
+## MVP Ordering Strategy
 
 Recommended MVP strategy:
 
@@ -2498,7 +2503,7 @@ Recommended MVP strategy:
 
 ---
 
-# Stream Locking
+## Stream Locking
 
 Possible implementation:
 
@@ -2513,7 +2518,7 @@ PostgreSQL advisory locks are one possible implementation.
 
 ---
 
-# Stream Head Query
+## Stream Head Query
 
 A message is publishable only when no earlier unpublished event exists for the same Aggregate.
 
@@ -2538,7 +2543,7 @@ NOT EXISTS (
 
 ---
 
-# Stream Blocking
+## Stream Blocking
 
 If an earlier event in the same Aggregate stream is Failed:
 
@@ -2552,7 +2557,7 @@ Silent reordering is prohibited.
 
 ---
 
-# Publication Stream Skip Policy
+## Publication Stream Skip Policy
 
 Skipping a failed Outbox publication is an exceptional operator action. This policy applies to publisher stream heads; consumer dead-letter skipping follows the separate Consumer Ordering and Failure-Continuation Contract.
 
@@ -2569,7 +2574,7 @@ The MVP should prefer repair and replay over skip.
 
 ---
 
-# Cross-Stream Parallelism
+## Cross-Stream Parallelism
 
 Events from different Aggregate streams may publish concurrently.
 
@@ -2585,7 +2590,7 @@ No ordering is required between them.
 
 ---
 
-# Organization Ordering
+## Organization Ordering
 
 The MVP does not require one global sequence per Organization.
 
@@ -2595,7 +2600,7 @@ Only explicit workflows that require Organization-scoped locking should use it.
 
 ---
 
-# Event Mapping
+## Event Mapping
 
 A Domain Event may be persisted directly or translated to an Integration Event.
 
@@ -2618,13 +2623,13 @@ One Domain Event may map to:
 
 ---
 
-# Fan-Out
+## Fan-Out
 
 When one event has multiple independent destinations, two patterns are possible.
 
 ---
 
-## Pattern A: One Outbox Event, Multiple Consumers
+### Pattern A: One Outbox Event, Multiple Consumers
 
 ```text
 One claimed Outbox event
@@ -2644,7 +2649,7 @@ This is required for the MVP `local-consumer-bus`. The Outbox record becomes Pub
 
 ---
 
-## Pattern B: One Delivery Record per Destination
+### Pattern B: One Delivery Record per Destination
 
 ```text
 One logical event
@@ -2658,7 +2663,7 @@ This is useful when destinations have independent publication guarantees.
 
 ---
 
-# Publication Record Versus Consumer Record
+## Publication Record Versus Consumer Record
 
 Outbox publication answers:
 
@@ -2672,7 +2677,7 @@ These are different records.
 
 ---
 
-# Event Versioning
+## Event Versioning
 
 Every event contract has an explicit schema version.
 
@@ -2684,7 +2689,7 @@ Versioning applies to:
 
 ---
 
-# Versioning Goals
+## Versioning Goals
 
 Versioning must allow:
 
@@ -2696,7 +2701,7 @@ Versioning must allow:
 
 ---
 
-# Schema Version Ownership
+## Schema Version Ownership
 
 The module owning the event defines:
 
@@ -2708,7 +2713,7 @@ The module owning the event defines:
 
 ---
 
-# Compatible Changes
+## Compatible Changes
 
 Usually compatible changes include:
 
@@ -2721,7 +2726,7 @@ Consumers must tolerate unknown optional fields.
 
 ---
 
-# Potentially Breaking Changes
+## Potentially Breaking Changes
 
 Breaking changes include:
 
@@ -2739,7 +2744,7 @@ Breaking changes require a new schema version.
 
 ---
 
-# Enum Evolution
+## Enum Evolution
 
 Adding a new enum value may be breaking when consumers use exhaustive matching.
 
@@ -2751,7 +2756,7 @@ Consumers should:
 
 ---
 
-# New Schema Version
+## New Schema Version
 
 Example:
 
@@ -2767,7 +2772,7 @@ The eventType may remain stable while schemaVersion changes.
 
 ---
 
-# Event Type Replacement
+## Event Type Replacement
 
 When semantic meaning changes significantly, use a new eventType instead of only increasing schemaVersion.
 
@@ -2783,7 +2788,7 @@ DecisionApprovalConsensusReached
 
 ---
 
-# Upcasting
+## Upcasting
 
 An Upcaster converts an older event representation into the current internal consumer model.
 
@@ -2805,7 +2810,7 @@ The original stored event remains unchanged.
 
 ---
 
-# Upcaster Rules
+## Upcaster Rules
 
 Upcasters must:
 
@@ -2819,7 +2824,7 @@ Upcasters must:
 
 ---
 
-# Downcasting
+## Downcasting
 
 Downcasting a new event into an older semantic contract is discouraged.
 
@@ -2827,7 +2832,7 @@ When required for an external destination, use an explicit destination adapter.
 
 ---
 
-# Envelope Version
+## Envelope Version
 
 The envelope itself may also have a version.
 
@@ -2841,7 +2846,7 @@ Payload schemaVersion and envelopeVersion solve different concerns.
 
 ---
 
-# Contract Registry
+## Contract Registry
 
 A contract registry should define:
 
@@ -2860,7 +2865,7 @@ The registry may initially be implemented in version-controlled code.
 
 ---
 
-# Serialization Format
+## Serialization Format
 
 Recommended MVP format:
 
@@ -2879,7 +2884,7 @@ Strict byte-for-byte canonical JSON is optional unless signatures require it.
 
 ---
 
-# Content Type
+## Content Type
 
 Recommended content type:
 
@@ -2891,7 +2896,7 @@ When external brokers are introduced, include content type and schema metadata i
 
 ---
 
-# Timestamp Format
+## Timestamp Format
 
 Serialized timestamps should use:
 
@@ -2909,7 +2914,7 @@ Example:
 
 ---
 
-# Identifier Serialization
+## Identifier Serialization
 
 Identifiers should serialize consistently as strings.
 
@@ -2917,7 +2922,7 @@ Consumers must not infer identifier type from formatting alone.
 
 ---
 
-# Null Handling
+## Null Handling
 
 Optional fields should have explicit nullability.
 
@@ -2925,7 +2930,7 @@ Missing and null must not silently represent different business meanings unless 
 
 ---
 
-# Event Payload Validation
+## Event Payload Validation
 
 Before Outbox insertion, validate:
 
@@ -2940,7 +2945,7 @@ Before Outbox insertion, validate:
 
 ---
 
-# Authority-Sensitive Validation
+## Authority-Sensitive Validation
 
 Examples:
 
@@ -2963,7 +2968,7 @@ An invalid actor/event combination must fail before commit.
 
 ---
 
-# Payload Size Limit
+## Payload Size Limit
 
 The MVP should define a maximum serialized event size.
 
@@ -2979,7 +2984,7 @@ Large content should use references.
 
 ---
 
-# Outbox Retention
+## Outbox Retention
 
 Published Outbox records should not grow without bound.
 
@@ -2992,7 +2997,7 @@ Retention options include:
 
 ---
 
-# Retention Separation
+## Retention Separation
 
 The Outbox is primarily a delivery mechanism.
 
@@ -3002,7 +3007,7 @@ Audit retention and Outbox retention may differ.
 
 ---
 
-# Partitioning
+## Partitioning
 
 PostgreSQL table partitioning is optional for the MVP.
 
@@ -3023,7 +3028,7 @@ Partitioning must preserve:
 
 ---
 
-# Outbox Cleanup
+## Outbox Cleanup
 
 Cleanup may remove only records that are:
 
@@ -3043,7 +3048,7 @@ Pending, Claimed, or Failed records must not be deleted by routine cleanup.
 
 ---
 
-# Claim Recovery
+## Claim Recovery
 
 A recovery job resets expired claims.
 
@@ -3071,7 +3076,7 @@ Set nextAttemptAt
 
 ---
 
-# Clock Requirements
+## Clock Requirements
 
 Outbox timing depends on a consistent clock.
 
@@ -3084,7 +3089,7 @@ The system should use:
 
 ---
 
-# Database Time
+## Database Time
 
 Using PostgreSQL:
 
@@ -3096,7 +3101,7 @@ for claim and retry timestamps reduces disagreement between Workers.
 
 ---
 
-# Publication Configuration
+## Publication Configuration
 
 Recommended configurable values:
 
@@ -3124,7 +3129,7 @@ Configuration must not alter event business meaning.
 
 ---
 
-# Notification Mechanism
+## Notification Mechanism
 
 Polling is sufficient for the MVP.
 
@@ -3136,7 +3141,7 @@ The Outbox table remains the source of pending publication work.
 
 ---
 
-# Worker Deployment
+## Worker Deployment
 
 The publisher may run:
 
@@ -3148,7 +3153,7 @@ All options remain part of the Modular Monolith codebase.
 
 ---
 
-# Multiple Worker Safety
+## Multiple Worker Safety
 
 Multiple Workers require:
 
@@ -3161,7 +3166,7 @@ Multiple Workers require:
 
 ---
 
-# Publication Idempotency
+## Publication Idempotency
 
 Where the destination supports producer deduplication, use:
 
@@ -3177,7 +3182,7 @@ Consumers must still be idempotent.
 
 ---
 
-# Broker Partition Key
+## Broker Partition Key
 
 When a broker is introduced, recommended partition key:
 
@@ -3191,7 +3196,7 @@ OrganizationId alone is too broad and may reduce scalability.
 
 ---
 
-# Message Key
+## Message Key
 
 Recommended message key:
 
@@ -3203,7 +3208,7 @@ The eventId remains the unique message identity.
 
 ---
 
-# Publication Failure Classification
+## Publication Failure Classification
 
 Publication errors should be classified as:
 
@@ -3221,7 +3226,7 @@ Unknown
 
 ---
 
-## Transient Publication Failure
+### Transient Publication Failure
 
 Examples:
 
@@ -3238,7 +3243,7 @@ Retry with backoff
 
 ---
 
-## Permanent Contract Failure
+### Permanent Contract Failure
 
 Examples:
 
@@ -3259,7 +3264,7 @@ Require repair
 
 ---
 
-## Permanent Security Failure
+### Permanent Security Failure
 
 Examples:
 
@@ -3280,7 +3285,7 @@ Do not retry unchanged payload
 
 ---
 
-## Configuration Failure
+### Configuration Failure
 
 Examples:
 
@@ -3298,7 +3303,7 @@ Retry only after configuration correction
 
 ---
 
-# Publication Retry Schedule
+## Publication Retry Schedule
 
 Recommended backoff:
 
@@ -3315,7 +3320,7 @@ Retries must be bounded.
 
 ---
 
-# Failure Preservation
+## Failure Preservation
 
 The Outbox record should preserve only bounded error information.
 
@@ -3338,7 +3343,7 @@ Avoid storing:
 
 ---
 
-# Part 2 Invariants
+## Part 2 Invariants
 
 The Transactional Outbox implementation must preserve:
 
@@ -3360,7 +3365,7 @@ The Transactional Outbox implementation must preserve:
 
 ---
 
-# Part 2 Design Summary
+## Part 2 Design Summary
 
 The Transactional Outbox provides a durable boundary between synchronous domain transactions and asynchronous processing.
 
@@ -3394,7 +3399,7 @@ Recoverable Failure
 
 Consumer idempotency completes the reliability model.
 
-# Consumer Processing Model
+## Consumer Processing Model
 
 Consumers react to committed events after publication.
 
@@ -3414,7 +3419,7 @@ Every consumer must define its responsibility explicitly.
 
 ---
 
-# Consumer Types
+## Consumer Types
 
 Recommended consumer categories:
 
@@ -3430,7 +3435,7 @@ Operational Consumer
 
 ---
 
-# Domain Coordination Consumer
+## Domain Coordination Consumer
 
 A Domain Coordination Consumer invokes an Application Service in one Bounded Context after receiving a registered Integration Event from another context.
 
@@ -3451,7 +3456,7 @@ The Platform Runtime dispatcher validates and routes the contract. The receiving
 
 ---
 
-# Projection Consumer
+## Projection Consumer
 
 A Projection Consumer updates a read model.
 
@@ -3474,7 +3479,7 @@ They do not own authoritative domain state.
 
 ---
 
-# Integration Consumer
+## Integration Consumer
 
 An Integration Consumer communicates with an external service.
 
@@ -3495,7 +3500,7 @@ External integration failure does not roll back the source domain fact.
 
 ---
 
-# Operational Consumer
+## Operational Consumer
 
 An Operational Consumer performs infrastructure or maintenance work.
 
@@ -3516,7 +3521,7 @@ Operational consumers have no Human business authority.
 
 ---
 
-# Consumer Registration
+## Consumer Registration
 
 Every consumer must be registered explicitly.
 
@@ -3546,7 +3551,7 @@ A registration is version-controlled configuration. Runtime exception type, ad h
 
 ---
 
-# Canonical Side-Effect Classes
+## Canonical Side-Effect Classes
 
 ```text
 PostgreSQLLocal
@@ -3554,17 +3559,17 @@ ExternalComputation
 ExternalBusinessEffect
 ```
 
-## PostgreSQLLocal
+### PostgreSQLLocal
 
 The effect is fully committed inside the authoritative PostgreSQL consistency boundary. Aggregate state, processed-event result, Outbox, audit, and ordering-state changes can be finalized atomically.
 
-## ExternalComputation
+### ExternalComputation
 
 A provider computes candidate data but does not become the source of an AIOS business outcome. The provider result has no authority until validated and committed locally.
 
 Memory generation is the MVP example. A timeout with no usable response may duplicate provider cost when retried, but it does not create a duplicate Memory or unknown external business state. It uses the typed Memory-generation operation, not the generic external-effect ledger.
 
-## ExternalBusinessEffect
+### ExternalBusinessEffect
 
 The provider changes externally visible state such as sending an email, posting a webhook, creating a remote object, transferring value, or revoking remote access. Local rollback cannot undo it.
 
@@ -3572,7 +3577,7 @@ This class requires the External Effect Contract below before the consumer can b
 
 ---
 
-# External Effect Capability Modes
+## External Effect Capability Modes
 
 Canonical registration values are:
 
@@ -3591,7 +3596,7 @@ A non-idempotent, non-queryable external business effect is prohibited for autom
 
 ---
 
-# MVP Side-Effect Scope
+## MVP Side-Effect Scope
 
 The baseline MVP registrations are:
 
@@ -3606,7 +3611,7 @@ The existence of a future-facing ledger schema does not authorize an external in
 
 ---
 
-# Consumer Name
+## Consumer Name
 
 Every consumer has a stable:
 
@@ -3637,7 +3642,7 @@ The name is used for:
 
 ---
 
-# Consumer Version
+## Consumer Version
 
 A consumer implementation may have a version.
 
@@ -3653,7 +3658,7 @@ Consumer version is distinct from event schemaVersion.
 
 ---
 
-# Consumer Capability
+## Consumer Capability
 
 Each consumer has a narrow System capability.
 
@@ -3673,7 +3678,7 @@ Consumers must not receive unrelated authority.
 
 ---
 
-# Consumer Processing Flow
+## Consumer Processing Flow
 
 A standard consumer follows:
 
@@ -3705,7 +3710,7 @@ Invalid envelopes, unsupported contracts, Organization mismatches, and prohibite
 
 ---
 
-# Envelope Validation
+## Envelope Validation
 
 Before processing, the consumer validates:
 
@@ -3725,13 +3730,13 @@ Invalid envelopes must not reach domain mutation logic.
 
 ---
 
-# Contract Validation
+## Contract Validation
 
 Contract validation checks required fields, field types, identifier structure, enum values, payload size, actor requirements, Organization requirements, semantic prerequisites, registered retry policy, and ordering policy. Structurally valid JSON is not necessarily a valid event contract.
 
 ---
 
-# Consumer Organization Scope
+## Consumer Organization Scope
 
 Every Organization-owned event is processed in exactly one Organization context.
 
@@ -3749,7 +3754,7 @@ Any mismatch is a permanent security failure.
 
 ---
 
-# Global Event Processing
+## Global Event Processing
 
 A global event such as:
 
@@ -3784,7 +3789,7 @@ One Organization failure must not silently block all others indefinitely.
 
 ---
 
-# Handler Transaction Boundary
+## Handler Transaction Boundary
 
 Domain-changing handlers use the canonical consumer claim and fencing contract. The final transaction is short and begins only after any external preparation finishes.
 
@@ -3810,7 +3815,7 @@ No external call occurs inside this final transaction. If fencing fails, no targ
 
 ---
 
-# External Preparation Boundary
+## External Preparation Boundary
 
 When a handler requires external preparation:
 
@@ -3832,7 +3837,7 @@ Memory generation follows this pattern. Losing the lease invalidates the Worker 
 
 ---
 
-# Consumer Acknowledgement
+## Consumer Acknowledgement
 
 The transport acknowledgement occurs only after successful consumer processing.
 
@@ -3846,7 +3851,7 @@ For an external broker, acknowledgement follows broker-specific semantics.
 
 ---
 
-# Handler-Level Idempotency
+## Handler-Level Idempotency
 
 Event publication is at least once.
 
@@ -3860,7 +3865,7 @@ consumerName + eventId
 
 ---
 
-# Why EventId Alone Is Insufficient
+## Why EventId Alone Is Insufficient
 
 One event may have multiple consumers.
 
@@ -3885,7 +3890,7 @@ alone cannot represent completion for all consumers.
 
 ---
 
-# Processed Event Store
+## Processed Event Store
 
 `processed_events` is the durable per-consumer delivery and execution record. It is not the immutable source event history.
 
@@ -3934,7 +3939,7 @@ Organization-owned deliveries derive Organization scope, ordering key, and sourc
 
 ---
 
-# Canonical Processed-Event Status Model
+## Canonical Processed-Event Status Model
 
 ```text
 Pending
@@ -3950,7 +3955,7 @@ These names are canonical across Events, Persistence, Application Services, and 
 
 ---
 
-# Processed-Event State Machine
+## Processed-Event State Machine
 
 ```text
 NoRecord ──local durable fan-out──► Pending
@@ -3969,7 +3974,7 @@ Failed ──authorized skip──────────────► Skippe
 
 ---
 
-# Status Invariants
+## Status Invariants
 
 - `Pending` requires `firstReceivedAt`, cleared claim fields, zero handler attempts, and the materialized consumer-set version;
 - `Processing` requires `lockedBy`, `lockedUntil`, `processingStartedAt`, and a positive `claimVersion`;
@@ -3982,7 +3987,7 @@ Failed ──authorized skip──────────────► Skippe
 
 ---
 
-# Attempt Count Semantics
+## Attempt Count Semantics
 
 `attemptCount` increments exactly once when a Worker successfully acquires a `Processing` claim and begins a real handler attempt.
 
@@ -3998,7 +4003,7 @@ Reclaiming an expired attempt increments `attemptCount` only when the next Worke
 
 ---
 
-# Consumer Claim Transaction
+## Consumer Claim Transaction
 
 Consumer claiming uses a short PostgreSQL transaction:
 
@@ -4042,7 +4047,7 @@ Claiming never holds a target Aggregate lock or an external dependency call.
 
 ---
 
-# Consumer Fencing Contract
+## Consumer Fencing Contract
 
 A Worker may commit a consumer outcome only after the final transaction locks the processed-event row and verifies all of:
 
@@ -4059,7 +4064,7 @@ A long-running handler renews its lease in bounded heartbeat transactions. Lease
 
 ---
 
-# Transactional Consumer Success
+## Transactional Consumer Success
 
 For a domain-changing consumer, one final transaction performs:
 
@@ -4085,7 +4090,7 @@ Target Aggregate state, Aggregate version, follow-up Outbox events, the `Process
 
 ---
 
-# Consumer Retry Transition
+## Consumer Retry Transition
 
 After a transient failure, a short fenced transaction performs:
 
@@ -4101,7 +4106,7 @@ The next attempt must reacquire `Processing` and revalidate current target state
 
 ---
 
-# Consumer Permanent-Failure Transition
+## Consumer Permanent-Failure Transition
 
 After a permanent failure or retry exhaustion, one fenced transaction atomically:
 
@@ -4116,7 +4121,7 @@ An unchanged permanent failure is not automatically reclaimed.
 
 ---
 
-# Consumer Lease Recovery
+## Consumer Lease Recovery
 
 Recovery finds `Processing` rows whose `lockedUntil` has expired. In one short transaction it verifies the expired `claimVersion`, changes the row to `RetryPending`, calculates `nextAttemptAt`, preserves `attemptCount`, records `LeaseExpired`, and clears claim fields.
 
@@ -4124,7 +4129,7 @@ Recovery does not mutate a target Aggregate and does not itself count as a handl
 
 ---
 
-# Duplicate Delivery Rules
+## Duplicate Delivery Rules
 
 - `Processed` returns prior success without repeating effects;
 - `Processing` with a valid lease defers to the current Worker;
@@ -4137,7 +4142,7 @@ Duplicate delivery is expected and must not create an error alert by itself.
 
 ---
 
-# Recommended Processed Event Table
+## Recommended Processed Event Table
 
 Conceptual DDL:
 
@@ -4182,7 +4187,7 @@ CREATE TABLE processed_events (
 Database constraints or equivalent adapter validation enforce the status invariants. Error messages contain bounded metadata or protected references, not unrestricted event payloads.
 
 ---
-# Business-Level Idempotency
+## Business-Level Idempotency
 
 Technical processed-event storage is necessary but not sufficient.
 
@@ -4201,7 +4206,7 @@ The Work Aggregate should recognize that the same Decision outcome has already b
 
 ---
 
-# Technical and Domain Idempotency
+## Technical and Domain Idempotency
 
 The reliability model uses both:
 
@@ -4227,7 +4232,7 @@ This defense in depth protects against:
 
 ---
 
-# Duplicate Logical Event
+## Duplicate Logical Event
 
 Two different eventIds may incorrectly describe the same business fact.
 
@@ -4248,7 +4253,7 @@ The target Aggregate or handler business key must prevent duplicate outcome appl
 
 ---
 
-# Business Idempotency Key
+## Business Idempotency Key
 
 Examples:
 
@@ -4268,7 +4273,7 @@ Projection update:
 
 ---
 
-# Projection Idempotency
+## Projection Idempotency
 
 A projection consumer may store the latest applied Aggregate version.
 
@@ -4286,7 +4291,7 @@ Ignore as duplicate or stale
 
 ---
 
-# Projection Gap
+## Projection Gap
 
 When:
 
@@ -4302,7 +4307,7 @@ It must not silently assume missing events are irrelevant.
 
 ---
 
-# Projection Gap Handling
+## Projection Gap Handling
 
 Possible actions:
 
@@ -4316,7 +4321,7 @@ The chosen strategy must be explicit per projection.
 
 ---
 
-# Domain Consumer Ordering
+## Domain Consumer Ordering
 
 A Domain Coordination Consumer uses `BlockOrderingKey` by default. Its ConsumerRegistration defines whether the ordering key is the source Aggregate stream or a versioned target business key.
 
@@ -4334,7 +4339,7 @@ If an earlier subscribed event for the same ordering key is `Processing`, `Retry
 
 ---
 
-# Stale Event Handling
+## Stale Event Handling
 
 An event is stale when a newer fact has already been applied.
 
@@ -4358,7 +4363,7 @@ The handler must record why no mutation was required.
 
 ---
 
-# No-Op Success
+## No-Op Success
 
 A valid event may require no new effect because the target state already reflects it.
 
@@ -4379,7 +4384,7 @@ result = NoOpAlreadyApplied
 
 ---
 
-# Consumer Retry Model
+## Consumer Retry Model
 
 Consumers retry transient failures.
 
@@ -4387,7 +4392,7 @@ They do not retry unchanged permanent failures automatically.
 
 ---
 
-# Retryable Failures
+## Retryable Failures
 
 Examples:
 
@@ -4407,7 +4412,7 @@ Processing lease interruption
 
 ---
 
-# Non-Retryable Failures
+## Non-Retryable Failures
 
 Examples:
 
@@ -4429,7 +4434,7 @@ Deterministic domain rejection caused by invalid event
 
 ---
 
-# Retry Classification
+## Retry Classification
 
 Recommended categories:
 
@@ -4453,7 +4458,7 @@ Unknown
 
 ---
 
-# Transient Infrastructure Failure
+## Transient Infrastructure Failure
 
 Examples:
 
@@ -4470,7 +4475,7 @@ Retry with bounded backoff
 
 ---
 
-# Transient Concurrency Failure
+## Transient Concurrency Failure
 
 Example:
 
@@ -4492,7 +4497,7 @@ The handler must not reuse stale domain decisions.
 
 ---
 
-# Transient External Dependency Failure
+## Transient External Dependency Failure
 
 Examples:
 
@@ -4510,7 +4515,7 @@ External calls must have explicit timeouts.
 
 ---
 
-# Permanent Contract Failure
+## Permanent Contract Failure
 
 Examples:
 
@@ -4531,7 +4536,7 @@ Alert contract owner
 
 ---
 
-# Permanent Security Failure
+## Permanent Security Failure
 
 Examples:
 
@@ -4553,7 +4558,7 @@ Preserve evidence
 
 ---
 
-# Permanent Domain Failure
+## Permanent Domain Failure
 
 A permanent domain failure occurs when a validly delivered event requests an impossible target transition.
 
@@ -4574,7 +4579,7 @@ The handler must not force the transition.
 
 ---
 
-# Configuration Failure
+## Configuration Failure
 
 Examples:
 
@@ -4594,7 +4599,7 @@ Retry only after configuration correction
 
 ---
 
-# Unknown Failure
+## Unknown Failure
 
 Unknown failures may be retried conservatively.
 
@@ -4610,7 +4615,7 @@ Unknown exceptions must not result in endless retry loops.
 
 ---
 
-# Retry Schedule
+## Retry Schedule
 
 Recommended consumer retry formula:
 
@@ -4627,7 +4632,7 @@ Different consumers may use different retry policies.
 
 ---
 
-# Consumer-Specific Retry Policies
+## Consumer-Specific Retry Policies
 
 Examples:
 
@@ -4652,7 +4657,7 @@ Projection handler
 
 ---
 
-# Retry Limits
+## Retry Limits
 
 Every consumer must define:
 
@@ -4674,7 +4679,7 @@ Defaults may exist, but consumer-specific overrides should be explicit.
 
 ---
 
-# Retry Safety
+## Retry Safety
 
 Before every retry, the handler checks:
 
@@ -4689,7 +4694,7 @@ The handler must assume a previous attempt may have committed despite an acknowl
 
 ---
 
-# Retry After Commit Uncertainty
+## Retry After Commit Uncertainty
 
 Example:
 
@@ -4719,7 +4724,7 @@ This prevents duplicate mutation.
 
 ---
 
-# Handler Timeout
+## Handler Timeout
 
 Every handler must have a bounded processing timeout.
 
@@ -4739,7 +4744,7 @@ Infinite processing is prohibited.
 
 ---
 
-# Cancellation
+## Cancellation
 
 Workers should support cooperative cancellation during shutdown.
 
@@ -4752,13 +4757,13 @@ A cancelled attempt must:
 
 ---
 
-# Memory Generation Consumer
+## Memory Generation Consumer
 
 Memory generation requires additional idempotency protections.
 
 ---
 
-# Memory Generation Identity
+## Memory Generation Identity
 
 Recommended business key:
 
@@ -4774,7 +4779,7 @@ work-123:v1
 
 ---
 
-# Memory Generation Flow
+## Memory Generation Flow
 
 ```text
 Receive Integration / WorkCompleted / 1
@@ -4834,7 +4839,7 @@ COMMIT
 
 ---
 
-# Memory Generation Duplicate Result
+## Memory Generation Duplicate Result
 
 If an active Memory already exists for the Work:
 
@@ -4850,7 +4855,7 @@ Result = NoOpMemoryAlreadyExists
 
 ---
 
-# AI Generation Failure
+## AI Generation Failure
 
 When AI generation fails:
 
@@ -4864,7 +4869,7 @@ When AI generation fails:
 
 ---
 
-# Generation Attempt State
+## Generation Attempt State
 
 Recommended states:
 
@@ -4888,7 +4893,7 @@ They are not the Memory Aggregate.
 
 ---
 
-# Generation Policy Version
+## Generation Policy Version
 
 The policy version identifies:
 
@@ -4902,7 +4907,7 @@ A policy change does not automatically regenerate existing approved Memory.
 
 ---
 
-# Decision Outcome Consumer
+## Decision Outcome Consumer
 
 The Work module consumer handles only:
 
@@ -4914,7 +4919,7 @@ It does not subscribe directly to `DecisionApproved`, `DecisionRejected`, or `De
 
 ---
 
-# Decision Outcome Business Key
+## Decision Outcome Business Key
 
 Recommended business key:
 
@@ -4928,7 +4933,7 @@ The target Work must verify that `workId` identifies the loaded Work and that it
 
 ---
 
-# Decision Outcome Flow
+## Decision Outcome Flow
 
 ```text
 Receive DecisionOutcomeOccurred v1
@@ -4962,7 +4967,7 @@ The Work module does not query the Decision Aggregate during handling. All requi
 
 ---
 
-# Decision Outcome Prohibitions
+## Decision Outcome Prohibitions
 
 The handler must not:
 
@@ -4978,7 +4983,7 @@ If Work was cancelled before delivery, the handler records a terminal no-op with
 
 ---
 
-# Membership Reconciliation Consumer
+## Membership Reconciliation Consumer
 
 The Membership reconciliation consumer reacts to:
 
@@ -4998,7 +5003,7 @@ It may not reassign resources automatically.
 
 ---
 
-# Session Invalidation Consumer
+## Session Invalidation Consumer
 
 The Session invalidation consumer is operational.
 
@@ -5013,7 +5018,7 @@ Repeated invalidation is a successful no-op.
 
 ---
 
-# Poison Event
+## Poison Event
 
 A poison event repeatedly fails for deterministic reasons.
 
@@ -5035,7 +5040,7 @@ Corrupted historical event
 
 ---
 
-# Poison Event Detection
+## Poison Event Detection
 
 An event may be classified as poison when:
 
@@ -5047,7 +5052,7 @@ An event may be classified as poison when:
 
 ---
 
-# Poison Event Record
+## Poison Event Record
 
 Recommended record:
 
@@ -5074,7 +5079,7 @@ PoisonEvent
 
 ---
 
-# Poison Event Status
+## Poison Event Status
 
 Recommended statuses:
 
@@ -5092,7 +5097,7 @@ Skipped
 
 ---
 
-# Dead Letter Storage
+## Dead Letter Storage
 
 The MVP may use PostgreSQL-backed dead letter storage.
 
@@ -5111,7 +5116,7 @@ Required capabilities:
 
 ---
 
-# Dead Letter Versus Outbox Failure
+## Dead Letter Versus Outbox Failure
 
 These are separate concepts.
 
@@ -5129,7 +5134,7 @@ One event may be Published in the Outbox while Failed for one consumer.
 
 ---
 
-# Multi-Consumer Failure Isolation
+## Multi-Consumer Failure Isolation
 
 Example:
 
@@ -5146,7 +5151,7 @@ Each consumer tracks independent status.
 
 ---
 
-# Consumer Ordering and Failure-Continuation Contract
+## Consumer Ordering and Failure-Continuation Contract
 
 Publication order and consumer continuation are separate decisions. Publishing an event successfully does not authorize every consumer to process later events after an earlier delivery fails.
 
@@ -5175,7 +5180,7 @@ The ordering key is derived by trusted consumer code from the validated event en
 
 ---
 
-# Failure-Continuation Policies
+## Failure-Continuation Policies
 
 | Policy | Behavior after a permanent failure | Allowed use |
 |---|---|---|
@@ -5190,7 +5195,7 @@ A failure in one consumer MUST NOT block another consumer that already processed
 
 ---
 
-# Default Policy by Consumer Type
+## Default Policy by Consumer Type
 
 | Consumer type | Default continuation | Required qualification |
 |---|---|---|
@@ -5203,7 +5208,7 @@ The registration may override a default only with a documented invariant, owner,
 
 ---
 
-# Consumer Claim Ordering
+## Consumer Claim Ordering
 
 For `PerAggregateStream` or `PerBusinessKey`, a Worker MUST NOT claim a later eligible delivery while an earlier delivery for the same consumer and ordering key is `Processing`, `RetryPending`, `Failed`, or `Blocked`.
 
@@ -5220,7 +5225,7 @@ Different consumers and different ordering keys remain parallel. The implementat
 
 ---
 
-# Durable Consumer Ordering State
+## Durable Consumer Ordering State
 
 When ordered continuation is required, PostgreSQL maintains durable state equivalent to:
 
@@ -5253,7 +5258,7 @@ Later deliveries waiting behind the poison event use processed-event status `Blo
 
 ---
 
-# Poison Event Continuation Decision
+## Poison Event Continuation Decision
 
 When a delivery becomes poison, the consumer applies its registered failure-continuation policy and durably records:
 
@@ -5281,7 +5286,7 @@ The Worker does not invent a continuation decision from the exception type at ru
 
 ---
 
-# Rebuildable Projection Exception
+## Rebuildable Projection Exception
 
 A Projection Consumer may quarantine one failed event and continue the same ordering key only when all of the following are true:
 
@@ -5296,7 +5301,7 @@ Otherwise the projection uses `BlockOrderingKey`.
 
 ---
 
-# External Business Effect Contract
+## External Business Effect Contract
 
 For `ExternalBusinessEffect`, timeout, connection loss, acknowledgement loss, or local commit failure is not proof that the provider effect failed.
 
@@ -5320,7 +5325,7 @@ The same logical effect always reuses the same effect operation and provider ide
 
 ---
 
-# External Effect Outcome Model
+## External Effect Outcome Model
 
 Canonical external-effect statuses are:
 
@@ -5341,7 +5346,7 @@ A timeout, lease loss after send, or database failure after provider acknowledge
 
 ---
 
-# External Effect Reconciliation
+## External Effect Reconciliation
 
 The Operations Application Service may resolve `OutcomeUnknown` only through typed evidence:
 
@@ -5358,7 +5363,7 @@ The consumer MUST NOT continue later ordered effects or repeat the provider requ
 
 ---
 
-# External Computation Rule
+## External Computation Rule
 
 `ExternalComputation` does not use `Succeeded` as proof of an external business mutation. Its result becomes meaningful only when validated and committed to an AIOS Aggregate or operational record.
 
@@ -5376,7 +5381,7 @@ Duplicate provider cost is an operational risk and metric, not permission to wea
 
 ---
 
-# Dead-Letter Skip and Ordering
+## Dead-Letter Skip and Ordering
 
 `SkipDeadLetter` is a typed Operations Application Service command, not a repository update. The authenticated actor is derived from trusted `HumanMemberPrincipal` context; the command payload MUST NOT contain `requestedBy`, `approvedBy`, or an actor override.
 
@@ -5414,7 +5419,7 @@ A partial skip is prohibited. `Skipped` is terminal and cannot later be converte
 
 ---
 
-# Recovery and Unblocking
+## Recovery and Unblocking
 
 An ordering key is unblocked only through a typed recovery result:
 
@@ -5435,7 +5440,7 @@ A deployment, process restart, lease expiry, successful `ValidateOnly`, or manua
 
 ---
 
-# Ordering Observability
+## Ordering Observability
 
 Required bounded metrics include:
 
@@ -5452,7 +5457,7 @@ Alerts distinguish one blocked key from a consumer-wide block. A missing or stal
 
 ---
 
-# Poison Event Investigation
+## Poison Event Investigation
 
 Investigation should determine:
 
@@ -5466,7 +5471,7 @@ Investigation should determine:
 
 ---
 
-# Poison Event Security
+## Poison Event Security
 
 Sensitive event payloads should not be copied into unrestricted support tools.
 
@@ -5480,7 +5485,7 @@ Operational interfaces should use:
 
 ---
 
-# Dead Letter Alerting
+## Dead Letter Alerting
 
 High-severity alerts should be generated for:
 
@@ -5500,13 +5505,13 @@ Memory generation backlog beyond threshold
 
 ---
 
-# Event Replay
+## Event Replay
 
 Replay is a controlled consumer-recovery operation. It does not alter the immutable source event, fabricate new Human authority, or provide a generic way to rerun successful business effects.
 
 ---
 
-# MVP Replay Scope
+## MVP Replay Scope
 
 The production MVP supports only:
 
@@ -5520,7 +5525,7 @@ Generic replay by correlation flow, Aggregate stream, event type, time range, wh
 
 ---
 
-# Replay Command
+## Replay Command
 
 The Operations Application Service owns the typed command:
 
@@ -5539,7 +5544,7 @@ RequestConsumerReplay
 
 ---
 
-# Canonical Replay Modes
+## Canonical Replay Modes
 
 ```text
 RetryOriginal
@@ -5552,13 +5557,13 @@ These names are canonical across Events, Persistence, Application Services, Auth
 
 ---
 
-# RetryOriginal
+## RetryOriginal
 
 `RetryOriginal` is permitted only for a canonical processed-event status of `Failed`. It uses the registered compatible event contract and supported handler path. It does not apply to `Processed` or `Skipped`.
 
 ---
 
-# ReprocessWithCurrentHandler
+## ReprocessWithCurrentHandler
 
 `ReprocessWithCurrentHandler` is permitted only for a `Failed` delivery after current contract, handler, authorization, ordering, and idempotency validation.
 
@@ -5566,13 +5571,13 @@ If it can mutate an authoritative Aggregate or produce an irreversible external 
 
 ---
 
-# RebuildProjection
+## RebuildProjection
 
 `RebuildProjection` runs through a dedicated rebuild session and writes only to a disposable, versioned, or atomically swappable projection target. It MUST NOT mutate authoritative Aggregates, execute integration side effects, or change the live processed-event result for the source consumer.
 
 ---
 
-# ValidateOnly
+## ValidateOnly
 
 `ValidateOnly` performs envelope, Organization, contract, upcaster, handler-registration, authorization-precondition, ordering-impact, and idempotency checks without acquiring a business-effect claim.
 
@@ -5580,7 +5585,7 @@ It MUST NOT mutate an Aggregate, processed-event result, dead-letter status, ord
 
 ---
 
-# Replay State Machine
+## Replay State Machine
 
 Canonical replay statuses are:
 
@@ -5612,7 +5617,7 @@ A terminal replay record is immutable except for append-only audit or separately
 
 ---
 
-# Replay and Processed Events
+## Replay and Processed Events
 
 `Processed` and `Skipped` processed-event records are terminal and MUST NOT be reset, deleted, or superseded by generic replay.
 
@@ -5630,7 +5635,7 @@ Re-executing an already `Processed` authoritative consumer is outside the MVP. A
 
 ---
 
-# Replay Authorization Timing
+## Replay Authorization Timing
 
 The request transaction records durable intent and its Class B audit. Immediately before execution, the service revalidates:
 
@@ -5647,7 +5652,7 @@ Revoked or stale authority produces `Denied`; it is not retried as a technical f
 
 ---
 
-# Replay Success Transaction
+## Replay Success Transaction
 
 For PostgreSQL-local authoritative effects, the final fenced transaction MUST atomically:
 
@@ -5670,7 +5675,7 @@ For external effects, replay completion and ordering unblocking require the regi
 
 ---
 
-# Replay Failure Transaction
+## Replay Failure Transaction
 
 A replay execution failure atomically returns the processed event to `Failed`, keeps or returns the dead letter to `Open` or `Investigating`, preserves the required ordering block, changes the replay to `Failed`, records bounded error metadata, and clears both claims.
 
@@ -5678,7 +5683,7 @@ A replay failure never silently consumes the poison event or advances ordering.
 
 ---
 
-# Replay Safety
+## Replay Safety
 
 Before any domain-changing replay:
 
@@ -5693,7 +5698,7 @@ Before any domain-changing replay:
 
 ---
 
-# Replay Prohibitions
+## Replay Prohibitions
 
 Replay must not:
 
@@ -5709,7 +5714,7 @@ Replay must not:
 
 ---
 
-# Replay Audit
+## Replay Audit
 
 Replay audit captures:
 
@@ -5739,7 +5744,7 @@ Payload content and unrestricted error text are excluded.
 
 ---
 
-# Reconciliation
+## Reconciliation
 
 Reconciliation detects missing or inconsistent asynchronous outcomes.
 
@@ -5749,7 +5754,7 @@ It does not replace the Transactional Outbox.
 
 ---
 
-# Reconciliation Purpose
+## Reconciliation Purpose
 
 Reconciliation answers:
 
@@ -5771,7 +5776,7 @@ Aggregate stream has a version gap
 
 ---
 
-# Reconciliation Types
+## Reconciliation Types
 
 Recommended categories:
 
@@ -5789,7 +5794,7 @@ Assignment Reconciliation
 
 ---
 
-# Workflow Reconciliation
+## Workflow Reconciliation
 
 Checks cross-Aggregate expectations.
 
@@ -5805,7 +5810,7 @@ WorkCompleted
 
 ---
 
-# Outbox Reconciliation
+## Outbox Reconciliation
 
 Checks publication health.
 
@@ -5823,7 +5828,7 @@ Published timestamp missing
 
 ---
 
-# Consumer Reconciliation
+## Consumer Reconciliation
 
 Checks consumer processing health.
 
@@ -5841,7 +5846,7 @@ Failed event unresolved
 
 ---
 
-# Projection Reconciliation
+## Projection Reconciliation
 
 Checks read-model consistency.
 
@@ -5859,7 +5864,7 @@ stale Organization member directory
 
 ---
 
-# Assignment Reconciliation
+## Assignment Reconciliation
 
 Checks resource relationships affected by identity lifecycle changes.
 
@@ -5875,7 +5880,7 @@ Memory review assigned to Disabled Identity
 
 ---
 
-# Reconciliation Findings
+## Reconciliation Findings
 
 Recommended record:
 
@@ -5896,7 +5901,7 @@ ReconciliationFinding
 
 ---
 
-# Finding Status
+## Finding Status
 
 Recommended statuses:
 
@@ -5914,7 +5919,7 @@ FalsePositive
 
 ---
 
-# Reconciliation Recovery
+## Reconciliation Recovery
 
 A reconciliation job may:
 
@@ -5929,7 +5934,7 @@ It must not create an alternative mutation path.
 
 ---
 
-# Normal Path Reuse
+## Normal Path Reuse
 
 Correct recovery:
 
@@ -5949,7 +5954,7 @@ Insert Memory row directly
 
 ---
 
-# Gap Detection
+## Gap Detection
 
 Gap detection identifies missing event versions.
 
@@ -5965,7 +5970,7 @@ Version 5 may be missing.
 
 ---
 
-# Gap Detection Record
+## Gap Detection Record
 
 Conceptual record:
 
@@ -5982,7 +5987,7 @@ StreamGap
 
 ---
 
-# Gap Resolution
+## Gap Resolution
 
 Possible resolution paths:
 
@@ -5994,7 +5999,7 @@ Possible resolution paths:
 
 ---
 
-# Aggregate Version Without Event
+## Aggregate Version Without Event
 
 Not every Aggregate version must necessarily produce a public Integration Event.
 
@@ -6011,7 +6016,7 @@ The MVP should prefer every meaningful Aggregate transition producing at least o
 
 ---
 
-# Event Stream Sequence
+## Event Stream Sequence
 
 For stricter gap detection, introduce:
 
@@ -6027,7 +6032,7 @@ When absent, consumers must not assume every Aggregate version has a correspondi
 
 ---
 
-# Stream Reconciliation
+## Stream Reconciliation
 
 A periodic job may verify:
 
@@ -6043,7 +6048,7 @@ No consumer version regression
 
 ---
 
-# Reconciliation Schedule
+## Reconciliation Schedule
 
 Recommended frequencies:
 
@@ -6069,7 +6074,7 @@ Large historical consistency scan:
 
 ---
 
-# Reconciliation Idempotency
+## Reconciliation Idempotency
 
 Reconciliation jobs must be idempotent.
 
@@ -6082,7 +6087,7 @@ Duplicate detection must not create duplicate:
 
 ---
 
-# Reconciliation Does Not Grant Authority
+## Reconciliation Does Not Grant Authority
 
 A reconciliation finding is evidence of missing processing.
 
@@ -6098,7 +6103,7 @@ Human-only actions remain Human-only.
 
 ---
 
-# Event Archival
+## Event Archival
 
 Long-term event archival may support:
 
@@ -6112,7 +6117,7 @@ The archive must preserve immutable event envelopes.
 
 ---
 
-# Archive Integrity
+## Archive Integrity
 
 Archived events must retain:
 
@@ -6138,7 +6143,7 @@ actorReference
 
 ---
 
-# Archive Retrieval
+## Archive Retrieval
 
 Replay and investigation should retrieve events by:
 
@@ -6153,7 +6158,7 @@ Access must remain authorization-controlled.
 
 ---
 
-# Event Retention and Consumer State
+## Event Retention and Consumer State
 
 Deleting old Outbox rows must not delete required consumer history prematurely.
 
@@ -6175,7 +6180,7 @@ must be defined separately.
 
 ---
 
-# Consumer State Cleanup
+## Consumer State Cleanup
 
 Processed-event records may be archived or compacted only when:
 
@@ -6188,7 +6193,7 @@ Premature deletion may allow duplicate effects.
 
 ---
 
-# Disaster Recovery
+## Disaster Recovery
 
 Backup and restore must preserve consistency among:
 
@@ -6203,7 +6208,7 @@ Restoring Aggregate state without the corresponding Outbox may lose committed co
 
 ---
 
-# Restore Point Consistency
+## Restore Point Consistency
 
 Backups should use a transactionally consistent database snapshot or equivalent point-in-time recovery.
 
@@ -6211,7 +6216,7 @@ Partial table restoration is prohibited for routine disaster recovery.
 
 ---
 
-# Post-Restore Reconciliation
+## Post-Restore Reconciliation
 
 After restoration:
 
@@ -6225,7 +6230,7 @@ After restoration:
 
 ---
 
-# Consumer Processing Rules
+## Consumer Processing Rules
 
 The following rules are mandatory:
 
@@ -6254,7 +6259,7 @@ The following rules are mandatory:
 
 ---
 
-# Part 3 Design Summary
+## Part 3 Design Summary
 
 Consumer reliability is built from four complementary mechanisms:
 
@@ -6286,7 +6291,7 @@ Replay and reconciliation restore missing outcomes through the same supported Ap
 
 This produces effectively-once business behavior without claiming exactly-once transport delivery.
 
-# Event Security
+## Event Security
 
 Events are trusted system inputs only after validation.
 
@@ -6306,7 +6311,7 @@ Consumers must validate:
 
 ---
 
-# Trust Boundaries
+## Trust Boundaries
 
 The event architecture crosses several trust boundaries:
 
@@ -6334,7 +6339,7 @@ Each boundary must validate the data required for its responsibility.
 
 ---
 
-# Aggregate Trust
+## Aggregate Trust
 
 The Application Layer trusts an Aggregate to produce valid domain facts only when:
 
@@ -6348,7 +6353,7 @@ The Application Layer must not accept arbitrary client-supplied Domain Events.
 
 ---
 
-# Producer Validation
+## Producer Validation
 
 Before Outbox persistence, the producer validates:
 
@@ -6376,7 +6381,7 @@ Privacy classification
 
 ---
 
-# Event Source Authenticity
+## Event Source Authenticity
 
 Inside the MVP Modular Monolith, source authenticity is established through:
 
@@ -6390,7 +6395,7 @@ Public clients must not have direct write access to the Outbox.
 
 ---
 
-# Outbox Write Permissions
+## Outbox Write Permissions
 
 Only the application database role responsible for domain transactions may insert Outbox messages.
 
@@ -6412,7 +6417,7 @@ Operations tooling
 
 ---
 
-# Outbox Mutation Restrictions
+## Outbox Mutation Restrictions
 
 After commit, event content is immutable.
 
@@ -6460,7 +6465,7 @@ causationId
 
 ---
 
-# Consumer Trust Validation
+## Consumer Trust Validation
 
 A consumer must verify that the event is permitted for that handler.
 
@@ -6488,7 +6493,7 @@ unless explicitly registered.
 
 ---
 
-# Capability Validation
+## Capability Validation
 
 Every domain-changing consumer executes under a narrow System capability.
 
@@ -6513,7 +6518,7 @@ organization.assign_owner
 
 ---
 
-# Authority-Sensitive Events
+## Authority-Sensitive Events
 
 Events representing Human-authoritative facts require a Human actor.
 
@@ -6545,7 +6550,7 @@ actorType != HumanMember
 
 ---
 
-# System-Originated Events
+## System-Originated Events
 
 System actors may originate operational or candidate-generation facts.
 
@@ -6565,7 +6570,7 @@ These events must not be interpreted as Human approval.
 
 ---
 
-# Secretary-Originated Events
+## Secretary-Originated Events
 
 Secretary-originated events remain advisory.
 
@@ -6591,7 +6596,7 @@ Secretary events may never represent:
 
 ---
 
-# Event Causation Validation
+## Event Causation Validation
 
 A consumer must validate that the incoming event is an allowed cause of the requested operation.
 
@@ -6613,7 +6618,7 @@ Work.CompleteWork()
 
 ---
 
-# Causation Whitelist
+## Causation Whitelist
 
 Recommended registration:
 
@@ -6631,7 +6636,7 @@ Allowed target command:
 
 ---
 
-# Event as Evidence
+## Event as Evidence
 
 An event is evidence that a source fact occurred.
 
@@ -6641,7 +6646,7 @@ An event must not be reused to authorize unrelated commands.
 
 ---
 
-# Organization Security
+## Organization Security
 
 Every Organization-owned event must include a valid:
 
@@ -6658,7 +6663,7 @@ A consumer must compare it with:
 
 ---
 
-# Organization Mismatch
+## Organization Mismatch
 
 If any Organization identifier differs:
 
@@ -6676,7 +6681,7 @@ The consumer must not attempt to repair the mismatch by changing the event Organ
 
 ---
 
-# Global Event Security
+## Global Event Security
 
 Global events require explicit registration.
 
@@ -6692,7 +6697,7 @@ Consumers derive affected Organizations through trusted queries.
 
 ---
 
-# Cross-Organization Fan-Out
+## Cross-Organization Fan-Out
 
 When a global event affects multiple Organizations:
 
@@ -6716,7 +6721,7 @@ audit record
 
 ---
 
-# Event Privacy
+## Event Privacy
 
 Events should contain the minimum data required by consumers.
 
@@ -6732,7 +6737,7 @@ Privacy rules apply to:
 
 ---
 
-# Privacy Classification
+## Privacy Classification
 
 Recommended classifications:
 
@@ -6752,7 +6757,7 @@ Every event contract should declare its classification.
 
 ---
 
-# Event Data Minimization
+## Event Data Minimization
 
 Prefer:
 
@@ -6780,7 +6785,7 @@ full protected document content
 
 ---
 
-# Personal Data in Events
+## Personal Data in Events
 
 Personal data may be included only when:
 
@@ -6792,7 +6797,7 @@ Personal data may be included only when:
 
 ---
 
-# Sensitive Field Prohibition
+## Sensitive Field Prohibition
 
 The following must never appear in event payloads or headers:
 
@@ -6816,7 +6821,7 @@ unredacted provider credentials
 
 ---
 
-# Error Privacy
+## Error Privacy
 
 Failure records should preserve bounded diagnostic information.
 
@@ -6839,7 +6844,7 @@ Avoid storing entire event payloads repeatedly in:
 
 ---
 
-# Dead Letter Access
+## Dead Letter Access
 
 Access to poison-event payloads must be restricted.
 
@@ -6855,13 +6860,13 @@ Every inspection of Restricted data should be auditable.
 
 ---
 
-# Replay Security
+## Replay Security
 
 Replay is an Organization-scoped administrative operation. In the MVP it requires an authenticated active `HumanMemberPrincipal`; infrastructure credentials, Secretary principals, and ordinary System Workers do not grant Organization authority.
 
 ---
 
-# Replay Authorization
+## Replay Authorization
 
 Canonical permissions are:
 
@@ -6890,7 +6895,7 @@ The MVP does not require universal four-eyes approval. The authenticated authori
 
 ---
 
-# Replay Scope Restriction
+## Replay Scope Restriction
 
 The event Organization is loaded from immutable server-side event storage. It MUST match the selected Membership Organization and every linked processed-event, dead-letter, ordering-state, replay, target resource, and audit row.
 
@@ -6898,7 +6903,7 @@ Global or cross-Organization replay is outside the MVP. A deployment operator ca
 
 ---
 
-# Skip Authorization
+## Skip Authorization
 
 Skipping is more dangerous than retrying. It requires current `events.skip` permission, the registered ConsumerRegistration skip policy, expected versions, explicit reason and impact confirmation, safety or compensation evidence where required, and immutable audit.
 
@@ -6906,7 +6911,7 @@ The Secretary and System Workers cannot request or approve skip. A generic datab
 
 ---
 
-# Event Integrity
+## Event Integrity
 
 The MVP may use database access control and transaction integrity as the primary event-integrity mechanism.
 
@@ -6914,7 +6919,7 @@ Cryptographic signing is optional inside one trusted deployment boundary.
 
 ---
 
-# External Event Signing
+## External Event Signing
 
 When events leave the AIOS trust boundary, future integration may require:
 
@@ -6929,7 +6934,7 @@ These controls belong to external integration architecture.
 
 ---
 
-# Payload Hash
+## Payload Hash
 
 The Outbox may store a payload hash.
 
@@ -6950,7 +6955,7 @@ A hash does not replace access control.
 
 ---
 
-# Event Security Invariants
+## Event Security Invariants
 
 The following rules are mandatory:
 
@@ -6972,7 +6977,7 @@ The following rules are mandatory:
 
 ---
 
-# Observability
+## Observability
 
 The event system must make asynchronous state visible.
 
@@ -6990,7 +6995,7 @@ Operators should be able to answer:
 
 ---
 
-# Logging
+## Logging
 
 All event-processing logs should use structured fields.
 
@@ -7034,7 +7039,7 @@ error.code
 
 ---
 
-# Logging Content
+## Logging Content
 
 Logs should describe processing metadata, not duplicate full event content.
 
@@ -7055,7 +7060,7 @@ Full Memory payload dumped into log
 
 ---
 
-# Correlation Logging
+## Correlation Logging
 
 Every command, event, publication attempt, and consumer execution should log:
 
@@ -7067,7 +7072,7 @@ This allows one workflow to be traced across modules.
 
 ---
 
-# Causation Logging
+## Causation Logging
 
 Each follow-up command or event should log:
 
@@ -7079,7 +7084,7 @@ This supports direct parent-child tracing.
 
 ---
 
-# Publication Metrics
+## Publication Metrics
 
 Recommended Outbox metrics:
 
@@ -7105,7 +7110,7 @@ outbox_claim_expired_total
 
 ---
 
-# Consumer Metrics
+## Consumer Metrics
 
 Recommended consumer metrics:
 
@@ -7143,7 +7148,7 @@ Avoid unbounded labels such as eventId or aggregateId.
 
 ---
 
-# Memory Generation Metrics
+## Memory Generation Metrics
 
 Recommended metrics:
 
@@ -7163,7 +7168,7 @@ completed_work_without_memory_total
 
 ---
 
-# Reconciliation Metrics
+## Reconciliation Metrics
 
 Recommended metrics:
 
@@ -7183,7 +7188,7 @@ workflow_recovery_scheduled_total
 
 ---
 
-# Dead Letter Metrics
+## Dead Letter Metrics
 
 Recommended metrics:
 
@@ -7201,7 +7206,7 @@ dead_letter_skipped_total
 
 ---
 
-# Backlog Age
+## Backlog Age
 
 Backlog count alone is insufficient.
 
@@ -7221,7 +7226,7 @@ oldest unresolved reconciliation finding
 
 ---
 
-# Service Level Objectives
+## Service Level Objectives
 
 The MVP should define operational targets.
 
@@ -7248,7 +7253,7 @@ Exact targets should be adjusted after production measurement.
 
 ---
 
-# Alerting
+## Alerting
 
 Recommended alerts include:
 
@@ -7276,7 +7281,7 @@ Dead letter count increasing
 
 ---
 
-# Alert Severity
+## Alert Severity
 
 Suggested severity categories:
 
@@ -7309,7 +7314,7 @@ Outbox publication halted globally
 
 ---
 
-# Health Checks
+## Health Checks
 
 Health checks should expose:
 
@@ -7323,7 +7328,7 @@ Health checks should expose:
 
 ---
 
-# Liveness and Readiness
+## Liveness and Readiness
 
 ```text
 Liveness
@@ -7344,7 +7349,7 @@ A Worker may be alive but not ready when:
 
 ---
 
-# Degraded Mode
+## Degraded Mode
 
 The HTTP Application may remain available during temporary Worker degradation.
 
@@ -7362,7 +7367,7 @@ The degraded condition must be visible.
 
 ---
 
-# Operational Dashboard
+## Operational Dashboard
 
 A useful MVP dashboard should show:
 
@@ -7378,7 +7383,7 @@ A useful MVP dashboard should show:
 
 ---
 
-# Correlation Search
+## Correlation Search
 
 Operators should be able to search by:
 
@@ -7400,7 +7405,7 @@ Search access must honor security policy.
 
 ---
 
-# Event Timeline
+## Event Timeline
 
 An operational event timeline may display:
 
@@ -7428,7 +7433,7 @@ It does not become the source of truth.
 
 ---
 
-# Testing Strategy
+## Testing Strategy
 
 The event architecture requires tests at multiple layers:
 
@@ -7458,7 +7463,7 @@ Failure Injection Tests
 
 ---
 
-# Event Contract Tests
+## Event Contract Tests
 
 Every event contract should test:
 
@@ -7477,7 +7482,7 @@ Every event contract should test:
 
 ---
 
-# Golden Contract Tests
+## Golden Contract Tests
 
 Stable serialized examples should be stored as golden fixtures.
 
@@ -7491,7 +7496,7 @@ Tests verify that producer changes do not unintentionally break the contract.
 
 ---
 
-# Backward Compatibility Tests
+## Backward Compatibility Tests
 
 When a new schema version is introduced, test:
 
@@ -7505,7 +7510,7 @@ When a new schema version is introduced, test:
 
 ---
 
-# Aggregate Event Tests
+## Aggregate Event Tests
 
 Aggregate unit tests should verify:
 
@@ -7521,7 +7526,7 @@ Invalid command
 
 ---
 
-# Aggregate Event Ownership Tests
+## Aggregate Event Ownership Tests
 
 Verify that:
 
@@ -7533,7 +7538,7 @@ Verify that:
 
 ---
 
-# Authority Event Tests
+## Authority Event Tests
 
 Mandatory tests include:
 
@@ -7553,7 +7558,7 @@ Secretary contribution requires Secretary or authorized Human actor
 
 ---
 
-# Outbox Atomicity Tests
+## Outbox Atomicity Tests
 
 Integration tests must verify:
 
@@ -7600,7 +7605,7 @@ has one durable Pending-or-later delivery row
 
 ---
 
-# Commit Visibility Tests
+## Commit Visibility Tests
 
 Verify that a publisher cannot see uncommitted Outbox rows.
 
@@ -7618,7 +7623,7 @@ row never becomes eligible
 
 ---
 
-# Outbox Uniqueness Tests
+## Outbox Uniqueness Tests
 
 Verify:
 
@@ -7630,7 +7635,7 @@ Verify:
 
 ---
 
-# Publisher Claim Tests
+## Publisher Claim Tests
 
 Using real PostgreSQL concurrency, verify:
 
@@ -7643,7 +7648,7 @@ Using real PostgreSQL concurrency, verify:
 
 ---
 
-# Publication Failure Tests
+## Publication Failure Tests
 
 Inject:
 
@@ -7658,7 +7663,7 @@ Expected behavior must preserve at-least-once delivery.
 
 ---
 
-# Duplicate Publication Tests
+## Duplicate Publication Tests
 
 Simulate:
 
@@ -7674,7 +7679,7 @@ Each consumer must still produce one business effect.
 
 ---
 
-# Ordering Tests
+## Ordering Tests
 
 Required tests include:
 
@@ -7692,7 +7697,7 @@ Required tests include:
 
 ---
 
-# Schema Version Tests
+## Schema Version Tests
 
 Verify:
 
@@ -7705,7 +7710,7 @@ Verify:
 
 ---
 
-# Consumer Idempotency Tests
+## Consumer Idempotency Tests
 
 For every consumer:
 
@@ -7721,7 +7726,7 @@ Two successful deliveries
 
 ---
 
-# Processed Event Atomicity Tests
+## Processed Event Atomicity Tests
 
 Verify:
 
@@ -7747,7 +7752,7 @@ Transaction rolls back
 
 ---
 
-# Business Idempotency Tests
+## Business Idempotency Tests
 
 Required examples:
 
@@ -7760,7 +7765,7 @@ Required examples:
 
 ---
 
-# Consumer Concurrency Tests
+## Consumer Concurrency Tests
 
 Simulate:
 
@@ -7772,7 +7777,7 @@ Simulate:
 
 ---
 
-# Retry Classification Tests
+## Retry Classification Tests
 
 Verify:
 
@@ -7798,7 +7803,7 @@ TransientConcurrency
 
 ---
 
-# Memory Generation Tests
+## Memory Generation Tests
 
 Required tests include:
 
@@ -7813,7 +7818,7 @@ Required tests include:
 
 ---
 
-# Decision Outcome Tests
+## Decision Outcome Tests
 
 Required tests include:
 
@@ -7830,7 +7835,7 @@ Required tests include:
 
 ---
 
-# Poison Event Tests
+## Poison Event Tests
 
 Verify:
 
@@ -7848,7 +7853,7 @@ Verify:
 
 ---
 
-# Replay Tests
+## Replay Tests
 
 Required tests include:
 
@@ -7863,7 +7868,7 @@ Required tests include:
 
 ---
 
-# Reconciliation Tests
+## Reconciliation Tests
 
 Verify:
 
@@ -7877,7 +7882,7 @@ Verify:
 
 ---
 
-# Security Tests
+## Security Tests
 
 Mandatory security tests include:
 
@@ -7894,7 +7899,7 @@ Mandatory security tests include:
 
 ---
 
-# Privacy Tests
+## Privacy Tests
 
 Verify:
 
@@ -7908,9 +7913,9 @@ Verify:
 
 ---
 
-# End-to-End Workflow Tests
+## End-to-End Workflow Tests
 
-## Decision to Work Flow
+### Decision to Work Flow
 
 ```text
 Human approves Decision
@@ -7940,7 +7945,7 @@ The test must verify that approval alone never completes Work.
 
 ---
 
-## Work to Memory Flow
+### Work to Memory Flow
 
 ```text
 Human completes Work
@@ -7966,7 +7971,7 @@ The test must verify that the System cannot approve Memory.
 
 ---
 
-## Membership Revocation Flow
+### Membership Revocation Flow
 
 ```text
 Human revokes Membership
@@ -7990,7 +7995,7 @@ No automatic reassignment occurs
 
 ---
 
-# Disaster Recovery Tests
+## Disaster Recovery Tests
 
 Test restoration of a consistent database snapshot containing:
 
@@ -8009,7 +8014,7 @@ After restore:
 
 ---
 
-# Property-Based Tests
+## Property-Based Tests
 
 Recommended properties:
 
@@ -8040,7 +8045,7 @@ For every authoritative event:
 
 ---
 
-# Implementation Guidance
+## Implementation Guidance
 
 The event architecture should remain modular.
 
@@ -8078,7 +8083,7 @@ events/
 
 ---
 
-# Module-Owned Events
+## Module-Owned Events
 
 Each domain module owns its internal Domain Events and exported Integration Event contracts.
 
@@ -8109,7 +8114,7 @@ Platform Runtime owns the shared envelope, registry, delivery state, retries, an
 
 ---
 
-# Shared Envelope
+## Shared Envelope
 
 The envelope is shared infrastructure.
 
@@ -8117,7 +8122,7 @@ The business payload remains module-owned.
 
 ---
 
-# Event Registry
+## Event Registry
 
 The Event Registry maps:
 
@@ -8149,7 +8154,7 @@ Startup validation fails when:
 
 ---
 
-# Startup Contract Validation
+## Startup Contract Validation
 
 Application startup should fail when:
 
@@ -8163,7 +8168,7 @@ Application startup should fail when:
 
 ---
 
-# Event Serializer
+## Event Serializer
 
 The serializer must:
 
@@ -8177,7 +8182,7 @@ The serializer must:
 
 ---
 
-# Clock Abstraction
+## Clock Abstraction
 
 Use an injected clock for:
 
@@ -8192,7 +8197,7 @@ Database time may be used for claim coordination.
 
 ---
 
-# Identifier Generation
+## Identifier Generation
 
 Use collision-resistant identifiers for:
 
@@ -8210,7 +8215,7 @@ UUIDs or equivalent identifiers are acceptable.
 
 ---
 
-# Transaction Manager
+## Transaction Manager
 
 The Outbox Writer must participate in the current Application Service transaction.
 
@@ -8218,9 +8223,9 @@ It must not open an independent transaction.
 
 ---
 
-# Repository Responsibilities
+## Repository Responsibilities
 
-## Outbox Repository
+### Outbox Repository
 
 Responsible for:
 
@@ -8234,7 +8239,7 @@ It does not interpret business meaning.
 
 ---
 
-## Processed Event Repository
+### Processed Event Repository
 
 Responsible for:
 
@@ -8249,7 +8254,7 @@ It does not mutate target Aggregates.
 
 ---
 
-## Dead Letter Repository
+### Dead Letter Repository
 
 Responsible for:
 
@@ -8261,7 +8266,7 @@ Responsible for:
 
 ---
 
-# Dispatcher
+## Dispatcher
 
 The dispatcher maps one validated event to registered consumers.
 
@@ -8275,7 +8280,7 @@ It should:
 
 ---
 
-# In-Process Dispatch
+## In-Process Dispatch
 
 For the MVP, the dispatcher may run in-process, but the durable local transport boundary is PostgreSQL.
 
@@ -8293,7 +8298,7 @@ The dispatcher must still preserve:
 
 ---
 
-# Worker Separation
+## Worker Separation
 
 Recommended logical Workers:
 
@@ -8315,7 +8320,7 @@ These may share one deployable codebase.
 
 ---
 
-# Memory Worker Isolation
+## Memory Worker Isolation
 
 Memory generation should use separate concurrency controls because it may be:
 
@@ -8328,7 +8333,7 @@ It should not block lightweight Decision outcome processing.
 
 ---
 
-# Configuration
+## Configuration
 
 Recommended configuration:
 
@@ -8364,7 +8369,7 @@ DeadLetterAlertThreshold
 
 ---
 
-# Configuration Safety
+## Configuration Safety
 
 Configuration must not:
 
@@ -8378,7 +8383,7 @@ Configuration must not:
 
 ---
 
-# Database Permissions
+## Database Permissions
 
 Recommended separation:
 
@@ -8403,7 +8408,7 @@ Operations Role
 
 ---
 
-# Migration Guidance
+## Migration Guidance
 
 Schema migrations must preserve:
 
@@ -8417,7 +8422,7 @@ Schema migrations must preserve:
 
 ---
 
-# Contract Migration
+## Contract Migration
 
 When deploying a new event version:
 
@@ -8430,7 +8435,7 @@ When deploying a new event version:
 
 ---
 
-# Consumer Deployment Order
+## Consumer Deployment Order
 
 For breaking changes:
 
@@ -8444,7 +8449,7 @@ A producer must not emit a version that no deployed consumer supports.
 
 ---
 
-# Rolling Deployment
+## Rolling Deployment
 
 During rolling deployment:
 
@@ -8456,7 +8461,7 @@ During rolling deployment:
 
 ---
 
-# Operational Runbooks
+## Operational Runbooks
 
 The MVP should include runbooks for:
 
@@ -8482,7 +8487,7 @@ Post-restore reconciliation
 
 ---
 
-# Runbook: Outbox Backlog
+## Runbook: Outbox Backlog
 
 Recommended actions:
 
@@ -8497,7 +8502,7 @@ Recommended actions:
 
 ---
 
-# Runbook: Failed Stream Head
+## Runbook: Failed Stream Head
 
 Recommended actions:
 
@@ -8512,7 +8517,7 @@ Recommended actions:
 
 ---
 
-# Runbook: Poison Consumer Event
+## Runbook: Poison Consumer Event
 
 Recommended actions:
 
@@ -8531,7 +8536,7 @@ Recommended actions:
 
 ---
 
-# Runbook: Memory Generation Outage
+## Runbook: Memory Generation Outage
 
 Recommended actions:
 
@@ -8546,7 +8551,7 @@ Recommended actions:
 
 ---
 
-# Runbook: Organization Mismatch
+## Runbook: Organization Mismatch
 
 Recommended actions:
 
@@ -8561,7 +8566,7 @@ Recommended actions:
 
 ---
 
-# Deployment Topology
+## Deployment Topology
 
 Recommended MVP topology:
 
@@ -8581,7 +8586,7 @@ Workers may run as separate process roles from one codebase.
 
 ---
 
-# External Broker Migration
+## External Broker Migration
 
 A future broker may be introduced between publisher and consumers.
 
@@ -8614,7 +8619,7 @@ The following remain unchanged:
 
 ---
 
-# Broker Does Not Replace Outbox
+## Broker Does Not Replace Outbox
 
 An external broker does not solve the database dual-write problem by itself.
 
@@ -8622,7 +8627,7 @@ The Transactional Outbox remains required unless another atomic mechanism is exp
 
 ---
 
-# Event Sourcing Exclusion
+## Event Sourcing Exclusion
 
 AIOS MVP is not event-sourced.
 
@@ -8637,7 +8642,7 @@ PostgreSQL Aggregate tables remain the current state store.
 
 ---
 
-# MVP Exclusions
+## MVP Exclusions
 
 The following capabilities are outside the MVP:
 
@@ -8669,7 +8674,7 @@ These require separate future architecture.
 
 ---
 
-# Future Extension Principles
+## Future Extension Principles
 
 Future event architecture must preserve:
 
@@ -8688,7 +8693,7 @@ Future event architecture must preserve:
 
 ---
 
-# Public Integration Events Future Phase
+## Public Integration Events Future Phase
 
 Future public Integration Events will require:
 
@@ -8706,7 +8711,7 @@ Internal Domain Events must not automatically become public contracts.
 
 ---
 
-# Marketplace Event Future Phase
+## Marketplace Event Future Phase
 
 Marketplace events may require:
 
@@ -8722,7 +8727,7 @@ These concerns are outside the MVP.
 
 ---
 
-# AI Employee Event Future Phase
+## AI Employee Event Future Phase
 
 AI Employee events must distinguish:
 
@@ -8737,7 +8742,7 @@ They must not reuse the Secretary event model to imply Human authority.
 
 ---
 
-# Implementation Checklist
+## Implementation Checklist
 
 Before implementation is considered complete, verify:
 
@@ -8768,7 +8773,7 @@ Before implementation is considered complete, verify:
 
 ---
 
-# Design Summary
+## Design Summary
 
 The AIOS event architecture combines:
 
@@ -8804,7 +8809,7 @@ Consumers apply independent, idempotent consequences.
 
 ---
 
-# Delivery Guarantees
+## Delivery Guarantees
 
 The MVP provides:
 
@@ -8836,7 +8841,7 @@ Global Ordering:
 
 ---
 
-# Core Guarantees
+## Core Guarantees
 
 The architecture guarantees:
 
@@ -8855,9 +8860,9 @@ The architecture guarantees:
 
 ---
 
-# Architect Review
+## Architect Review
 
-## Event Ownership
+### Event Ownership
 
 **Rating: ★★★★★**
 
@@ -8867,7 +8872,7 @@ Application Services and Workers cannot fabricate authoritative domain facts.
 
 ---
 
-## Transactional Reliability
+### Transactional Reliability
 
 **Rating: ★★★★★**
 
@@ -8877,7 +8882,7 @@ The dual-write problem is resolved without distributed transactions.
 
 ---
 
-## Delivery Semantics
+### Delivery Semantics
 
 **Rating: ★★★★★**
 
@@ -8887,7 +8892,7 @@ Effectively-once business outcomes are achieved through consumer and domain idem
 
 ---
 
-## Aggregate Independence
+### Aggregate Independence
 
 **Rating: ★★★★★**
 
@@ -8897,7 +8902,7 @@ Aggregates do not invoke one another directly.
 
 ---
 
-## Ordering
+### Ordering
 
 **Rating: ★★★★★**
 
@@ -8907,7 +8912,7 @@ The design avoids unnecessary global serialization while protecting stream-head 
 
 ---
 
-## Event Evolution
+### Event Evolution
 
 **Rating: ★★★★★**
 
@@ -8915,7 +8920,7 @@ Explicit schema versions, contract ownership, compatibility rules, and upcasting
 
 ---
 
-## Security
+### Security
 
 **Rating: ★★★★★**
 
@@ -8923,7 +8928,7 @@ Organization validation, actor policies, capability whitelisting, causation vali
 
 ---
 
-## Human Authority
+### Human Authority
 
 **Rating: ★★★★★**
 
@@ -8935,7 +8940,7 @@ Memory approval remains Human-controlled.
 
 ---
 
-## Failure Recovery
+### Failure Recovery
 
 **Rating: ★★★★★**
 
@@ -8943,7 +8948,7 @@ Bounded retry, dead letter handling, replay, claim recovery, and reconciliation 
 
 ---
 
-## Observability
+### Observability
 
 **Rating: ★★★★★**
 
@@ -8951,7 +8956,7 @@ The architecture defines structured logging, metrics, backlog-age monitoring, co
 
 ---
 
-## Testability
+### Testability
 
 **Rating: ★★★★★**
 
@@ -8959,7 +8964,7 @@ Contract, transaction, concurrency, idempotency, ordering, retry, replay, securi
 
 ---
 
-## MVP Scope Discipline
+### MVP Scope Discipline
 
 **Rating: ★★★★★**
 
@@ -8969,7 +8974,7 @@ Future migration paths remain clear.
 
 ---
 
-## Final Assessment
+### Final Assessment
 
 ```text
 Architecture Quality:          ★★★★★

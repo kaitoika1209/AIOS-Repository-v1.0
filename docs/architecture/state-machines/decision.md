@@ -1,4 +1,10 @@
 # Decision State Machine
+
+> **Scope classification:** MVP Normative  
+> **MVP implementation authority:** Yes  
+> **Promotion requirement:** Not applicable  
+> **Authority rank:** see [Document Governance](../../document-governance.md)
+
 > **Document status:** Proposed  
 > **Blueprint version:** 0.2.1  
 > **Applies to:** Decision Aggregate
@@ -11,12 +17,12 @@ The central rules are:
 > Resolving a Decision never changes the related Work state inside the Decision transaction.
 An Approved Decision may satisfy a Work completion gate, but it does not complete the Work.
 ---
-# Scope
+## Scope
 This document defines the business lifecycle of one Decision Aggregate.
 It does not define the Work or Memory lifecycle, Organization membership, Organization-wide authorization policy, multi-step governance workflows, multiple simultaneous approvers, Knowledge promotion, or execution of the selected option.
 For the MVP, every Decision belongs to exactly one Work and exactly one Organization.
 ---
-# State Summary
+## State Summary
 | State | Meaning | Editable | Resolved | Terminal |
 |---|---|---:|---:|---:|
 | `Draft` | The proposal is being prepared | Yes | No | No |
@@ -27,7 +33,7 @@ For the MVP, every Decision belongs to exactly one Work and exactly one Organiza
 A Rejected Decision may begin a new revision.
 Approved and Withdrawn Decisions cannot return to another state in the MVP.
 ---
-# Lifecycle
+## Lifecycle
 ```mermaid
 stateDiagram-v2
     [*] --> Draft
@@ -43,22 +49,22 @@ stateDiagram-v2
 A transition from `Rejected` to `Draft` starts a new revision of the same organizational question.
 It does not erase or rewrite the rejected revision.
 ---
-# State Definitions
-## Draft
+## State Definitions
+### Draft
 `Draft` means the Decision is being prepared and has not been submitted for authoritative review.
-### Allowed Actions
+#### Allowed Actions
 An authorized Human Member may edit the title, question, context, and options; accept or reject Secretary suggestions; set blocking status; submit for review; or withdraw the Decision.
 The Secretary may draft the question, summarize context, suggest and compare options, identify risks, retrieve permitted supporting information, and draft a proposed rationale.
 The Secretary cannot submit or withdraw the Decision autonomously.
-### State Rules
+#### State Rules
 - The current revision is editable and has no current review outcome, selected authoritative option, or resolution timestamp.
 - Blocking status may be changed only in this state.
 - Draft content is not authoritative and does not block the related Work.
 ---
-## InReview
+### InReview
 `InReview` means the current revision has been submitted and is awaiting human judgment.
 The submitted revision is locked so the reviewer evaluates a stable proposal.
-### Allowed Actions
+#### Allowed Actions
 An authorized Human Member may:
 - view the submitted proposal;
 - view options and context;
@@ -72,7 +78,7 @@ The Secretary may:
 - identify risks;
 - answer questions from permitted source material; and
 - prepare a non-authoritative rationale.
-### Prohibited Actions
+#### Prohibited Actions
 While `InReview`, the system must not:
 - edit the submitted question;
 - add, update, or remove options;
@@ -80,16 +86,16 @@ While `InReview`, the system must not:
 - replace the submitted revision silently;
 - allow AI to resolve the Decision; or
 - allow more than one authoritative outcome.
-### State Rules
+#### State Rules
 - A submitted revision snapshot exists.
 - The current proposal content is locked.
 - The Decision is unresolved.
 - If the Decision is blocking, the related Work may enter `WaitingForDecision` through separate coordination.
 - Only a Human Member may produce the authoritative outcome.
 ---
-## Approved
+### Approved
 `Approved` means an authorized Human Member selected an option and approved the submitted revision.
-### Required Record
+#### Required Record
 An Approved Decision contains:
 - the submitted revision;
 - the selected option;
@@ -97,7 +103,7 @@ An Approved Decision contains:
 - approving Human Member;
 - approval timestamp; and
 - append-only review history.
-### Allowed Actions
+#### Allowed Actions
 Users may:
 - view the Decision;
 - view the selected option;
@@ -105,7 +111,7 @@ Users may:
 - view supporting context;
 - view Secretary contributions; and
 - view the review history.
-### State Rules
+#### State Rules
 - Approved content is immutable.
 - The selected option belongs to the approved revision.
 - The approval record is immutable.
@@ -113,16 +119,16 @@ Users may:
 - Approval emits an authoritative resolution event.
 - Approval does not complete the related Work.
 ---
-## Rejected
+### Rejected
 `Rejected` means an authorized Human Member rejected the submitted revision.
-### Required Record
+#### Required Record
 A Rejected Decision contains:
 - the rejected revision;
 - rejection reason;
 - rejecting Human Member;
 - rejection timestamp; and
 - append-only review history.
-### Allowed Actions
+#### Allowed Actions
 An authorized Human Member may:
 - view the rejected revision;
 - view the rejection reason;
@@ -133,7 +139,7 @@ The Secretary may:
 - suggest changes;
 - identify missing context; and
 - prepare revised draft content.
-### State Rules
+#### State Rules
 - The rejected revision is immutable.
 - The rejection record is immutable.
 - No selected option exists for the rejected revision.
@@ -141,41 +147,41 @@ The Secretary may:
 - Rejection does not complete or cancel the related Work.
 - Editing begins only after an explicit `Start Revision` transition.
 ---
-## Withdrawn
+### Withdrawn
 `Withdrawn` means an authorized Human Member explicitly ended consideration of the Decision without approval or rejection.
-### Required Record
+#### Required Record
 A Withdrawn Decision contains:
 - withdrawal reason;
 - withdrawing Human Member;
 - withdrawal timestamp; and
 - the latest preserved draft or submitted revision.
-### Allowed Actions
+#### Allowed Actions
 Users may:
 - view the Decision;
 - view the withdrawal reason;
 - view its revision and review history; and
 - create a new Decision if the issue must be reconsidered.
-### State Rules
+#### State Rules
 - Withdrawn content is immutable.
 - The withdrawal record is immutable.
 - No option is selected.
 - A Withdrawn Decision cannot be resumed or revised in the MVP.
 - Withdrawal does not complete or cancel the related Work automatically.
 ---
-# Commands and Transitions
-## Create Decision
-### Transition
+## Commands and Transitions
+### Create Decision
+#### Transition
 ```text
 [*] → Draft
 ```
-### Preconditions
+#### Preconditions
 - The related Organization exists.
 - The related Work exists.
 - The Work and Decision use the same Organization.
 - The acting Human Member is active and authorized.
 - The related Work is not terminal.
 - Required initial fields are valid.
-### Effects
+#### Effects
 - Create the Decision in `Draft`.
 - Set revision number to `1`.
 - Record Organization, Work, proposer, and creation timestamp.
@@ -183,17 +189,17 @@ Users may:
 - Emit `DecisionDraftCreated`.
 Organization, Work, and proposer relationships are immutable after creation.
 ---
-## Update Draft
-### Transition
+### Update Draft
+#### Transition
 ```text
 Draft → Draft
 ```
-### Preconditions
+#### Preconditions
 - The actor is an authorized Human Member.
 - The Decision is `Draft`.
 - The command uses the expected Aggregate version.
 - Updated values satisfy local validation.
-### Effects
+#### Effects
 The command may:
 - update title, question, or context;
 - add, update, or remove options;
@@ -203,12 +209,12 @@ The command may:
 Relevant change events may be emitted.
 A material change to the organizational question requires a new Decision rather than a revision of the existing Decision.
 ---
-## Submit for Review
-### Transition
+### Submit for Review
+#### Transition
 ```text
 Draft → InReview
 ```
-### Preconditions
+#### Preconditions
 - The actor is an authorized Human Member.
 - The title and organizational question are valid.
 - The proposal contains sufficient review context.
@@ -218,7 +224,7 @@ Draft → InReview
 - The related Work is not terminal.
 - If blocking, no other unresolved blocking Decision exists for the Work.
 - The command uses the expected Aggregate version.
-### Effects
+#### Effects
 - Capture an immutable submitted revision snapshot.
 - Lock current proposal content.
 - Record submitter and submission timestamp.
@@ -230,19 +236,19 @@ InProgress → WaitingForDecision
 ```
 The Decision Aggregate does not change Work state directly.
 ---
-## Approve Decision
-### Transition
+### Approve Decision
+#### Transition
 ```text
 InReview → Approved
 ```
-### Preconditions
+#### Preconditions
 - The actor is an authorized Human Member.
 - The Decision is `InReview`.
 - The selected option belongs to the submitted revision.
 - An approval rationale is provided.
 - The command uses the expected Aggregate version.
 - No authoritative outcome already exists.
-### Effects
+#### Effects
 - Record the selected option.
 - Record the approval rationale.
 - Record the approving Human Member.
@@ -253,18 +259,18 @@ InReview → Approved
 For the MVP, the proposer may also be the approver unless Organization policy prohibits self-approval.
 Self-approval must remain explicit and fully audited.
 ---
-## Reject Decision
-### Transition
+### Reject Decision
+#### Transition
 ```text
 InReview → Rejected
 ```
-### Preconditions
+#### Preconditions
 - The actor is an authorized Human Member.
 - The Decision is `InReview`.
 - A rejection reason is provided.
 - The command uses the expected Aggregate version.
 - No authoritative outcome already exists.
-### Effects
+#### Effects
 - Record the rejection reason.
 - Record the rejecting Human Member.
 - Record the rejection timestamp.
@@ -273,19 +279,19 @@ InReview → Rejected
 - Emit `DecisionRejected`.
 Rejection creates no selected option.
 ---
-## Start Revision
-### Transition
+### Start Revision
+#### Transition
 ```text
 Rejected → Draft
 ```
-### Preconditions
+#### Preconditions
 - The actor is an authorized Human Member.
 - The Decision is `Rejected`.
 - A revision explanation is provided.
 - The organizational question remains materially the same.
 - The related Work is not terminal.
 - The command uses the expected Aggregate version.
-### Effects
+#### Effects
 - Increment the revision number.
 - Preserve the rejected revision and its review record.
 - Create a new editable draft based on the prior proposal.
@@ -296,19 +302,19 @@ Rejected → Draft
 Revision does not erase rejection history.
 The revised Decision must be submitted again before it can be approved or rejected.
 ---
-## Withdraw Decision
-### Transitions
+### Withdraw Decision
+#### Transitions
 ```text
 Draft → Withdrawn
 InReview → Withdrawn
 ```
-### Preconditions
+#### Preconditions
 - The actor is an authorized Human Member.
 - The actor is the proposer or has Organization-level withdrawal permission.
 - A withdrawal reason is provided.
 - The Decision is not already resolved as Approved or Rejected.
 - The command uses the expected Aggregate version.
-### Effects
+#### Effects
 - Preserve the latest draft or submitted revision.
 - Record the withdrawal reason.
 - Record the withdrawing Human Member.
@@ -318,7 +324,7 @@ InReview → Withdrawn
 - Emit `DecisionWithdrawn`.
 If an InReview Decision is blocking, the resolution event allows the Work module to record an unsatisfied outcome.
 ---
-# Allowed Transition Table
+## Allowed Transition Table
 | From | Command | To | Primary Guard |
 |---|---|---|---|
 | `[*]` | Create Decision | `Draft` | Authorized human and active Work |
@@ -331,7 +337,7 @@ If an InReview Decision is blocking, the resolution event allows the Work module
 | `Rejected` | Start Revision | `Draft` | Same question and revision explanation |
 No other lifecycle transitions are permitted in the MVP.
 ---
-# Revision and Review Model
+## Revision and Review Model
 A Decision represents one organizational question across one or more revisions.
 The revision number:
 - starts at `1`;
@@ -360,7 +366,7 @@ Previous revisions must never be overwritten.
 A revision may improve context and options, but it must continue to address the same organizational question.
 If the question changes materially, a new Decision must be created.
 ---
-# Blocking Decisions
+## Blocking Decisions
 Blocking status indicates whether an unresolved submitted Decision prevents Work completion.
 For the MVP:
 - blocking status is selected in `Draft`;
@@ -374,7 +380,7 @@ The rule “only one unresolved blocking Decision per Work” is a cross-Aggrega
 It must be enforced through the Application Layer, repository queries, transaction coordination, or a database constraint where appropriate.
 It is not a local invariant that one Decision Aggregate can prove by itself.
 ---
-# Relationship to Work
+## Relationship to Work
 The Decision Aggregate owns:
 - Decision question;
 - proposal revisions;
@@ -397,7 +403,7 @@ The Decision Aggregate must never directly:
 - cancel Work;
 - satisfy the Work completion gate; or
 - reopen Work.
-## Blocking Submission Flow
+### Blocking Submission Flow
 ```text
 Decision: Draft
         ↓ Human invokes coordinated RequestBlockingDecision
@@ -411,7 +417,7 @@ Completion gate: Pending
 ```
 
 A Draft Decision does not block Work. The blocking Decision's transition to `InReview` and Work's transition to `WaitingForDecision` must commit together in the MVP. After rejection or withdrawal, submission of a new blocking revision uses the same coordinator; the `decisionId` may be reused, but the revision number and submitted-snapshot identifier must be new.
-## Approval Flow
+### Approval Flow
 ```text
 Decision: InReview
         ↓ Human approves
@@ -424,7 +430,7 @@ Completion gate: Satisfied
         ↓ Separate human command
 Work: Completed
 ```
-## Rejection Flow
+### Rejection Flow
 ```text
 Decision: InReview
         ↓ Human rejects
@@ -435,7 +441,7 @@ Work records Rejected outcome
 Work: InProgress
 Completion gate: Unsatisfied
 ```
-## Withdrawal Flow
+### Withdrawal Flow
 ```text
 Decision: InReview
         ↓ Human withdraws
@@ -449,35 +455,35 @@ Completion gate: Unsatisfied
 Decision resolution and Work coordination may be eventually consistent.
 The Work update must be performed through reliable, idempotent processing.
 ---
-# Aggregate Invariants
+## Aggregate Invariants
 The Decision Aggregate must always enforce the following local invariants.
-## Identity and Ownership
+### Identity and Ownership
 - Every Decision has exactly one Decision identifier.
 - Every Decision belongs to exactly one Organization.
 - Every Decision belongs to exactly one Work.
 - Organization and Work references cannot change.
 - Every Decision has exactly one proposer.
 - The proposer reference cannot change.
-## State
+### State
 - The Decision is in exactly one lifecycle state.
 - Only transitions listed in this document are valid.
 - Approved and Withdrawn Decisions are terminal.
 - Rejected may return only to Draft through `Start Revision`.
 - Only one current review cycle may exist.
 - Only one authoritative outcome may exist per submitted revision.
-## Draft Integrity
+### Draft Integrity
 - Only Draft content is editable.
 - No authoritative selected option exists in Draft.
 - No current resolution record exists in Draft.
 - Blocking status may change only in Draft.
 - Draft edits cannot rewrite prior submitted revisions.
-## Review Integrity
+### Review Integrity
 - InReview requires an immutable submitted revision snapshot.
 - Submitted content is locked.
 - An InReview Decision has no authoritative outcome.
 - Only a Human Member may resolve the review.
 - AI output cannot become an outcome without human action.
-## Approval Integrity
+### Approval Integrity
 An Approved Decision always contains:
 - a submitted revision;
 - at least one option;
@@ -486,7 +492,7 @@ An Approved Decision always contains:
 - an approval rationale; and
 - an approval timestamp.
 Approved content and approval records are immutable.
-## Rejection Integrity
+### Rejection Integrity
 A Rejected Decision always contains:
 - a submitted revision;
 - a rejecting Human Member;
@@ -494,28 +500,28 @@ A Rejected Decision always contains:
 - a rejection timestamp; and
 - no selected option for that revision.
 The rejected revision and rejection record are immutable.
-## Withdrawal Integrity
+### Withdrawal Integrity
 A Withdrawn Decision always contains:
 - a withdrawing Human Member;
 - a withdrawal reason;
 - a withdrawal timestamp; and
 - no selected option.
 A Withdrawn Decision cannot be revised.
-## Revision Integrity
+### Revision Integrity
 - Revision begins at `1`.
 - Revision increases only through `Start Revision`.
 - Revision never decreases.
 - Every revision addresses the same organizational question.
 - Previous submitted snapshots and outcomes are append-only.
 - A revision cannot delete or alter prior review history.
-## Historical Integrity
+### Historical Integrity
 - Review records are append-only.
 - Secretary contribution records are append-only.
 - Actor identity and timestamps are immutable.
 - Accepted AI-assisted content remains attributable.
 - Historical records remain available after Work completion or cancellation.
 ---
-# Cross-Aggregate Preconditions
+## Cross-Aggregate Preconditions
 The following rules are required but are not enforced by the Decision Aggregate alone:
 - the Organization exists;
 - the related Work exists;
@@ -535,7 +541,7 @@ These rules are enforced through:
 - idempotent event handlers.
 They must not be mislabeled as local Decision Aggregate invariants.
 ---
-# Domain Events
+## Domain Events
 The Decision Aggregate may emit:
 - `DecisionDraftCreated`
 - `DecisionDetailsUpdated`
@@ -569,8 +575,8 @@ Resolution events must include:
 - reason when Rejected or Withdrawn.
 Events that trigger required cross-Aggregate work must be persisted durably through a Transactional Outbox or equivalent mechanism.
 ---
-# Authority Model
-## Human Member
+## Authority Model
+### Human Member
 Only an authorized Human Member may:
 - submit a Decision for review;
 - approve;
@@ -578,7 +584,7 @@ Only an authorized Human Member may:
 - withdraw; or
 - start a revision.
 For the MVP, the proposer may approve their own Decision unless Organization policy prohibits it.
-## Secretary
+### Secretary
 The Secretary is an AI Principal.
 It may:
 - draft;
@@ -597,7 +603,7 @@ It may not:
 - change blocking status autonomously;
 - impersonate a human reviewer; or
 - change Decision state.
-## System Principal
+### System Principal
 A System Principal may:
 - dispatch Domain Events;
 - update projections;
@@ -609,7 +615,7 @@ Audit must distinguish:
 - the Human Member who resolved the Decision; and
 - the System Principal that processed downstream effects.
 ---
-# Concurrency and Idempotency
+## Concurrency and Idempotency
 The implementation must use optimistic concurrency or an equivalent mechanism.
 Each state-changing command must validate an expected Aggregate version.
 Concurrent resolution attempts may include:
@@ -632,13 +638,13 @@ Infrastructure may use:
 - `IdempotencyKey`; and
 - Aggregate version.
 ---
-# Failure Semantics
-## Resolution Transaction Failure
+## Failure Semantics
+### Resolution Transaction Failure
 If approval, rejection, or withdrawal fails before the Decision transaction commits:
 - the Decision remains `InReview`;
 - no resolution event is committed; and
 - the related Work remains unchanged.
-## Downstream Work Coordination Failure
+### Downstream Work Coordination Failure
 If the Decision resolves successfully but the Work update fails:
 - the Decision remains resolved;
 - the Work may temporarily remain `WaitingForDecision`;
@@ -646,20 +652,20 @@ If the Decision resolves successfully but the Work update fails:
 - duplicate application is prevented; and
 - the failure is visible operationally.
 The system must not reverse the Decision merely because downstream processing failed.
-## Blocking Submission Coordination Failure
+### Blocking Submission Coordination Failure
 If a blocking Decision is submitted but the Work cannot enter `WaitingForDecision`:
 - the Decision remains `InReview`;
 - the coordination event is retried or recovered;
 - the inconsistency is visible; and
 - Work completion protection must use reliable coordination and appropriate application safeguards.
-## Secretary Failure
+### Secretary Failure
 If Secretary assistance fails:
 - Decision state does not change;
 - human-authored content remains available;
 - the failure may be retried; and
 - human review authority is unaffected.
 ---
-# Audit Requirements
+## Audit Requirements
 Every Decision must preserve:
 - Decision identifier;
 - Organization identifier;
@@ -683,7 +689,7 @@ Every Decision must preserve:
 Audit records must distinguish human, AI, and system actions.
 Historical review cycles must not be silently overwritten.
 ---
-# Related Documents
+## Related Documents
 - `docs/architecture/overview.md`
 - `docs/product/mvp.md`
 - `docs/product/roadmap.md`

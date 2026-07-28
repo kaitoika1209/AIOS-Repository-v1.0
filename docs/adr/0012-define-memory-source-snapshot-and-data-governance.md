@@ -1,8 +1,8 @@
 # ADR-0012: Define Memory Source Snapshot and Data-Governance Semantics
 
-> **Status:** Accepted  
-> **Date:** 2026-07-26  
-> **Blueprint version:** 0.2.1
+**Status:** Accepted  
+**Date:** 2026-07-26  
+**Blueprint Version:** 0.2.1
 
 ## Context
 

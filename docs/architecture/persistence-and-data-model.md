@@ -1,5 +1,10 @@
 # Persistence and Data Model Architecture
 
+> **Scope classification:** MVP Normative  
+> **MVP implementation authority:** Yes  
+> **Promotion requirement:** Not applicable  
+> **Authority rank:** see [Document Governance](../document-governance.md)
+
 **Status:** Draft  
 **Phase:** MVP  
 **Architecture:** Modular Monolith  
@@ -11,7 +16,7 @@
 
 ---
 
-# Purpose
+## Purpose
 
 This document defines how AIOS domain state is persisted in PostgreSQL.
 
@@ -45,7 +50,7 @@ The persistence model must support:
 
 ---
 
-# Goals
+## Goals
 
 The persistence architecture must ensure that:
 
@@ -67,7 +72,7 @@ The persistence architecture must ensure that:
 
 ---
 
-# Non-Goals
+## Non-Goals
 
 This document does not define:
 
@@ -92,7 +97,7 @@ Those concerns require separate future architecture.
 
 ---
 
-# Persistence Principles
+## Persistence Principles
 
 AIOS persistence follows these principles:
 
@@ -118,7 +123,7 @@ Controlled Migration
 
 ---
 
-# Principle 1: Aggregate-Oriented Persistence
+## Principle 1: Aggregate-Oriented Persistence
 
 Repositories persist Aggregate Roots.
 
@@ -148,7 +153,7 @@ Commit
 
 ---
 
-# Principle 2: Database Constraints Have Explicit Ownership
+## Principle 2: Database Constraints Have Explicit Ownership
 
 Aggregate-local lifecycle meaning remains in the Domain Model. Context-wide deterministic rules, authorization, external preconditions, and durable process rules remain with the owners defined by [ADR-0009](../adr/0009-assign-rule-enforcement-responsibilities.md).
 
@@ -170,7 +175,7 @@ The database does not replace the Domain Model, and the Domain Model does not re
 
 ---
 
-# Principle 3: Organization Scope Is Persisted Explicitly
+## Principle 3: Organization Scope Is Persisted Explicitly
 
 Every Organization-owned table includes:
 
@@ -196,7 +201,7 @@ Organization scope must not be inferred indirectly when it can be stored explici
 
 ---
 
-# Principle 4: Cross-Organization Relationships Are Prohibited
+## Principle 4: Cross-Organization Relationships Are Prohibited
 
 An Organization-owned record may reference only records belonging to the same Organization.
 
@@ -214,7 +219,7 @@ Database constraints should enforce this where practical.
 
 ---
 
-# Principle 5: Aggregate Boundaries Control Transactions
+## Principle 5: Aggregate Boundaries Control Transactions
 
 One command normally mutates one Aggregate.
 
@@ -241,7 +246,7 @@ These exceptions do not merge Aggregate boundaries.
 
 ---
 
-# Principle 6: No Event Sourcing
+## Principle 6: No Event Sourcing
 
 PostgreSQL Aggregate tables store current authoritative state.
 
@@ -256,7 +261,7 @@ Aggregates are not reconstructed by replaying all events.
 
 ---
 
-# Principle 7: Domain History Is Modeled Explicitly
+## Principle 7: Domain History Is Modeled Explicitly
 
 Where the domain requires history, dedicated tables are used.
 
@@ -278,7 +283,7 @@ Historical requirements must not rely solely on generic database audit logs.
 
 ---
 
-# Principle 8: Immutable Records Remain Immutable
+## Principle 8: Immutable Records Remain Immutable
 
 The following records are immutable after their locking transition:
 
@@ -300,7 +305,7 @@ Corrections are represented through new records or new revisions.
 
 ---
 
-# Principle 9: Long-Running Work Stays Outside Transactions
+## Principle 9: Long-Running Work Stays Outside Transactions
 
 Database transactions must not remain open during:
 
@@ -316,7 +321,7 @@ Only short, authoritative persistence work belongs inside the transaction.
 
 ---
 
-# Principle 10: Deletion Is Conservative
+## Principle 10: Deletion Is Conservative
 
 The MVP prefers:
 
@@ -345,7 +350,7 @@ Hard deletion is not the ordinary lifecycle mechanism for:
 
 ---
 
-# PostgreSQL as Primary Store
+## PostgreSQL as Primary Store
 
 PostgreSQL is the authoritative persistence engine for the MVP.
 
@@ -373,7 +378,7 @@ Audit metadata
 
 ---
 
-# Why PostgreSQL
+## Why PostgreSQL
 
 PostgreSQL provides:
 
@@ -394,7 +399,7 @@ These capabilities support the Modular Monolith without requiring distributed in
 
 ---
 
-# Persistence Architecture
+## Persistence Architecture
 
 ```text
 Application Service
@@ -415,7 +420,7 @@ PostgreSQL Repository
 
 ---
 
-# Module and Persistence Ownership
+## Module and Persistence Ownership
 
 Persistence ownership follows the MVP implementation modules while preserving repository ownership for each Aggregate.
 
@@ -468,7 +473,7 @@ A generic repository, direct table update across module ownership, or global Uni
 
 ---
 
-# Schema Organization
+## Schema Organization
 
 The MVP may use one PostgreSQL database.
 
@@ -476,7 +481,7 @@ Two schema strategies are acceptable.
 
 ---
 
-## Strategy A: One Shared Database Schema
+### Strategy A: One Shared Database Schema
 
 Example:
 
@@ -503,7 +508,7 @@ This is acceptable for the MVP.
 
 ---
 
-## Strategy B: Module-Specific PostgreSQL Schemas
+### Strategy B: Module-Specific PostgreSQL Schemas
 
 Example:
 
@@ -532,7 +537,7 @@ This is also acceptable when team tooling supports it.
 
 ---
 
-# Recommended MVP Schema Strategy
+## Recommended MVP Schema Strategy
 
 Use module-specific logical ownership.
 
@@ -547,7 +552,7 @@ At minimum:
 
 ---
 
-# Repository Isolation
+## Repository Isolation
 
 A repository may write only tables owned by its Aggregate or module.
 
@@ -572,7 +577,7 @@ Cross-module coordination belongs to Application Services.
 
 ---
 
-# Read Access Across Modules
+## Read Access Across Modules
 
 A module may use query interfaces to read cross-module facts.
 
@@ -596,7 +601,7 @@ It must not mutate either Aggregate.
 
 ---
 
-# Aggregate Persistence Model
+## Aggregate Persistence Model
 
 Each Aggregate Root has:
 
@@ -618,7 +623,7 @@ domain-specific state
 
 ---
 
-# Aggregate Root Table Pattern
+## Aggregate Root Table Pattern
 
 Recommended pattern:
 
@@ -637,7 +642,7 @@ Not every Aggregate requires every field, but the pattern should remain consiste
 
 ---
 
-# Optimistic Concurrency Version
+## Optimistic Concurrency Version
 
 Every mutable Aggregate Root has:
 
@@ -655,7 +660,7 @@ Each successful mutation increments version by one.
 
 ---
 
-# Version Update Pattern
+## Version Update Pattern
 
 ```sql
 UPDATE aggregate_table
@@ -675,7 +680,7 @@ ConcurrencyConflict
 
 ---
 
-# Version Ownership
+## Version Ownership
 
 Aggregate version belongs to the Aggregate Root.
 
@@ -685,7 +690,7 @@ A child entity must not mutate independently without updating the Aggregate Root
 
 ---
 
-# Child Entity Persistence
+## Child Entity Persistence
 
 Child entities may use separate relational tables.
 
@@ -707,7 +712,7 @@ They remain owned by the Aggregate Root.
 
 ---
 
-# Child Entity Mutation Rule
+## Child Entity Mutation Rule
 
 A child entity table must not have a public repository that permits independent domain mutation.
 
@@ -727,7 +732,7 @@ DecisionRepository.Save(decisionAggregate)
 
 ---
 
-# Aggregate Hydration
+## Aggregate Hydration
 
 Repositories must load all state required for Aggregate invariants.
 
@@ -747,7 +752,7 @@ All required state must be available before the command runs.
 
 ---
 
-# Large Child Collections
+## Large Child Collections
 
 Large unbounded collections should not be loaded into Aggregates unnecessarily.
 
@@ -765,7 +770,7 @@ Only state required to enforce invariants belongs inside the loaded Aggregate.
 
 ---
 
-# Revision Tables
+## Revision Tables
 
 Revision-based Aggregates use append-oriented child tables.
 
@@ -781,7 +786,7 @@ Revision rows receive stable revision identifiers and sequence numbers.
 
 ---
 
-# Revision Number
+## Revision Number
 
 Recommended revision key:
 
@@ -808,7 +813,7 @@ UNIQUE (
 
 ---
 
-# Revision Status
+## Revision Status
 
 A revision may have a status distinct from the Aggregate lifecycle.
 
@@ -830,7 +835,7 @@ The exact representation must remain aligned with the Decision Aggregate.
 
 ---
 
-# Submitted Snapshot
+## Submitted Snapshot
 
 When a Decision is submitted:
 
@@ -841,7 +846,7 @@ When a Decision is submitted:
 
 ---
 
-# Snapshot Storage Strategy
+## Snapshot Storage Strategy
 
 A submitted snapshot may be represented by:
 
@@ -852,7 +857,7 @@ The MVP should prefer immutable revision rows unless a separate snapshot has a c
 
 ---
 
-# Memory Revision Persistence
+## Memory Revision Persistence
 
 Memory lifecycle:
 
@@ -872,7 +877,7 @@ Approved content must remain immutable.
 
 ---
 
-# One Active Revision
+## One Active Revision
 
 For revision-based Aggregates, only one current editable revision may exist.
 
@@ -892,7 +897,7 @@ The selected strategy must prevent two concurrent active Drafts.
 
 ---
 
-# Aggregate Root Current Revision
+## Aggregate Root Current Revision
 
 Recommended root fields:
 
@@ -908,7 +913,7 @@ Historical revisions remain append-only.
 
 ---
 
-# Status Representation
+## Status Representation
 
 Statuses should be stored as bounded text values.
 
@@ -930,7 +935,7 @@ PostgreSQL enum types may be used, but text plus check constraints often provide
 
 ---
 
-# Recommended Status Strategy
+## Recommended Status Strategy
 
 Use:
 
@@ -949,7 +954,7 @@ Benefits:
 
 ---
 
-# Timestamp Strategy
+## Timestamp Strategy
 
 All stored timestamps use:
 
@@ -961,7 +966,7 @@ Application and database timestamps are represented in UTC.
 
 ---
 
-# Common Timestamps
+## Common Timestamps
 
 Recommended fields:
 
@@ -989,7 +994,7 @@ A lifecycle timestamp should be nullable until the corresponding transition occu
 
 ---
 
-# Clock Source
+## Clock Source
 
 The Application Layer may use an injected clock for domain timestamps.
 
@@ -1003,7 +1008,7 @@ The architecture must define which clock owns each field.
 
 ---
 
-# Domain Timestamp Versus Persistence Timestamp
+## Domain Timestamp Versus Persistence Timestamp
 
 Example:
 
@@ -1019,7 +1024,7 @@ These may be equal but represent different meanings.
 
 ---
 
-# Identifier Strategy
+## Identifier Strategy
 
 AIOS uses stable opaque identifiers.
 
@@ -1033,7 +1038,7 @@ or another collision-resistant opaque identifier.
 
 ---
 
-# Identifier Rules
+## Identifier Rules
 
 Identifiers must:
 
@@ -1046,7 +1051,7 @@ Identifiers must:
 
 ---
 
-# Identifier Types
+## Identifier Types
 
 Recommended identifiers include:
 
@@ -1082,7 +1087,7 @@ finding_id
 
 ---
 
-# Domain-Typed Identifiers
+## Domain-Typed Identifiers
 
 Application code should use typed identifier wrappers where supported.
 
@@ -1100,7 +1105,7 @@ Avoid passing untyped generic strings throughout the Domain Layer.
 
 ---
 
-# Database Identifier Type
+## Database Identifier Type
 
 UUID-backed identifiers should use:
 
@@ -1114,7 +1119,7 @@ External identifiers that do not use UUID format may use bounded text.
 
 ---
 
-# Business Keys
+## Business Keys
 
 Business keys may supplement primary identifiers.
 
@@ -1134,7 +1139,7 @@ Business keys must not replace stable internal identifiers.
 
 ---
 
-# Email as Lookup Key
+## Email as Lookup Key
 
 Email may be indexed for:
 
@@ -1146,7 +1151,7 @@ It must not be the foreign key used by domain resources.
 
 ---
 
-# Naming Conventions
+## Naming Conventions
 
 Recommended database naming style:
 
@@ -1168,7 +1173,7 @@ created_at
 
 ---
 
-# Table Naming
+## Table Naming
 
 Use plural table names consistently.
 
@@ -1192,7 +1197,7 @@ outbox_messages
 
 ---
 
-# Primary Key Naming
+## Primary Key Naming
 
 Recommended:
 
@@ -1212,7 +1217,7 @@ memory_id
 
 ---
 
-# Foreign Key Naming
+## Foreign Key Naming
 
 Foreign key columns use the referenced identifier name.
 
@@ -1228,7 +1233,7 @@ decision_id
 
 ---
 
-# Constraint Naming
+## Constraint Naming
 
 Recommended pattern:
 
@@ -1246,7 +1251,7 @@ ix_<table>_<purpose>
 
 ---
 
-# Example Constraint Names
+## Example Constraint Names
 
 ```text
 pk_work_items
@@ -1262,7 +1267,7 @@ ix_outbox_messages_pending
 
 ---
 
-# Boolean Fields
+## Boolean Fields
 
 Boolean fields should describe positive meaning.
 
@@ -1284,7 +1289,7 @@ Where lifecycle state exists, prefer status over overlapping Boolean flags.
 
 ---
 
-# Nullability
+## Nullability
 
 Nullability must represent domain meaning explicitly.
 
@@ -1300,7 +1305,7 @@ Required identifiers and current lifecycle state must be non-null.
 
 ---
 
-# Nullable Foreign Keys
+## Nullable Foreign Keys
 
 Nullable foreign keys are permitted only when the domain allows absence.
 
@@ -1314,7 +1319,7 @@ A nullable foreign key must not be used to avoid modeling a required relationshi
 
 ---
 
-# JSONB Usage
+## JSONB Usage
 
 JSONB is permitted for:
 
@@ -1326,7 +1331,7 @@ JSONB is permitted for:
 
 ---
 
-# JSONB Prohibitions
+## JSONB Prohibitions
 
 JSONB should not replace relational modeling for:
 
@@ -1342,7 +1347,7 @@ JSONB should not replace relational modeling for:
 
 ---
 
-# JSONB Validation
+## JSONB Validation
 
 JSONB content should use:
 
@@ -1356,7 +1361,7 @@ Database JSON checks may supplement critical structural validation.
 
 ---
 
-# Text Content Storage
+## Text Content Storage
 
 Large user-authored content may use:
 
@@ -1377,7 +1382,7 @@ Database checks may enforce hard safety limits.
 
 ---
 
-# Large Binary Data
+## Large Binary Data
 
 Large binary files must not be stored directly in core Aggregate tables.
 
@@ -1393,7 +1398,7 @@ Binary attachment architecture is outside the MVP unless explicitly required.
 
 ---
 
-# Normalization Strategy
+## Normalization Strategy
 
 The MVP should use a normalized relational model for authoritative data.
 
@@ -1408,7 +1413,7 @@ Normalization is preferred when it supports:
 
 ---
 
-# Denormalization
+## Denormalization
 
 Denormalization is acceptable for:
 
@@ -1422,7 +1427,7 @@ Denormalized fields must have a defined source of truth.
 
 ---
 
-# Read Models
+## Read Models
 
 Read models may use dedicated tables optimized for queries.
 
@@ -1444,7 +1449,7 @@ They must not become authoritative write models.
 
 ---
 
-# Read Model Rebuildability
+## Read Model Rebuildability
 
 A read model should be rebuildable from:
 
@@ -1456,7 +1461,7 @@ The rebuild strategy must be documented per projection.
 
 ---
 
-# Query Separation
+## Query Separation
 
 Repositories support Aggregate loading and persistence.
 
@@ -1473,7 +1478,7 @@ Query Services may use optimized SQL and projections.
 
 ---
 
-# Command-Query Separation
+## Command-Query Separation
 
 The MVP does not require full CQRS infrastructure.
 
@@ -1491,7 +1496,7 @@ Query path
 
 ---
 
-# Data Ownership
+## Data Ownership
 
 Each authoritative field has one owner.
 
@@ -1521,7 +1526,7 @@ No other module may update these fields directly.
 
 ---
 
-# Cross-Aggregate References
+## Cross-Aggregate References
 
 Cross-Aggregate references use identifiers.
 
@@ -1539,7 +1544,7 @@ The design must choose one authoritative relationship owner where possible.
 
 ---
 
-# Relationship Ownership
+## Relationship Ownership
 
 For a blocking Decision workflow:
 
@@ -1560,7 +1565,7 @@ The duplicate relationship must be validated transactionally when created.
 
 ---
 
-# Relationship Duplication
+## Relationship Duplication
 
 Duplicating identifiers across Aggregates is acceptable when:
 
@@ -1572,7 +1577,7 @@ Duplicating identifiers across Aggregates is acceptable when:
 
 ---
 
-# Completion Gate Persistence
+## Completion Gate Persistence
 
 Work Completion Gate is a Value Object.
 
@@ -1600,7 +1605,7 @@ or an equivalent normalized representation.
 
 ---
 
-# Completion Gate Values
+## Completion Gate Values
 
 Supported conceptual states:
 
@@ -1618,7 +1623,7 @@ Database constraints must prevent invalid field combinations.
 
 ---
 
-# Completion Gate Constraint Principle
+## Completion Gate Constraint Principle
 
 Examples:
 
@@ -1644,7 +1649,7 @@ Unsatisfied
 
 ---
 
-# Decision Outcome Persistence
+## Decision Outcome Persistence
 
 Decision outcome fields may include:
 
@@ -1676,7 +1681,7 @@ Draft and InReview are lifecycle states, not outcomes.
 
 ---
 
-# Memory Source Persistence
+## Memory Source Persistence
 
 Memory should reference its source Work:
 
@@ -1690,7 +1695,7 @@ The database must reinforce this with a uniqueness strategy.
 
 ---
 
-# One Active Memory Constraint
+## One Active Memory Constraint
 
 Recommended partial unique index:
 
@@ -1707,7 +1712,7 @@ An equivalent lifecycle-based condition is acceptable.
 
 ---
 
-# Active Memory Meaning
+## Active Memory Meaning
 
 The MVP normally has only one Memory Aggregate per Work.
 
@@ -1723,7 +1728,7 @@ The MVP should avoid adding supersession complexity unless required.
 
 ---
 
-# Actor Reference Persistence
+## Actor Reference Persistence
 
 Domain records should persist stable attribution fields.
 
@@ -1741,7 +1746,7 @@ actor_display_name_snapshot
 
 ---
 
-# Actor Type Constraint
+## Actor Type Constraint
 
 Supported values:
 
@@ -1757,7 +1762,7 @@ Unknown actor types must not be interpreted as Human.
 
 ---
 
-# Human Authority Database Checks
+## Human Authority Database Checks
 
 Database constraints may ensure that authority-sensitive records use:
 
@@ -1775,7 +1780,7 @@ Application and Domain rules remain primary.
 
 ---
 
-# Historical Membership References
+## Historical Membership References
 
 Historical actor references may point to Memberships that later become:
 
@@ -1789,7 +1794,7 @@ Membership hard deletion is therefore prohibited in ordinary operation.
 
 ---
 
-# Soft Lifecycle Persistence
+## Soft Lifecycle Persistence
 
 Lifecycle changes update status and timestamps.
 
@@ -1805,7 +1810,7 @@ The row remains available for audit and foreign-key integrity.
 
 ---
 
-# Hard Delete Policy
+## Hard Delete Policy
 
 Ordinary repositories should not expose hard-delete methods for authoritative Aggregate Roots.
 
@@ -1823,7 +1828,7 @@ Cancellation, revocation, disablement, or archival should be used instead.
 
 ---
 
-# Technical Cleanup
+## Technical Cleanup
 
 Technical cleanup may hard-delete:
 
@@ -1837,7 +1842,7 @@ Cleanup must not delete authoritative domain history unintentionally.
 
 ---
 
-# Referential Integrity
+## Referential Integrity
 
 Foreign keys should be used wherever they preserve valid ownership and lifecycle relationships.
 
@@ -1860,7 +1865,7 @@ memories.source_work_id
 
 ---
 
-# Composite Organization Foreign Keys
+## Composite Organization Foreign Keys
 
 To prevent cross-Organization relationships, tables may use composite keys.
 
@@ -1888,7 +1893,7 @@ REFERENCES work_items (
 
 ---
 
-# Composite Key Strategy
+## Composite Key Strategy
 
 Primary keys may remain single-column UUIDs.
 
@@ -1904,7 +1909,7 @@ UNIQUE (organization_id, work_id)
 
 ---
 
-# Foreign Key Delete Behavior
+## Foreign Key Delete Behavior
 
 Recommended default:
 
@@ -1922,7 +1927,7 @@ Cascade deletion should be limited to true Aggregate-owned child rows.
 
 ---
 
-# Allowed Cascade Delete
+## Allowed Cascade Delete
 
 Cascade may be appropriate for:
 
@@ -1935,7 +1940,7 @@ Hard deletion of committed Aggregate Roots is not ordinary MVP behavior.
 
 ---
 
-# Child Cascade Principle
+## Child Cascade Principle
 
 If a child entity has no meaning outside its Aggregate and the Aggregate Root is legally removed through controlled tooling, cascade may be used.
 
@@ -1943,7 +1948,7 @@ Ordinary business lifecycle must not rely on cascade deletion.
 
 ---
 
-# Unique Constraints
+## Unique Constraints
 
 Unique constraints should protect:
 
@@ -1960,7 +1965,7 @@ Unique constraints should protect:
 
 ---
 
-# Check Constraints
+## Check Constraints
 
 Check constraints should protect:
 
@@ -1975,7 +1980,7 @@ Check constraints should protect:
 
 ---
 
-# Database Defaults
+## Database Defaults
 
 Defaults may be used for technical fields such as:
 
@@ -1991,7 +1996,7 @@ Business-significant defaults should remain explicit in Aggregate creation.
 
 ---
 
-# Default Status
+## Default Status
 
 Aggregate creation should explicitly supply initial status.
 
@@ -1999,7 +2004,7 @@ The database may reinforce the value but should not silently choose business lif
 
 ---
 
-# Core Data Invariants
+## Core Data Invariants
 
 The persistence model must preserve the following invariants:
 
@@ -2026,7 +2031,7 @@ The persistence model must preserve the following invariants:
 
 ---
 
-# Part 1 Design Summary
+## Part 1 Design Summary
 
 The AIOS persistence model uses PostgreSQL as a relational, transactional foundation for the Modular Monolith.
 
@@ -2054,7 +2059,7 @@ Relational constraints protect structural integrity.
 
 Cross-Aggregate consequences remain asynchronous unless a narrowly defined coordinated transaction is required.
 
-# Work Persistence Model
+## Work Persistence Model
 
 The Work Aggregate owns:
 
@@ -2072,7 +2077,7 @@ The Work Aggregate owns:
 
 ---
 
-# Work Root Table
+## Work Root Table
 
 Recommended table:
 
@@ -2111,7 +2116,7 @@ work_items
 
 ---
 
-# Work Status Values
+## Work Status Values
 
 Supported values:
 
@@ -2145,7 +2150,7 @@ CHECK (
 
 ---
 
-# Completion Gate Persistence
+## Completion Gate Persistence
 
 Recommended values:
 
@@ -2192,7 +2197,7 @@ when no final Decision outcome has been recorded.
 
 ---
 
-# Completion Gate Constraints
+## Completion Gate Constraints
 
 Recommended constraint:
 
@@ -2269,7 +2274,7 @@ An additional status constraint must require `WaitingForDecision` to use a Pendi
 
 ---
 
-# Work Terminal-State Constraints
+## Work Terminal-State Constraints
 
 Recommended completion constraint:
 
@@ -2318,7 +2323,7 @@ The Work Aggregate remains authoritative for state transitions.
 
 ---
 
-# Work Human Authority
+## Work Human Authority
 
 The completion fields must reference a Human Member.
 
@@ -2340,7 +2345,7 @@ A dedicated completion-history table may additionally store actor type if a unif
 
 ---
 
-# Work Creation Attribution
+## Work Creation Attribution
 
 Recommended fields:
 
@@ -2355,7 +2360,7 @@ Secretary and System principals may contribute content but do not create Human-a
 
 ---
 
-# Work Assignment Tables
+## Work Assignment Tables
 
 If Work supports one primary assignee, the root may store:
 
@@ -2380,7 +2385,7 @@ work_participants
 
 ---
 
-# Work Participant Relationship Types
+## Work Participant Relationship Types
 
 Recommended values:
 
@@ -2408,7 +2413,7 @@ WHERE removed_at IS NULL;
 
 ---
 
-# Work Participant Organization Constraint
+## Work Participant Organization Constraint
 
 Recommended composite foreign keys:
 
@@ -2438,7 +2443,7 @@ This prevents assigning a Member from another Organization.
 
 ---
 
-# Work Decision Association
+## Work Decision Association
 
 The active blocking Decision association should be immutable after establishment except through explicit Work Aggregate behavior. It is cleared when the outcome is recorded or Work is cancelled; the resolved reference remains in Completion Gate and outcome history fields.
 
@@ -2479,7 +2484,7 @@ Both the active blocking reference and Completion Gate evidence must also refere
 
 ---
 
-# Work Indexes
+## Work Indexes
 
 Recommended indexes:
 
@@ -2520,7 +2525,7 @@ WHERE removed_at IS NULL;
 
 ---
 
-# Work Table Conceptual DDL
+## Work Table Conceptual DDL
 
 ```sql
 CREATE TABLE work_items (
@@ -2583,7 +2588,7 @@ Additional constraints from this document should be applied through migrations.
 
 ---
 
-# Decision Persistence Model
+## Decision Persistence Model
 
 The Decision Aggregate owns:
 
@@ -2601,7 +2606,7 @@ The Decision Aggregate owns:
 
 ---
 
-# Decision Root Table
+## Decision Root Table
 
 Recommended table:
 
@@ -2639,7 +2644,7 @@ decisions
 
 ---
 
-# Decision Status Values
+## Decision Status Values
 
 Supported values:
 
@@ -2675,7 +2680,7 @@ CHECK (
 
 ---
 
-# Decision Outcome Values
+## Decision Outcome Values
 
 Recommended values:
 
@@ -2697,7 +2702,7 @@ InReview
 
 ---
 
-# Decision State Constraints
+## Decision State Constraints
 
 Conceptual constraint:
 
@@ -2732,7 +2737,7 @@ CHECK (
 
 ---
 
-# Decision Review Attribution Constraint
+## Decision Review Attribution Constraint
 
 Recommended constraint:
 
@@ -2764,7 +2769,7 @@ CHECK (
 
 ---
 
-# Decision Revision Table
+## Decision Revision Table
 
 Recommended table:
 
@@ -2800,7 +2805,7 @@ The exact business fields may vary according to the Decision Aggregate.
 
 ---
 
-# Decision Revision Status Values
+## Decision Revision Status Values
 
 Recommended values:
 
@@ -2820,7 +2825,7 @@ A revision becomes immutable when it leaves Draft.
 
 ---
 
-# Decision Revision Immutability
+## Decision Revision Immutability
 
 The repository must not issue content updates when:
 
@@ -2841,7 +2846,7 @@ THEN
 
 ---
 
-# Decision Revision Number Constraint
+## Decision Revision Number Constraint
 
 ```sql
 ALTER TABLE decision_revisions
@@ -2864,7 +2869,7 @@ UNIQUE (
 
 ---
 
-# One Draft Revision Constraint
+## One Draft Revision Constraint
 
 Recommended partial unique index:
 
@@ -2880,7 +2885,7 @@ This prevents two concurrent editable revisions.
 
 ---
 
-# Current Revision Reference
+## Current Revision Reference
 
 The Decision Root stores:
 
@@ -2905,7 +2910,7 @@ A composite foreign key may enforce this more strongly.
 
 ---
 
-# Submitted Revision Reference
+## Submitted Revision Reference
 
 When status is InReview:
 
@@ -2932,7 +2937,7 @@ must equal the revision that was reviewed.
 
 ---
 
-# Decision Related Work Constraint
+## Decision Related Work Constraint
 
 Recommended composite foreign key:
 
@@ -2953,7 +2958,7 @@ If standalone Decisions are supported later, it may remain nullable.
 
 ---
 
-# Decision Options
+## Decision Options
 
 If a Decision supports multiple structured options, use:
 
@@ -2975,7 +2980,7 @@ They are immutable once the revision is submitted.
 
 ---
 
-# Decision Secretary Contributions
+## Decision Secretary Contributions
 
 Recommended table:
 
@@ -3000,7 +3005,7 @@ Secretary Contributions remain separate from authoritative Draft content.
 
 ---
 
-# Decision Contribution Adoption
+## Decision Contribution Adoption
 
 Adoption does not update the contribution into an authoritative state automatically.
 
@@ -3018,7 +3023,7 @@ for traceability.
 
 ---
 
-# Decision Indexes
+## Decision Indexes
 
 Recommended indexes:
 
@@ -3071,7 +3076,7 @@ This constraint closes the race between concurrent `RequestBlockingDecision` com
 
 ---
 
-# Decision Root Conceptual DDL
+## Decision Root Conceptual DDL
 
 ```sql
 CREATE TABLE decisions (
@@ -3123,7 +3128,7 @@ CREATE TABLE decisions (
 
 ---
 
-# Memory Persistence Model
+## Memory Persistence Model
 
 The Memory Aggregate owns:
 
@@ -3140,7 +3145,7 @@ The Memory Aggregate owns:
 
 ---
 
-# Memory Root Table
+## Memory Root Table
 
 Recommended table:
 
@@ -3178,7 +3183,7 @@ memories
 
 ---
 
-# Memory Status Values
+## Memory Status Values
 
 Supported values:
 
@@ -3209,7 +3214,7 @@ CHECK (
 
 ---
 
-# Memory Active Flag
+## Memory Active Flag
 
 The MVP normally keeps one active Memory per Work.
 
@@ -3234,7 +3239,7 @@ WHERE is_active = true;
 
 ---
 
-# Memory Source Work Constraint
+## Memory Source Work Constraint
 
 Recommended composite foreign key:
 
@@ -3255,7 +3260,7 @@ A foreign key alone cannot validate Work lifecycle state.
 
 ---
 
-# Memory Revision Table
+## Memory Revision Table
 
 Recommended table:
 
@@ -3288,7 +3293,7 @@ memory_revisions
 
 ---
 
-# Memory Revision Status Values
+## Memory Revision Status Values
 
 Recommended values:
 
@@ -3306,7 +3311,7 @@ A revision is editable only when the Memory state permits Generated content edit
 
 ---
 
-# One Editable Memory Revision
+## One Editable Memory Revision
 
 Recommended partial unique index:
 
@@ -3322,7 +3327,7 @@ The exact condition must align with the Aggregate revision model.
 
 ---
 
-# Memory Revision Immutability
+## Memory Revision Immutability
 
 Once a revision becomes:
 
@@ -3340,7 +3345,7 @@ This provides stronger historical traceability than mutating the rejected revisi
 
 ---
 
-# Approved Memory Constraint
+## Approved Memory Constraint
 
 Recommended conceptual constraint:
 
@@ -3356,7 +3361,7 @@ Approved content must reference an immutable Approved revision.
 
 ---
 
-# Rejected Memory Constraint
+## Rejected Memory Constraint
 
 Recommended conceptual constraint:
 
@@ -3372,7 +3377,7 @@ A later Human command creates or reopens a Generated revision.
 
 ---
 
-# Memory Generation Attribution
+## Memory Generation Attribution
 
 Generated Memory is created by the System.
 
@@ -3390,7 +3395,7 @@ The source WorkCompleted event preserves the Human completion actor.
 
 ---
 
-# Memory Source References
+## Memory Source References
 
 If Memory content references multiple source items, use:
 
@@ -3412,7 +3417,7 @@ Source reference rows are owned by the Memory Aggregate or revision.
 
 ---
 
-# Source Reference Types
+## Source Reference Types
 
 Recommended values:
 
@@ -3432,7 +3437,7 @@ External references should remain bounded and validated.
 
 ---
 
-# Memory Secretary Contributions
+## Memory Secretary Contributions
 
 Recommended table:
 
@@ -3457,7 +3462,7 @@ Secretary Contributions do not approve or submit Memory.
 
 ---
 
-# Memory Indexes
+## Memory Indexes
 
 Recommended indexes:
 
@@ -3496,7 +3501,7 @@ ON memory_revisions (
 
 ---
 
-# Memory Root Conceptual DDL
+## Memory Root Conceptual DDL
 
 ```sql
 CREATE TABLE memories (
@@ -3555,7 +3560,7 @@ CREATE TABLE memories (
 
 ---
 
-# Human Identity Persistence Model
+## Human Identity Persistence Model
 
 The Human Identity Aggregate owns:
 
@@ -3567,7 +3572,7 @@ The Human Identity Aggregate owns:
 
 ---
 
-# Human Identity Table
+## Human Identity Table
 
 Recommended table:
 
@@ -3592,7 +3597,7 @@ human_identities
 
 ---
 
-# Human Identity Status Values
+## Human Identity Status Values
 
 ```text
 Active
@@ -3615,7 +3620,7 @@ CHECK (
 
 ---
 
-# Primary Email
+## Primary Email
 
 Recommended storage:
 
@@ -3631,7 +3636,7 @@ It is not the authoritative identity key.
 
 ---
 
-# Email Uniqueness
+## Email Uniqueness
 
 Global email uniqueness is optional and depends on authentication policy.
 
@@ -3647,7 +3652,7 @@ Authentication subject mapping remains authoritative for login resolution.
 
 ---
 
-# Authentication Subject Table
+## Authentication Subject Table
 
 Recommended table:
 
@@ -3671,7 +3676,7 @@ authentication_subjects
 
 ---
 
-# Active Authentication Subject Uniqueness
+## Active Authentication Subject Uniqueness
 
 Recommended index:
 
@@ -3687,7 +3692,7 @@ WHERE unlinked_at IS NULL;
 
 ---
 
-# Final Authentication Method
+## Final Authentication Method
 
 The database may not be able to enforce that an Active Human Identity retains at least one usable authentication method.
 
@@ -3695,7 +3700,7 @@ This is coordinated by the Application Layer and identity-provider integration.
 
 ---
 
-# Human Identity Indexes
+## Human Identity Indexes
 
 Recommended indexes:
 
@@ -3723,7 +3728,7 @@ WHERE unlinked_at IS NULL;
 
 ---
 
-# Organization Persistence Model
+## Organization Persistence Model
 
 The Organization Aggregate owns:
 
@@ -3735,7 +3740,7 @@ The Organization Aggregate owns:
 
 ---
 
-# Organization Table
+## Organization Table
 
 Recommended table:
 
@@ -3762,7 +3767,7 @@ organizations
 
 ---
 
-# Organization Status Values
+## Organization Status Values
 
 ```text
 Active
@@ -3788,7 +3793,7 @@ CHECK (
 
 ---
 
-# Organization Lifecycle Timestamp Constraints
+## Organization Lifecycle Timestamp Constraints
 
 Conceptual rules:
 
@@ -3807,7 +3812,7 @@ The Domain Aggregate owns transition validity.
 
 ---
 
-# Organization Name
+## Organization Name
 
 Organization name is not globally unique.
 
@@ -3823,7 +3828,7 @@ as the authoritative identifier.
 
 ---
 
-# Organization Indexes
+## Organization Indexes
 
 Recommended:
 
@@ -3838,7 +3843,7 @@ A name-search index may be added only when required by an authorized directory u
 
 ---
 
-# Membership Persistence Model
+## Membership Persistence Model
 
 The Membership Aggregate owns:
 
@@ -3852,7 +3857,7 @@ The Membership Aggregate owns:
 
 ---
 
-# Membership Table
+## Membership Table
 
 Recommended table:
 
@@ -3887,7 +3892,7 @@ memberships
 
 ---
 
-# Membership Status Values
+## Membership Status Values
 
 ```text
 Invited
@@ -3916,7 +3921,7 @@ CHECK (
 
 ---
 
-# Membership Identity Constraint
+## Membership Identity Constraint
 
 An Invited Membership for an unknown Human may have:
 
@@ -3963,7 +3968,7 @@ CHECK (
 
 ---
 
-# Membership Uniqueness
+## Membership Uniqueness
 
 For known Human Identities:
 
@@ -3990,7 +3995,7 @@ WHERE status = 'Invited'
 
 ---
 
-# Membership Composite Key
+## Membership Composite Key
 
 Recommended additional uniqueness:
 
@@ -4007,7 +4012,7 @@ This supports safe composite foreign keys from Organization-owned resources.
 
 ---
 
-# Membership Role Assignment Table
+## Membership Role Assignment Table
 
 Recommended table:
 
@@ -4034,7 +4039,7 @@ membership_role_assignments
 
 ---
 
-# Supported Role Values
+## Supported Role Values
 
 ```text
 OrganizationOwner
@@ -4063,7 +4068,7 @@ CHECK (
 
 ---
 
-# Active Role Uniqueness
+## Active Role Uniqueness
 
 ```sql
 CREATE UNIQUE INDEX uq_membership_role_assignments_active
@@ -4076,7 +4081,7 @@ WHERE revoked_at IS NULL;
 
 ---
 
-# Membership Role Organization Constraint
+## Membership Role Organization Constraint
 
 Recommended composite foreign key:
 
@@ -4093,7 +4098,7 @@ REFERENCES memberships (
 
 ---
 
-# Active Owner Query
+## Active Owner Query
 
 Recommended index:
 
@@ -4111,7 +4116,7 @@ Membership status must also be Active for the Member to count as an active Owner
 
 ---
 
-# Last Owner Invariant
+## Last Owner Invariant
 
 A standard foreign key or unique constraint cannot fully enforce:
 
@@ -4130,7 +4135,7 @@ A database trigger may supplement this rule, but the primary workflow remains ex
 
 ---
 
-# Organization Invitation Table
+## Organization Invitation Table
 
 Recommended table:
 
@@ -4157,7 +4162,7 @@ organization_invitations
 
 ---
 
-# Invitation Status Values
+## Invitation Status Values
 
 ```text
 Pending
@@ -4186,7 +4191,7 @@ CHECK (
 
 ---
 
-# Invitation Token Security
+## Invitation Token Security
 
 Store:
 
@@ -4208,7 +4213,7 @@ UNIQUE (
 
 ---
 
-# Invitation Version
+## Invitation Version
 
 When an invitation is resent:
 
@@ -4233,7 +4238,7 @@ UNIQUE (
 
 ---
 
-# Membership Indexes
+## Membership Indexes
 
 Recommended:
 
@@ -4264,7 +4269,7 @@ WHERE status = 'Invited';
 
 ---
 
-# Authorization Persistence Model
+## Authorization Persistence Model
 
 Authorization uses:
 
@@ -4277,7 +4282,7 @@ Authorization uses:
 
 ---
 
-# Permission Definition Table
+## Permission Definition Table
 
 Recommended table:
 
@@ -4312,7 +4317,7 @@ organization.manage_members
 
 ---
 
-# Role Permission Mapping Table
+## Role Permission Mapping Table
 
 Recommended table:
 
@@ -4346,7 +4351,7 @@ UNIQUE (
 
 ---
 
-# Policy Version Table
+## Policy Version Table
 
 Recommended table:
 
@@ -4371,7 +4376,7 @@ The table records deployed or active versions for auditability.
 
 ---
 
-# System Principal Table
+## System Principal Table
 
 Recommended table:
 
@@ -4400,7 +4405,7 @@ Disabled
 
 ---
 
-# System Principal Capability Table
+## System Principal Capability Table
 
 Recommended table:
 
@@ -4431,7 +4436,7 @@ WHERE revoked_at IS NULL;
 
 ---
 
-# Secretary Principal Table
+## Secretary Principal Table
 
 If Secretary identities require persistence, use:
 
@@ -4475,7 +4480,7 @@ membership_role_assignments
 
 ---
 
-# Authorization Audit Table
+## Authorization Audit Table
 
 Recommended table:
 
@@ -4511,7 +4516,7 @@ authorization_audit_records
 
 ---
 
-# Authorization Audit Outcome
+## Authorization Audit Outcome
 
 Supported values:
 
@@ -4536,7 +4541,7 @@ CHECK (
 
 ---
 
-# Authorization Audit Immutability
+## Authorization Audit Immutability
 
 The audit repository should expose:
 
@@ -4558,7 +4563,7 @@ for the application role.
 
 ---
 
-# Authorization Audit Indexes
+## Authorization Audit Indexes
 
 Recommended:
 
@@ -4597,7 +4602,7 @@ WHERE outcome = 'Deny';
 
 ---
 
-# Command Idempotency Persistence
+## Command Idempotency Persistence
 
 Every authoritative command carries:
 
@@ -4615,7 +4620,7 @@ processed_commands
 
 ---
 
-# Processed Command Table
+## Processed Command Table
 
 Conceptual structure:
 
@@ -4637,7 +4642,7 @@ processed_commands
 
 ---
 
-# Processed Command Status
+## Processed Command Status
 
 Recommended values:
 
@@ -4653,7 +4658,7 @@ For the MVP, a simpler immutable Completed record may be used when commands are 
 
 ---
 
-# Processed Command Uniqueness
+## Processed Command Uniqueness
 
 Recommended primary key:
 
@@ -4674,7 +4679,7 @@ Global command identifiers are simpler and preferred.
 
 ---
 
-# Request Hash
+## Request Hash
 
 The `request_hash` detects command identifier reuse with different intent.
 
@@ -4690,7 +4695,7 @@ the request fails.
 
 ---
 
-# Processed Command Result
+## Processed Command Result
 
 `result_payload` stores a bounded application result required to answer duplicate requests.
 
@@ -4702,7 +4707,7 @@ It must not store:
 
 ---
 
-# Processed Command Atomicity
+## Processed Command Atomicity
 
 The following must commit atomically:
 
@@ -4718,7 +4723,7 @@ Required authorization audit metadata
 
 ---
 
-# Transactional Outbox Persistence
+## Transactional Outbox Persistence
 
 The primary Outbox table was defined in the Events and Transactional Outbox architecture.
 
@@ -4763,7 +4768,7 @@ last_error_message
 
 ---
 
-# Event Stream Position
+## Event Stream Position
 
 Recommended uniqueness:
 
@@ -4780,7 +4785,7 @@ UNIQUE (
 
 ---
 
-# Outbox Actor Reference
+## Outbox Actor Reference
 
 The ActorReference may be stored as:
 
@@ -4800,7 +4805,7 @@ For authority-sensitive queries, normalized columns are easier to constrain and 
 
 ---
 
-# Recommended Outbox Actor Columns
+## Recommended Outbox Actor Columns
 
 Recommended normalized structure:
 
@@ -4815,7 +4820,7 @@ A JSONB metadata field may supplement these columns.
 
 ---
 
-# Processed Event Persistence
+## Processed Event Persistence
 
 `processed_events` is the durable per-consumer delivery and execution table. It is not the immutable source event archive.
 
@@ -4876,7 +4881,7 @@ Skipped
 
 ---
 
-# Processed Event Constraints
+## Processed Event Constraints
 
 Required invariants:
 
@@ -4929,7 +4934,7 @@ A transition to `Processed`, `RetryPending`, `Failed`, or `Skipped` uses a fence
 
 ---
 
-# Consumer Ordering State Persistence
+## Consumer Ordering State Persistence
 
 Ordered consumers require durable state equivalent to:
 
@@ -4969,7 +4974,7 @@ The ordering-state update, a processed-event `Failed` transition, dead-letter cr
 
 ---
 
-# Dead Letter Persistence
+## Dead Letter Persistence
 
 Recommended table:
 
@@ -5014,7 +5019,7 @@ Repository methods require `organization_id`; a consumer and event lookup withou
 
 ---
 
-# Dead Letter Status Values
+## Dead Letter Status Values
 
 Canonical values are:
 
@@ -5044,7 +5049,7 @@ The original event remains immutable. Dead-letter resolution metadata is bounded
 
 ---
 
-# Dead Letter Transaction Invariants
+## Dead Letter Transaction Invariants
 
 For a PostgreSQL-local replay success, the linked dead letter becomes `Resolved` in the same transaction as:
 
@@ -5060,7 +5065,7 @@ An independent repository call to set `Resolved` or `Skipped` is prohibited.
 
 ---
 
-# Replay Persistence
+## Replay Persistence
 
 Recommended table:
 
@@ -5106,7 +5111,7 @@ The table stores bounded operational metadata. Event payload, unrestricted excep
 
 ---
 
-# Canonical Replay Modes
+## Canonical Replay Modes
 
 ```text
 RetryOriginal
@@ -5119,7 +5124,7 @@ A database constraint or reference table enforces these exact values.
 
 ---
 
-# Replay Status Values
+## Replay Status Values
 
 ```text
 Requested
@@ -5149,7 +5154,7 @@ Terminal replay records retain immutable request, authorization, target, mode, a
 
 ---
 
-# Active Replay Uniqueness
+## Active Replay Uniqueness
 
 Only one active replay may exist for one consumer delivery:
 
@@ -5191,7 +5196,7 @@ WHERE status = 'Running';
 
 ---
 
-# Replay Claim and Fencing Invariants
+## Replay Claim and Fencing Invariants
 
 A real execution claim increments `attempt_count` and `claim_version`, sets `locked_by`, `locked_until`, and `started_at` using database time, and changes the replay to `Running`.
 
@@ -5213,7 +5218,7 @@ Failure returns `LeaseLost` before domain mutation. Lease recovery may return an
 
 ---
 
-# Replay and Processed-Event Persistence
+## Replay and Processed-Event Persistence
 
 `RetryOriginal` and `ReprocessWithCurrentHandler` require the canonical processed-event status `Failed` at validation and transition the same row `Failed -> Processing` when execution is claimed.
 
@@ -5223,7 +5228,7 @@ Failure returns `LeaseLost` before domain mutation. Lease recovery may return an
 
 ---
 
-# Replay Authorization Persistence
+## Replay Authorization Persistence
 
 The replay record stores the policy identifier and version evaluated at request time, but that snapshot is evidence rather than present authority.
 
@@ -5231,7 +5236,7 @@ Immediately before execution, current Identity, Membership, Organization, permis
 
 ---
 
-# Replay Result References
+## Replay Result References
 
 `result_reference`, `error_reference`, and dead-letter `resolution_reference` point to durable bounded evidence such as:
 
@@ -5247,7 +5252,7 @@ They are not free-form declarations of success.
 
 ---
 
-# Reconciliation Finding Persistence
+## Reconciliation Finding Persistence
 
 Recommended table:
 
@@ -5286,7 +5291,7 @@ reconciliation_findings
 
 ---
 
-# Reconciliation Finding Status Values
+## Reconciliation Finding Status Values
 
 ```text
 Open
@@ -5302,7 +5307,7 @@ FalsePositive
 
 ---
 
-# Reconciliation Finding Uniqueness
+## Reconciliation Finding Uniqueness
 
 To prevent duplicate unresolved findings:
 
@@ -5325,11 +5330,11 @@ The exact key may vary by finding type.
 
 ---
 
-# Reconciliation Finding Classification
+## Reconciliation Finding Classification
 
 `reconciliation_findings` records evidence that an independently owned guarantee may have failed. It does not become the source of truth for the guarantee and does not authorize repair.
 
-Each implemented finding type MUST be registered in the version-controlled reconciliation catalog defined by `observability-and-operations.md`.
+Each implemented finding type MUST be registered in the version-controlled reconciliation catalog defined by `docs/architecture/observability-and-operations.md`.
 
 Recommended classification fields:
 
@@ -5371,7 +5376,7 @@ The stored `guarantee_reference` and `catalog_version` preserve which invariant 
 
 ---
 
-# External Effect Ledger Activation Boundary
+## External Effect Ledger Activation Boundary
 
 The `external_effect_operations` table is mandatory only when an enabled ConsumerRegistration uses `sideEffectClass = ExternalBusinessEffect`.
 
@@ -5381,7 +5386,7 @@ An `ExternalBusinessEffect` registration fails startup validation unless its pro
 
 ---
 
-# External Effect Operation Persistence
+## External Effect Operation Persistence
 
 Conditional table:
 
@@ -5442,7 +5447,7 @@ The first index prevents a new logical send after a crash. A changed `request_fi
 
 ---
 
-# External Effect Status Values
+## External Effect Status Values
 
 ```text
 Prepared
@@ -5476,7 +5481,7 @@ Compensating -> OutcomeUnknown
 
 ---
 
-# External Effect Write-Ahead and Claim Invariants
+## External Effect Write-Ahead and Claim Invariants
 
 `Prepared` commits before any provider call. A real send claim increments `attempt_count` and `claim_version`, sets `locked_by`, `locked_until`, and `last_sent_at` using database time, then commits `InFlight`.
 
@@ -5496,7 +5501,7 @@ A stale Worker cannot record an outcome. A timeout, expired post-send lease, ack
 
 ---
 
-# External Effect and Consumer Atomicity
+## External Effect and Consumer Atomicity
 
 The external provider effect cannot be part of the PostgreSQL transaction. PostgreSQL atomically records only local evidence and consequences after the provider outcome is proven.
 
@@ -5517,7 +5522,7 @@ If this local commit fails after provider success, recovery queries the provider
 
 ---
 
-# External Effect Reconciliation Indexes
+## External Effect Reconciliation Indexes
 
 ```sql
 CREATE INDEX ix_external_effect_reconcile
@@ -5545,7 +5550,7 @@ Organization, event, effect, provider-operation, and Identity identifiers remain
 
 ---
 
-# Memory Generation Source Persistence
+## Memory Generation Source Persistence
 
 The MVP persists one canonical source snapshot before invoking the external AI provider.
 
@@ -5601,7 +5606,7 @@ Ordinary Work or Decision archival must not cascade-delete these rows while a re
 
 ---
 
-# Memory Generation Operation Persistence
+## Memory Generation Operation Persistence
 
 Memory generation is `ExternalComputation` and uses one stable logical operation rather than the generic external-business-effect ledger.
 
@@ -5651,7 +5656,7 @@ A terminal `Failed` or `Abandoned` row does not free the identity for a second o
 
 ---
 
-# Memory Generation Operation Status
+## Memory Generation Operation Status
 
 ```text
 Pending
@@ -5678,7 +5683,7 @@ Pending | RetryPending | Failed -> Abandoned through authorized operation
 
 ---
 
-# Memory Generation Claim and Recovery
+## Memory Generation Claim and Recovery
 
 A real generation claim increments `attempt_count` and `claim_version`, sets lease fields with database time, and changes the operation to `Generating`.
 
@@ -5710,7 +5715,7 @@ WHERE status = 'Generating';
 
 ---
 
-# Memory Generation Transactions
+## Memory Generation Transactions
 
 First transaction:
 
@@ -5752,7 +5757,7 @@ A retry reuses the exact snapshot and operation. A stale or lease-lost provider 
 
 ---
 
-# Domain Event Audit Link
+## Domain Event Audit Link
 
 Aggregate tables may store the latest resulting event identifier only when operationally useful.
 
@@ -5768,7 +5773,7 @@ to every Aggregate unless a concrete query requires it.
 
 ---
 
-# Foreign Key Strategy
+## Foreign Key Strategy
 
 Foreign keys should protect structural relationships without creating unmanageable circular dependencies.
 
@@ -5783,7 +5788,7 @@ Recommended principles:
 
 ---
 
-# Event Foreign Keys
+## Event Foreign Keys
 
 Outbox and event archive tables should not require foreign keys to Aggregate Root rows when Aggregate retention may differ.
 
@@ -5798,7 +5803,7 @@ This allows:
 
 ---
 
-# Audit Foreign Keys
+## Audit Foreign Keys
 
 Audit records may use soft references rather than strict foreign keys for:
 
@@ -5812,7 +5817,7 @@ For durable Human Identity and Organization rows, foreign keys may still be appr
 
 ---
 
-# Actor Reference Foreign Keys
+## Actor Reference Foreign Keys
 
 Human actor fields may reference:
 
@@ -5830,7 +5835,7 @@ A polymorphic ActorReference cannot be represented by one ordinary foreign key.
 
 ---
 
-# Polymorphic Actor Persistence
+## Polymorphic Actor Persistence
 
 Recommended approach:
 
@@ -5846,7 +5851,7 @@ with a check constraint ensuring only the relevant columns are populated.
 
 ---
 
-# Actor Constraint Example
+## Actor Constraint Example
 
 Conceptual rule:
 
@@ -5872,7 +5877,7 @@ System
 
 ---
 
-# Review Record Tables
+## Review Record Tables
 
 Review metadata may remain on Aggregate Root tables when one final review outcome exists.
 
@@ -5889,7 +5894,7 @@ These are outside the MVP.
 
 ---
 
-# Human Review Attribution
+## Human Review Attribution
 
 For the MVP, the following Root fields are sufficient:
 
@@ -5909,7 +5914,7 @@ The immutable revision identifies exactly what was reviewed.
 
 ---
 
-# Database-Level Human Authority Constraints
+## Database-Level Human Authority Constraints
 
 Where practical, authoritative review tables should reference Human Identity and Membership directly.
 
@@ -5919,7 +5924,7 @@ The Domain and Authorization Layers still validate actual permission.
 
 ---
 
-# Read Model Tables
+## Read Model Tables
 
 Possible MVP read-model tables include:
 
@@ -5937,7 +5942,7 @@ inactive_assignment_queue
 
 ---
 
-# Decision Review Queue
+## Decision Review Queue
 
 Conceptual structure:
 
@@ -5960,7 +5965,7 @@ It must not be used to approve a Decision directly.
 
 ---
 
-# Memory Review Queue
+## Memory Review Queue
 
 Conceptual structure:
 
@@ -5978,7 +5983,7 @@ memory_review_queue
 
 ---
 
-# Organization Member Directory
+## Organization Member Directory
 
 Conceptual structure:
 
@@ -6000,7 +6005,7 @@ Current authorization must still use authoritative Membership and role data.
 
 ---
 
-# Read Model Constraints
+## Read Model Constraints
 
 Read models may use denormalized JSON or arrays.
 
@@ -6014,7 +6019,7 @@ They must:
 
 ---
 
-# Database Constraint Summary
+## Database Constraint Summary
 
 Recommended key constraints include:
 
@@ -6056,26 +6061,26 @@ Unique active reconciliation finding
 
 ---
 
-# Part 2 Data Ownership Summary
+## Part 2 Data Ownership Summary
 
 The following table names are grouped by MVP implementation module. The nested owner remains responsible for its own Aggregate or technical state.
 
-## Organization and Access Module
+### Organization and Access Module
 
-### Human Identity ownership
+#### Human Identity ownership
 
 ```text
 human_identities
 authentication_subjects
 ```
 
-### Organization ownership
+#### Organization ownership
 
 ```text
 organizations
 ```
 
-### Membership ownership
+#### Membership ownership
 
 ```text
 memberships
@@ -6083,7 +6088,7 @@ membership_role_assignments
 organization_invitations
 ```
 
-### Authorization and Principal configuration ownership
+#### Authorization and Principal configuration ownership
 
 ```text
 permission_definitions
@@ -6095,16 +6100,16 @@ system_principal_capabilities
 secretary_principals
 ```
 
-## Work and Decision Module
+### Work and Decision Module
 
-### Work Aggregate ownership
+#### Work Aggregate ownership
 
 ```text
 work_items
 work_participants
 ```
 
-### Decision Aggregate ownership
+#### Decision Aggregate ownership
 
 ```text
 decisions
@@ -6113,9 +6118,9 @@ decision_revision_options
 decision_secretary_contributions
 ```
 
-## Organizational Learning Module
+### Organizational Learning Module
 
-### Memory Aggregate and generation provenance ownership
+#### Memory Aggregate and generation provenance ownership
 
 ```text
 memories
@@ -6129,9 +6134,9 @@ memory_generation_operations
 
 No Knowledge or Capability tables exist in the MVP.
 
-## Platform Runtime
+### Platform Runtime
 
-### Event delivery and recovery ownership
+#### Event delivery and recovery ownership
 
 ```text
 outbox_messages
@@ -6142,7 +6147,7 @@ external_effect_operations
 reconciliation_findings
 ```
 
-### Projection ownership
+#### Projection ownership
 
 ```text
 decision_review_queue
@@ -6156,7 +6161,7 @@ Projection tables are rebuildable and never become authoritative mutation target
 
 ---
 
-# Part 2 Invariants
+## Part 2 Invariants
 
 The concrete data model must preserve:
 
@@ -6188,7 +6193,7 @@ The concrete data model must preserve:
 
 ---
 
-# Part 2 Design Summary
+## Part 2 Design Summary
 
 The PostgreSQL model maps each Aggregate to a clear Root table and a bounded set of owned child tables.
 
@@ -6216,7 +6221,7 @@ Aggregates remain responsible for business lifecycle decisions.
 
 Application Services coordinate the few workflows that require atomic changes across Aggregate boundaries.
 
-# Transaction Management
+## Transaction Management
 
 Application Services own database transaction boundaries.
 
@@ -6226,7 +6231,7 @@ A transaction represents one authoritative persistence unit.
 
 ---
 
-# Transaction Principles
+## Transaction Principles
 
 Every state-changing transaction must be:
 
@@ -6240,7 +6245,7 @@ Every state-changing transaction must be:
 
 ---
 
-# Standard Command Transaction
+## Standard Command Transaction
 
 A standard single-Aggregate command follows:
 
@@ -6280,7 +6285,7 @@ ROLLBACK
 
 ---
 
-# Transaction Ownership
+## Transaction Ownership
 
 The Application Service decides:
 
@@ -6297,7 +6302,7 @@ They must not silently create independent nested commits.
 
 ---
 
-# Transaction Manager Interface
+## Transaction Manager Interface
 
 Conceptual interface:
 
@@ -6324,7 +6329,7 @@ retryPolicy
 
 ---
 
-# Default Isolation Level
+## Default Isolation Level
 
 Recommended MVP default:
 
@@ -6342,7 +6347,7 @@ PostgreSQL `READ COMMITTED` is sufficient for most Aggregate-oriented commands w
 
 ---
 
-# Stronger Isolation
+## Stronger Isolation
 
 Stronger isolation may be used selectively.
 
@@ -6365,7 +6370,7 @@ Stronger isolation should not be applied globally without demonstrated need.
 
 ---
 
-# Serializable Retry
+## Serializable Retry
 
 A `SERIALIZABLE` transaction may fail with a serialization error.
 
@@ -6380,7 +6385,7 @@ The Application Layer may retry when:
 
 ---
 
-# No External Calls Inside Transactions
+## No External Calls Inside Transactions
 
 The following must remain outside an open transaction:
 
@@ -6396,7 +6401,7 @@ The following must remain outside an open transaction:
 
 ---
 
-# External Preparation Pattern
+## External Preparation Pattern
 
 When external preparation is required:
 
@@ -6436,7 +6441,7 @@ Memory generation uses this pattern.
 
 ---
 
-# Coordinated Multi-Aggregate Transactions
+## Coordinated Multi-Aggregate Transactions
 
 A small number of workflows require atomic changes across multiple Aggregates.
 
@@ -6456,7 +6461,7 @@ These workflows remain exceptional.
 
 ---
 
-# Create Organization Transaction
+## Create Organization Transaction
 
 Atomic participants:
 
@@ -6478,7 +6483,7 @@ The transaction must not expose an Active Organization without an active Human O
 
 ---
 
-# Request Blocking Decision Transaction
+## Request Blocking Decision Transaction
 
 Atomic participants:
 
@@ -6507,7 +6512,7 @@ The transaction establishes:
 
 ---
 
-# Ownership Transfer Transaction
+## Ownership Transfer Transaction
 
 Atomic participants:
 
@@ -6529,7 +6534,7 @@ The transaction must preserve at least one active Owner throughout the committed
 
 ---
 
-# Transaction Size
+## Transaction Size
 
 Transactions should touch the minimum number of rows required for the use case.
 
@@ -6544,7 +6549,7 @@ Avoid:
 
 ---
 
-# Transaction Timeout
+## Transaction Timeout
 
 Every write transaction should have a bounded timeout.
 
@@ -6564,7 +6569,7 @@ Timeouts must remain operational configuration, not domain behavior.
 
 ---
 
-# Optimistic Concurrency
+## Optimistic Concurrency
 
 Every mutable Aggregate Root uses optimistic concurrency.
 
@@ -6578,7 +6583,7 @@ The repository verifies that the stored version still matches.
 
 ---
 
-# Optimistic Update Pattern
+## Optimistic Update Pattern
 
 ```sql
 UPDATE work_items
@@ -6616,7 +6621,7 @@ External responses must not reveal cross-Organization resource existence.
 
 ---
 
-# Aggregate Version Increment
+## Aggregate Version Increment
 
 One successful Aggregate command increments the Aggregate Root version once.
 
@@ -6636,7 +6641,7 @@ Result:
 
 ---
 
-# Multiple Domain Events per Version
+## Multiple Domain Events per Version
 
 One command may emit multiple Domain Events while producing one Aggregate version.
 
@@ -6659,7 +6664,7 @@ eventSequence = 2
 
 ---
 
-# Concurrency Conflict Result
+## Concurrency Conflict Result
 
 Recommended application result:
 
@@ -6675,7 +6680,7 @@ The transport layer may return an HTTP conflict response.
 
 ---
 
-# Human Command Retry
+## Human Command Retry
 
 Human-facing clients should normally:
 
@@ -6689,7 +6694,7 @@ Approval, rejection, completion, and ownership changes should not be silently re
 
 ---
 
-# Worker Concurrency Retry
+## Worker Concurrency Retry
 
 Background handlers may automatically retry optimistic concurrency conflicts.
 
@@ -6703,7 +6708,7 @@ The handler must:
 
 ---
 
-# Revision Concurrency
+## Revision Concurrency
 
 Decision and Memory revision edits must protect against concurrent editing.
 
@@ -6721,7 +6726,7 @@ The Aggregate Root version is the primary concurrency control.
 
 ---
 
-# Draft Edit Conflict
+## Draft Edit Conflict
 
 Example:
 
@@ -6743,7 +6748,7 @@ Human A’s content must not overwrite Human B’s change silently.
 
 ---
 
-# Immutable Revision Protection
+## Immutable Revision Protection
 
 Optimistic concurrency protects active editing.
 
@@ -6753,7 +6758,7 @@ Both are required.
 
 ---
 
-# PostgreSQL Locking
+## PostgreSQL Locking
 
 Pessimistic locking is used only for invariants that cannot be protected sufficiently by Aggregate versioning and ordinary constraints.
 
@@ -6767,7 +6772,7 @@ Supported mechanisms include:
 
 ---
 
-# Row-Level Locking
+## Row-Level Locking
 
 Use row-level locks when coordinating a known set of records.
 
@@ -6788,7 +6793,7 @@ Locks must be acquired in deterministic order.
 
 ---
 
-# Deterministic Lock Order
+## Deterministic Lock Order
 
 When locking multiple rows:
 
@@ -6812,7 +6817,7 @@ membership-200
 
 ---
 
-# Advisory Locks
+## Advisory Locks
 
 PostgreSQL advisory transaction locks are appropriate for logical scopes that do not map to one row.
 
@@ -6828,7 +6833,7 @@ Memory generation identity
 
 ---
 
-# Transaction-Scoped Advisory Lock
+## Transaction-Scoped Advisory Lock
 
 Recommended form:
 
@@ -6842,7 +6847,7 @@ Session-scoped locks should be avoided for ordinary application workflows.
 
 ---
 
-# Advisory Lock Key
+## Advisory Lock Key
 
 The lock key must be derived deterministically from the protected logical scope.
 
@@ -6860,7 +6865,7 @@ The hashing strategy must minimize collisions.
 
 ---
 
-# Last Owner Lock
+## Last Owner Lock
 
 The Last Owner Invariant spans multiple Membership Aggregates.
 
@@ -6897,7 +6902,7 @@ COMMIT
 
 ---
 
-# Active Owner Definition
+## Active Owner Definition
 
 A Human counts as an active Owner only when all are true:
 
@@ -6915,7 +6920,7 @@ A revoked role or inactive Membership does not count.
 
 ---
 
-# Last Owner Query
+## Last Owner Query
 
 Conceptual query:
 
@@ -6938,7 +6943,7 @@ The query executes while the Organization ownership scope is locked.
 
 ---
 
-# Owner Assignment Lock
+## Owner Assignment Lock
 
 The same ownership lock must be used for:
 
@@ -6955,7 +6960,7 @@ Using one lock scope prevents incompatible concurrent workflows.
 
 ---
 
-# Last Owner Database Trigger
+## Last Owner Database Trigger
 
 A database trigger may supplement Last Owner protection.
 
@@ -6971,7 +6976,7 @@ The explicit transaction workflow remains authoritative.
 
 ---
 
-# Deadlock Handling
+## Deadlock Handling
 
 PostgreSQL may detect and abort a transaction involved in a deadlock.
 
@@ -6987,7 +6992,7 @@ Repeated deadlocks require operational investigation.
 
 ---
 
-# Lock Timeout
+## Lock Timeout
 
 Configure a bounded lock timeout for interactive operations.
 
@@ -7007,7 +7012,7 @@ The exact external mapping may vary.
 
 ---
 
-# Outbox Worker Claims
+## Outbox Worker Claims
 
 Outbox publication uses short claim transactions.
 
@@ -7025,7 +7030,7 @@ LIMIT :batch_size;
 
 ---
 
-# Outbox Claim Update
+## Outbox Claim Update
 
 Within the claim transaction:
 
@@ -7046,7 +7051,7 @@ Publication occurs after commit.
 
 ---
 
-# Consumer Worker Claims
+## Consumer Worker Claims
 
 Consumer claims use a short PostgreSQL transaction and the uniqueness key:
 
@@ -7067,7 +7072,7 @@ A consumer does not hold target Aggregate locks or an open database transaction 
 
 ---
 
-# Claim Version and Fencing
+## Claim Version and Fencing
 
 Every claim or reclaim increments:
 
@@ -7090,7 +7095,7 @@ Long-running work renews the lease in bounded transactions matching both `locked
 
 ---
 
-# Expired Claim Recovery
+## Expired Claim Recovery
 
 A recovery Worker selects `Processing` rows with `locked_until < now()` and, in one fenced transaction:
 
@@ -7105,7 +7110,7 @@ Recovery does not mutate target Aggregate state and does not count as a new hand
 
 ---
 
-# Index Strategy
+## Index Strategy
 
 Indexes must support real command, query, Worker, and reconciliation patterns.
 
@@ -7113,7 +7118,7 @@ Indexes should not be added speculatively without a query purpose.
 
 ---
 
-# Index Design Principles
+## Index Design Principles
 
 Indexes should prioritize:
 
@@ -7129,7 +7134,7 @@ Indexes should prioritize:
 
 ---
 
-# Organization-First Indexes
+## Organization-First Indexes
 
 Most Organization-owned list queries should begin with:
 
@@ -7150,7 +7155,7 @@ ON decisions (
 
 ---
 
-# Equality Before Range
+## Equality Before Range
 
 For common composite indexes:
 
@@ -7178,7 +7183,7 @@ organization_id, status, submitted_at
 
 ---
 
-# Partial Indexes
+## Partial Indexes
 
 Partial indexes are preferred for small active subsets.
 
@@ -7200,7 +7205,7 @@ Open reconciliation findings
 
 ---
 
-# Decision Review Queue Index
+## Decision Review Queue Index
 
 ```sql
 CREATE INDEX ix_decisions_review_queue
@@ -7214,7 +7219,7 @@ WHERE status = 'InReview';
 
 ---
 
-# Memory Review Queue Index
+## Memory Review Queue Index
 
 ```sql
 CREATE INDEX ix_memories_review_queue
@@ -7229,7 +7234,7 @@ WHERE status = 'InReview'
 
 ---
 
-# Pending Outbox Index
+## Pending Outbox Index
 
 ```sql
 CREATE INDEX ix_outbox_messages_pending
@@ -7245,7 +7250,7 @@ The index should align with the Worker claim query.
 
 ---
 
-# Pending Consumer Delivery Index
+## Pending Consumer Delivery Index
 
 ```sql
 CREATE INDEX ix_processed_events_pending
@@ -7261,7 +7266,7 @@ This index is the durable local-consumer work queue. A wake-up notification may 
 
 ---
 
-# Retry Pending Consumer Index
+## Retry Pending Consumer Index
 
 ```sql
 CREATE INDEX ix_processed_events_retry
@@ -7278,7 +7283,7 @@ WHERE status = 'RetryPending';
 
 ---
 
-# Expired Consumer Claim Index
+## Expired Consumer Claim Index
 
 ```sql
 CREATE INDEX ix_processed_events_expired_claim
@@ -7294,7 +7299,7 @@ This supports bounded lease recovery without scanning terminal consumer history.
 
 ---
 
-# Blocked Consumer Delivery Index
+## Blocked Consumer Delivery Index
 
 ```sql
 CREATE INDEX ix_processed_events_blocked
@@ -7312,7 +7317,7 @@ It supports ordering-key diagnosis and controlled unblocking. The implementation
 
 ---
 
-# Consumer Ordering State Uniqueness
+## Consumer Ordering State Uniqueness
 
 Organization-owned ordering rows require:
 
@@ -7331,7 +7336,7 @@ Global ordering rows require a separate partial unique index where `organization
 
 ---
 
-# Foreign-Key Indexes
+## Foreign-Key Indexes
 
 PostgreSQL does not automatically create indexes on referencing foreign-key columns.
 
@@ -7353,7 +7358,7 @@ membership_role_assignments.membership_id
 
 ---
 
-# Unique Index Cost
+## Unique Index Cost
 
 Every unique constraint adds write cost.
 
@@ -7369,7 +7374,7 @@ They should not be used merely for presentation preferences.
 
 ---
 
-# Index Naming
+## Index Naming
 
 Use descriptive names:
 
@@ -7389,7 +7394,7 @@ idx_status
 
 ---
 
-# Covering Indexes
+## Covering Indexes
 
 PostgreSQL `INCLUDE` columns may reduce heap access for high-volume read paths.
 
@@ -7413,7 +7418,7 @@ Covering indexes should be added only after measuring query benefit.
 
 ---
 
-# Index Review
+## Index Review
 
 Index effectiveness should be reviewed using:
 
@@ -7431,7 +7436,7 @@ Unused or duplicate indexes should be removed through controlled migration.
 
 ---
 
-# Query Patterns
+## Query Patterns
 
 The persistence model supports two primary query categories:
 
@@ -7443,7 +7448,7 @@ Read and Operational Queries
 
 ---
 
-# Aggregate Command Queries
+## Aggregate Command Queries
 
 Aggregate loading queries should:
 
@@ -7456,7 +7461,7 @@ Aggregate loading queries should:
 
 ---
 
-# Work Aggregate Load
+## Work Aggregate Load
 
 Conceptual query flow:
 
@@ -7476,7 +7481,7 @@ Decision Aggregate state itself is not loaded into Work.
 
 ---
 
-# Decision Aggregate Load
+## Decision Aggregate Load
 
 Conceptual query flow:
 
@@ -7498,7 +7503,7 @@ Large historical contribution lists should use Query Services instead.
 
 ---
 
-# Memory Aggregate Load
+## Memory Aggregate Load
 
 Conceptual query flow:
 
@@ -7518,7 +7523,7 @@ The source Work Aggregate is not loaded into Memory.
 
 ---
 
-# N+1 Query Avoidance
+## N+1 Query Avoidance
 
 List screens must not load each Aggregate through its repository one at a time.
 
@@ -7544,7 +7549,7 @@ Execute one bounded projection query
 
 ---
 
-# Pagination
+## Pagination
 
 List queries must use bounded pagination.
 
@@ -7564,7 +7569,7 @@ Offset pagination may be acceptable for small administrative lists.
 
 ---
 
-# Keyset Pagination Example
+## Keyset Pagination Example
 
 ```sql
 SELECT ...
@@ -7586,7 +7591,7 @@ LIMIT :page_size;
 
 ---
 
-# Search
+## Search
 
 The MVP may use PostgreSQL search capabilities for bounded domain text.
 
@@ -7601,7 +7606,7 @@ Search must always apply Organization scope.
 
 ---
 
-# Search Indexes
+## Search Indexes
 
 A trigram or full-text index should be introduced only for defined user-facing search requirements.
 
@@ -7609,7 +7614,7 @@ Search indexes must not include Restricted content unnecessarily.
 
 ---
 
-# Count Queries
+## Count Queries
 
 Exact counts over large datasets may be expensive.
 
@@ -7624,7 +7629,7 @@ Authorization-sensitive results must not rely on stale counts for permission.
 
 ---
 
-# Query Timeouts
+## Query Timeouts
 
 Interactive queries should have bounded statement timeouts.
 
@@ -7639,7 +7644,7 @@ They must not block ordinary transactional workloads.
 
 ---
 
-# Read Replicas
+## Read Replicas
 
 Read replicas are optional and outside the minimum MVP deployment.
 
@@ -7654,7 +7659,7 @@ They must not serve current authorization or command preconditions when replicat
 
 ---
 
-# Authoritative Read Requirements
+## Authoritative Read Requirements
 
 The following should use the primary authoritative database:
 
@@ -7671,7 +7676,7 @@ The following should use the primary authoritative database:
 
 ---
 
-# Data Retention
+## Data Retention
 
 Retention periods must be defined per data category.
 
@@ -7697,7 +7702,7 @@ Temporary Credentials
 
 ---
 
-# Authoritative Domain Retention
+## Authoritative Domain Retention
 
 The MVP preserves:
 
@@ -7715,7 +7720,7 @@ Final legal retention duration is product and compliance policy.
 
 ---
 
-# Revision Retention
+## Revision Retention
 
 Decision and Memory revisions should be retained while their Aggregate is retained.
 
@@ -7731,7 +7736,7 @@ Backup copies expire through the approved backup lifecycle. After restore, compl
 
 ---
 
-# Outbox Retention
+## Outbox Retention
 
 Published Outbox rows may be removed or archived after:
 
@@ -7745,7 +7750,7 @@ Pending, Claimed, or Failed rows must not be removed by routine cleanup.
 
 ---
 
-# Processed Event Retention
+## Processed Event Retention
 
 Processed-event records must remain long enough to prevent duplicate effects from delayed redelivery or replay.
 
@@ -7759,7 +7764,7 @@ Deletion is safe only when:
 
 ---
 
-# Processed Command Retention
+## Processed Command Retention
 
 Processed-command records should remain at least as long as clients may retry the command identifier.
 
@@ -7774,7 +7779,7 @@ Examples:
 
 ---
 
-# Invitation Retention
+## Invitation Retention
 
 Raw invitation credentials are never retained.
 
@@ -7789,7 +7794,7 @@ Expired and consumed records may later be archived.
 
 ---
 
-# Authorization Audit Retention
+## Authorization Audit Retention
 
 Authorization audit typically requires longer retention than operational Worker state.
 
@@ -7802,7 +7807,7 @@ Retention must support:
 
 ---
 
-# Dead Letter Retention
+## Dead Letter Retention
 
 Dead-letter records remain until:
 
@@ -7815,7 +7820,7 @@ Unresolved failures must not be automatically deleted.
 
 ---
 
-# Read Model Retention
+## Read Model Retention
 
 Read models are disposable when rebuildable.
 
@@ -7830,7 +7835,7 @@ Rebuild must not affect authoritative tables.
 
 ---
 
-# Archival
+## Archival
 
 Archival moves infrequently accessed data out of hot operational paths while preserving required history.
 
@@ -7844,7 +7849,7 @@ Possible archival targets include:
 
 ---
 
-# Organization Archival
+## Organization Archival
 
 Archiving an Organization changes the Organization lifecycle state.
 
@@ -7860,7 +7865,7 @@ Operational consequences may include:
 
 ---
 
-# Archived Organization Queries
+## Archived Organization Queries
 
 Archived data must remain Organization-scoped.
 
@@ -7868,7 +7873,7 @@ Archival must not merge data from multiple Organizations into an unscoped store.
 
 ---
 
-# Table Partitioning
+## Table Partitioning
 
 Partitioning is optional for the MVP.
 
@@ -7888,7 +7893,7 @@ large operational history tables
 
 ---
 
-# Partition Key
+## Partition Key
 
 Time-based partitioning may use:
 
@@ -7904,7 +7909,7 @@ Organization-based partitioning should be introduced only with clear operational
 
 ---
 
-# Partition Constraints
+## Partition Constraints
 
 Partitioning must preserve:
 
@@ -7919,7 +7924,7 @@ PostgreSQL uniqueness across partitions must be considered explicitly.
 
 ---
 
-# Cleanup Jobs
+## Cleanup Jobs
 
 Cleanup jobs must:
 
@@ -7933,7 +7938,7 @@ Cleanup jobs must:
 
 ---
 
-# Batched Cleanup Pattern
+## Batched Cleanup Pattern
 
 ```sql
 DELETE FROM outbox_messages
@@ -7951,7 +7956,7 @@ The exact implementation may archive rows before deletion.
 
 ---
 
-# Vacuum and Table Health
+## Vacuum and Table Health
 
 High-churn operational tables require monitoring of:
 
@@ -7976,7 +7981,7 @@ reconciliation_findings
 
 ---
 
-# Schema Migration Strategy
+## Schema Migration Strategy
 
 All schema changes are performed through version-controlled migrations.
 
@@ -7991,7 +7996,7 @@ Migrations must be:
 
 ---
 
-# Migration Ownership
+## Migration Ownership
 
 Each module owns migrations for its tables.
 
@@ -8009,7 +8014,7 @@ The migration plan must define safe deployment order and temporary compatibility
 
 ---
 
-# Migration Naming
+## Migration Naming
 
 Recommended naming:
 
@@ -8027,7 +8032,7 @@ Timestamp-based migration identifiers are also acceptable.
 
 ---
 
-# Expand and Contract Pattern
+## Expand and Contract Pattern
 
 Zero-downtime schema changes should use:
 
@@ -8043,7 +8048,7 @@ Contract
 
 ---
 
-# Expand Phase
+## Expand Phase
 
 Add backward-compatible structures.
 
@@ -8059,7 +8064,7 @@ Old application versions must continue operating.
 
 ---
 
-# Migrate Phase
+## Migrate Phase
 
 Backfill or transform existing data.
 
@@ -8073,7 +8078,7 @@ The backfill must be:
 
 ---
 
-# Switch Phase
+## Switch Phase
 
 Deploy application code that uses the new structure.
 
@@ -8089,7 +8094,7 @@ read new after validation
 
 ---
 
-# Contract Phase
+## Contract Phase
 
 After all deployed code no longer depends on the old structure:
 
@@ -8104,7 +8109,7 @@ Contract migrations must not occur prematurely.
 
 ---
 
-# Adding a Required Column
+## Adding a Required Column
 
 Unsafe:
 
@@ -8127,7 +8132,7 @@ Safer sequence:
 
 ---
 
-# PostgreSQL Constraint Validation
+## PostgreSQL Constraint Validation
 
 For large tables, a foreign key or check constraint may be added as:
 
@@ -8148,7 +8153,7 @@ The exact locking behavior must be tested.
 
 ---
 
-# Index Creation
+## Index Creation
 
 Large indexes should use:
 
@@ -8164,7 +8169,7 @@ Migration tooling must support this explicitly.
 
 ---
 
-# Unique Index Migration
+## Unique Index Migration
 
 Before creating a unique index:
 
@@ -8178,7 +8183,7 @@ A failed unique-index build must not be ignored.
 
 ---
 
-# Backfill Design
+## Backfill Design
 
 Every backfill requires:
 
@@ -8200,7 +8205,7 @@ rollback or remediation plan
 
 ---
 
-# Backfill Batching
+## Backfill Batching
 
 Use stable key ranges or keyset pagination.
 
@@ -8220,7 +8225,7 @@ Continue
 
 ---
 
-# Backfill Idempotency
+## Backfill Idempotency
 
 A backfill should safely run more than once.
 
@@ -8234,7 +8239,7 @@ or equivalent state-based guard.
 
 ---
 
-# Concurrent Write Safety
+## Concurrent Write Safety
 
 During backfill, new application writes must populate the new field.
 
@@ -8249,7 +8254,7 @@ Possible strategies:
 
 ---
 
-# Backfill Validation
+## Backfill Validation
 
 Validation should confirm:
 
@@ -8264,7 +8269,7 @@ Validation should confirm:
 
 ---
 
-# Data Migration and Domain Events
+## Data Migration and Domain Events
 
 Schema backfills do not automatically represent business actions.
 
@@ -8280,7 +8285,7 @@ is a technical migration, not a new Organization assignment event.
 
 ---
 
-# Business Migration Events
+## Business Migration Events
 
 When migration intentionally changes business meaning, use a controlled domain migration plan.
 
@@ -8296,7 +8301,7 @@ The distinction must be documented.
 
 ---
 
-# Status Migration
+## Status Migration
 
 When adding a new lifecycle state:
 
@@ -8310,7 +8315,7 @@ When adding a new lifecycle state:
 
 ---
 
-# Check Constraint Migration
+## Check Constraint Migration
 
 Changing a text-based status check often requires:
 
@@ -8322,7 +8327,7 @@ Deployment order must prevent old code from failing unexpectedly.
 
 ---
 
-# Event Schema Migration
+## Event Schema Migration
 
 Event schema rollout follows:
 
@@ -8338,7 +8343,7 @@ Database migrations must preserve immutable historical payloads.
 
 ---
 
-# Aggregate Split Migration
+## Aggregate Split Migration
 
 Splitting one table into multiple Aggregate-owned tables is a major change.
 
@@ -8355,7 +8360,7 @@ Such a migration should not be undertaken casually during MVP.
 
 ---
 
-# Migration Rollback
+## Migration Rollback
 
 Not every migration is safely reversible.
 
@@ -8373,7 +8378,7 @@ Dropping data or changing semantic meaning usually requires a forward fix rather
 
 ---
 
-# Deployment Compatibility Window
+## Deployment Compatibility Window
 
 During rolling deployment, at least two adjacent application versions may run concurrently.
 
@@ -8389,7 +8394,7 @@ for the defined deployment window.
 
 ---
 
-# No Destructive Same-Release Change
+## No Destructive Same-Release Change
 
 Do not:
 
@@ -8402,7 +8407,7 @@ Deploy code compatibility before destructive contraction.
 
 ---
 
-# Migration Testing
+## Migration Testing
 
 Migrations must be tested against:
 
@@ -8416,7 +8421,7 @@ Migrations must be tested against:
 
 ---
 
-# Schema Drift Detection
+## Schema Drift Detection
 
 CI or deployment tooling should detect:
 
@@ -8429,7 +8434,7 @@ CI or deployment tooling should detect:
 
 ---
 
-# Manual Database Changes
+## Manual Database Changes
 
 Untracked production schema changes are prohibited.
 
@@ -8443,7 +8448,7 @@ Emergency changes must be:
 
 ---
 
-# Data Integrity Verification
+## Data Integrity Verification
 
 Periodic integrity checks may verify:
 
@@ -8469,7 +8474,7 @@ No event stream-position duplicates
 
 ---
 
-# Integrity Findings
+## Integrity Findings
 
 Detected inconsistencies should create operational findings.
 
@@ -8483,7 +8488,7 @@ Routine Workers must not silently rewrite authoritative data.
 
 ---
 
-# Part 3 Invariants
+## Part 3 Invariants
 
 The persistence operation model must preserve:
 
@@ -8508,7 +8513,7 @@ The persistence operation model must preserve:
 
 ---
 
-# Part 3 Design Summary
+## Part 3 Design Summary
 
 The PostgreSQL persistence layer combines:
 
@@ -8536,7 +8541,7 @@ Operational tables use recoverable leases rather than long-running transactions.
 
 Schema changes preserve compatibility through staged deployment, resumable backfill, validation, and controlled contraction.
 
-# Database Security
+## Database Security
 
 The persistence layer is part of the AIOS security boundary.
 
@@ -8556,7 +8561,7 @@ Security must be enforced through multiple layers.
 
 ---
 
-# Defense in Depth
+## Defense in Depth
 
 The persistence security model combines:
 
@@ -8584,7 +8589,7 @@ No single layer is sufficient by itself.
 
 ---
 
-# Database Access Principle
+## Database Access Principle
 
 Application components receive only the database permissions required for their responsibilities.
 
@@ -8598,7 +8603,7 @@ used by every process
 
 ---
 
-# Recommended Database Roles
+## Recommended Database Roles
 
 Recommended logical roles:
 
@@ -8622,7 +8627,7 @@ The exact physical role design may vary by deployment.
 
 ---
 
-# Migration Role
+## Migration Role
 
 The migration role may:
 
@@ -8637,7 +8642,7 @@ It must not be used by ordinary runtime processes.
 
 ---
 
-# Application Role
+## Application Role
 
 The HTTP Application role may:
 
@@ -8657,7 +8662,7 @@ It should not:
 
 ---
 
-# Outbox Publisher Role
+## Outbox Publisher Role
 
 The Outbox Publisher role may:
 
@@ -8679,7 +8684,7 @@ It must not:
 
 ---
 
-# Domain Worker Role
+## Domain Worker Role
 
 A Domain Worker role may:
 
@@ -8693,7 +8698,7 @@ Its permissions should be narrowed by Worker responsibility where practical.
 
 ---
 
-# Projection Worker Role
+## Projection Worker Role
 
 A Projection Worker may:
 
@@ -8706,7 +8711,7 @@ It must not mutate authoritative Aggregate state.
 
 ---
 
-# Operations Read-Only Role
+## Operations Read-Only Role
 
 The Operations role may inspect:
 
@@ -8721,7 +8726,7 @@ Access to personal or Restricted payload data must be separately controlled.
 
 ---
 
-# Backup Role
+## Backup Role
 
 The Backup role may perform:
 
@@ -8734,7 +8739,7 @@ It must not be used for interactive application access.
 
 ---
 
-# Schema Privileges
+## Schema Privileges
 
 Runtime roles should receive privileges only on required schemas and tables.
 
@@ -8748,7 +8753,7 @@ Equivalent restrictions should be applied to module schemas.
 
 ---
 
-# Table Ownership
+## Table Ownership
 
 Migration or schema-owner roles should own tables.
 
@@ -8768,7 +8773,7 @@ Ordinary runtime roles should not own authoritative tables.
 
 ---
 
-# Column-Level Restrictions
+## Column-Level Restrictions
 
 Column-level privileges may protect immutable fields.
 
@@ -8800,7 +8805,7 @@ When column privileges become operationally complex, use:
 
 ---
 
-# Stored Procedures
+## Stored Procedures
 
 Stored procedures are optional.
 
@@ -8815,7 +8820,7 @@ Business lifecycle logic should remain in the Domain and Application Layers.
 
 ---
 
-# Security Definer Functions
+## Security Definer Functions
 
 `SECURITY DEFINER` functions require special caution.
 
@@ -8831,7 +8836,7 @@ They must:
 
 ---
 
-# Network Security
+## Network Security
 
 PostgreSQL should be accessible only from trusted application and operations networks.
 
@@ -8848,7 +8853,7 @@ Public direct database exposure is prohibited.
 
 ---
 
-# Connection Security
+## Connection Security
 
 Database connections should require:
 
@@ -8861,7 +8866,7 @@ Database connections should require:
 
 ---
 
-# Connection Pooling
+## Connection Pooling
 
 Connection pooling may use:
 
@@ -8879,7 +8884,7 @@ Pooling configuration must preserve:
 
 ---
 
-# Transaction Pooling Caution
+## Transaction Pooling Caution
 
 When PgBouncer transaction pooling is used, session-scoped state is unsafe.
 
@@ -8894,7 +8899,7 @@ Transaction-scoped mechanisms are preferred.
 
 ---
 
-# Credential Storage
+## Credential Storage
 
 Database credentials must be stored in:
 
@@ -8912,7 +8917,7 @@ They must not be stored in:
 
 ---
 
-# Credential Rotation
+## Credential Rotation
 
 Credential rotation must support:
 
@@ -8924,7 +8929,7 @@ Credential rotation must support:
 
 ---
 
-# Organization Isolation
+## Organization Isolation
 
 Organization is the MVP business isolation boundary.
 
@@ -8948,7 +8953,7 @@ This applies to:
 
 ---
 
-# Organization-Scoped Repository Rule
+## Organization-Scoped Repository Rule
 
 Repository interfaces should require Organization scope explicitly.
 
@@ -8971,7 +8976,7 @@ for Organization-owned resources.
 
 ---
 
-# Organization-Scoped Update
+## Organization-Scoped Update
 
 Preferred update pattern:
 
@@ -8987,7 +8992,7 @@ Organization scope is part of the mutation predicate.
 
 ---
 
-# Cross-Organization Disclosure
+## Cross-Organization Disclosure
 
 When a resource identifier belongs to another Organization, the external response should not reveal that fact.
 
@@ -9005,7 +9010,7 @@ The exact protocol response depends on API policy.
 
 ---
 
-# Organization Composite Foreign Keys
+## Organization Composite Foreign Keys
 
 Composite foreign keys should prevent invalid relationships.
 
@@ -9029,7 +9034,7 @@ This prevents cross-Organization association even when application code contains
 
 ---
 
-# Organization Scope in Operational Tables
+## Organization Scope in Operational Tables
 
 Operational tables should also store Organization scope where applicable.
 
@@ -9052,7 +9057,7 @@ This supports:
 
 ---
 
-# Global Records
+## Global Records
 
 Some records are intentionally global.
 
@@ -9069,7 +9074,7 @@ They must not be treated as Organization-owned resources accidentally.
 
 ---
 
-# Cross-Organization Human Identity
+## Cross-Organization Human Identity
 
 One Human Identity may belong to multiple Organizations.
 
@@ -9081,7 +9086,7 @@ No Organization may infer another Organization’s Membership from the global Id
 
 ---
 
-# Identity Lookup Privacy
+## Identity Lookup Privacy
 
 Global Identity lookup must be restricted.
 
@@ -9091,7 +9096,7 @@ Invitation workflows should expose only the minimum required matching behavior.
 
 ---
 
-# Row-Level Security
+## Row-Level Security
 
 PostgreSQL Row-Level Security is optional for the MVP.
 
@@ -9099,7 +9104,7 @@ It may provide additional defense in depth for Organization-owned tables.
 
 ---
 
-# RLS Purpose
+## RLS Purpose
 
 RLS can prevent accidental cross-Organization reads and writes when:
 
@@ -9112,7 +9117,7 @@ RLS does not replace application authorization.
 
 ---
 
-# RLS Context
+## RLS Context
 
 A transaction may set a trusted Organization context.
 
@@ -9134,7 +9139,7 @@ current_setting(
 
 ---
 
-# RLS Transaction Scope
+## RLS Transaction Scope
 
 Use:
 
@@ -9148,7 +9153,7 @@ Avoid persistent session settings when connection pooling may reuse sessions acr
 
 ---
 
-# RLS Policy Example
+## RLS Policy Example
 
 Conceptual policy:
 
@@ -9173,7 +9178,7 @@ WITH CHECK (
 
 ---
 
-# Missing RLS Context
+## Missing RLS Context
 
 When Organization context is absent:
 
@@ -9185,7 +9190,7 @@ The policy must not default to unrestricted access.
 
 ---
 
-# Global Worker Access
+## Global Worker Access
 
 Global Workers may require access across Organizations.
 
@@ -9200,7 +9205,7 @@ A global Worker must not combine business effects across Organizations in one ex
 
 ---
 
-# RLS Bypass
+## RLS Bypass
 
 Roles with:
 
@@ -9216,7 +9221,7 @@ Migration and backup roles may require special treatment according to deployment
 
 ---
 
-# RLS Testing Requirement
+## RLS Testing Requirement
 
 When RLS is enabled, tests must verify:
 
@@ -9230,7 +9235,7 @@ When RLS is enabled, tests must verify:
 
 ---
 
-# RLS Adoption Decision
+## RLS Adoption Decision
 
 The MVP may begin without RLS when:
 
@@ -9243,7 +9248,7 @@ RLS can be introduced later through controlled migration.
 
 ---
 
-# Sensitive Data Classification
+## Sensitive Data Classification
 
 Database fields should be classified.
 
@@ -9263,7 +9268,7 @@ Restricted
 
 ---
 
-# Personal Data
+## Personal Data
 
 Likely personal data includes:
 
@@ -9278,7 +9283,7 @@ Likely personal data includes:
 
 ---
 
-# Security-Sensitive Data
+## Security-Sensitive Data
 
 Security-sensitive fields include:
 
@@ -9292,7 +9297,7 @@ Security-sensitive fields include:
 
 ---
 
-# Restricted Data
+## Restricted Data
 
 Restricted data may include:
 
@@ -9307,7 +9312,7 @@ Classification depends on product policy.
 
 ---
 
-# Encryption in Transit
+## Encryption in Transit
 
 All database connections must use TLS.
 
@@ -9315,7 +9320,7 @@ Backup transport and replication connections must also be encrypted.
 
 ---
 
-# Encryption at Rest
+## Encryption at Rest
 
 Production PostgreSQL storage and backups should use encryption at rest through:
 
@@ -9326,7 +9331,7 @@ Production PostgreSQL storage and backups should use encryption at rest through:
 
 ---
 
-# Application-Level Encryption
+## Application-Level Encryption
 
 Application-level field encryption may be introduced for especially sensitive fields.
 
@@ -9340,7 +9345,7 @@ Core relational fields used for joins and authorization should not be encrypted 
 
 ---
 
-# Searchable Sensitive Fields
+## Searchable Sensitive Fields
 
 Fields requiring equality lookup may store:
 
@@ -9362,7 +9367,7 @@ invitation token hash
 
 ---
 
-# Email Encryption Considerations
+## Email Encryption Considerations
 
 Email may be needed for:
 
@@ -9383,7 +9388,7 @@ This is optional for the MVP.
 
 ---
 
-# Cryptographic Key Management
+## Cryptographic Key Management
 
 Encryption keys must be stored outside PostgreSQL application tables.
 
@@ -9403,7 +9408,7 @@ Keys must support:
 
 ---
 
-# Hashing
+## Hashing
 
 Hashes are appropriate for:
 
@@ -9416,7 +9421,7 @@ Use a cryptographically appropriate algorithm and, where secrets are involved, a
 
 ---
 
-# Invitation Token Hashing
+## Invitation Token Hashing
 
 Invitation tokens should have high entropy.
 
@@ -9430,7 +9435,7 @@ The system should compare hashes in constant-time where practical.
 
 ---
 
-# Password Storage
+## Password Storage
 
 AIOS should not store passwords when authentication is delegated to an external Identity Provider.
 
@@ -9438,7 +9443,7 @@ If local credentials are introduced later, they require a separate credential-se
 
 ---
 
-# Data Redaction
+## Data Redaction
 
 Administrative and operational interfaces should redact:
 
@@ -9451,7 +9456,7 @@ Administrative and operational interfaces should redact:
 
 ---
 
-# Database Logging
+## Database Logging
 
 PostgreSQL logs should not record sensitive bind parameter values unnecessarily.
 
@@ -9464,7 +9469,7 @@ Query logging configuration must balance:
 
 ---
 
-# Audit Log Protection
+## Audit Log Protection
 
 Authorization and security audit records should be append-oriented.
 
@@ -9474,7 +9479,7 @@ Tamper-evident export may be introduced later for stronger assurance.
 
 ---
 
-# Backup Architecture
+## Backup Architecture
 
 Backups must preserve the complete consistency boundary.
 
@@ -9495,7 +9500,7 @@ A recoverable backup includes:
 
 ---
 
-# Backup Types
+## Backup Types
 
 Recommended backup strategy combines:
 
@@ -9511,7 +9516,7 @@ Managed PostgreSQL services may provide equivalent capabilities.
 
 ---
 
-# Point-in-Time Recovery
+## Point-in-Time Recovery
 
 Point-in-Time Recovery should allow restoration to a selected timestamp using:
 
@@ -9527,7 +9532,7 @@ PITR is the preferred recovery mechanism for major data loss or corruption.
 
 ---
 
-# Recovery Objectives
+## Recovery Objectives
 
 The production MVP adopts the following initial objectives for the complete PostgreSQL consistency boundary:
 
@@ -9551,7 +9556,7 @@ These are normative MVP targets, not examples. Changing a target requires a vers
 
 ---
 
-# Backup Frequency and Continuity
+## Backup Frequency and Continuity
 
 The production MVP MUST provide:
 
@@ -9575,7 +9580,7 @@ Before an irreversible or high-risk migration, operators MUST verify backup and 
 
 ---
 
-# Backup Encryption
+## Backup Encryption
 
 Backups must be encrypted:
 
@@ -9587,7 +9592,7 @@ Access must be limited to backup and recovery operators.
 
 ---
 
-# Backup Retention and Immutability
+## Backup Retention and Immutability
 
 The production MVP maintains:
 
@@ -9609,7 +9614,7 @@ Backup credentials and encryption keys are separated from ordinary application c
 
 ---
 
-# Backup Access Audit
+## Backup Access Audit
 
 Backup creation, download, restore, and deletion should be audited.
 
@@ -9617,7 +9622,7 @@ Backup access may expose all Organizations and therefore requires platform-level
 
 ---
 
-# Restore Testing
+## Restore Testing
 
 A backup is not considered recoverable until an isolated restore test proves it.
 
@@ -9639,7 +9644,7 @@ A failed or incomplete restore test invalidates backup confidence, creates a tra
 
 ---
 
-# Disaster Recovery Authorization
+## Disaster Recovery Authorization
 
 Production restore is a high-risk platform operation. It requires a typed Operations Application Service command or an equivalent approved provider workflow with:
 
@@ -9652,11 +9657,11 @@ Production restore is a high-risk platform operation. It requires a typed Operat
 - durable audit stored outside the database being replaced when necessary
 - result and validation evidence
 
-The AI Secretary and ordinary System Workers cannot request, approve, or execute production restore.
+The Secretary and ordinary System Workers cannot request, approve, or execute production restore.
 
 ---
 
-# Recovery Sequence
+## Recovery Sequence
 
 The required recovery flow is:
 
@@ -9708,7 +9713,7 @@ Workers and external consumers MUST NOT start automatically merely because Postg
 
 ---
 
-# Post-Restore Claim and Queue Recovery
+## Post-Restore Claim and Queue Recovery
 
 Recovery resets only expired or explicitly abandoned claims for:
 
@@ -9732,7 +9737,7 @@ The event-consumer and ordering rules in `docs/architecture/events-and-outbox.md
 
 ---
 
-# External Side Effects After Restore
+## External Side Effects After Restore
 
 Database restoration can rewind local evidence but cannot undo an email, webhook, provider request, access revocation, or other external side effect already performed after the selected restore point.
 
@@ -9750,7 +9755,7 @@ An absent processed-event row after restore is not proof that the external effec
 
 ---
 
-# Restore Integrity Checks
+## Restore Integrity Checks
 
 Before authoritative writes resume, post-restore validation MUST verify at least:
 
@@ -9772,7 +9777,7 @@ Validation uses bounded queries and records evidence. A failing invariant preven
 
 ---
 
-# Partial Restore Prohibition
+## Partial Restore Prohibition
 
 Ordinary disaster recovery must restore the complete consistency boundary. Restoring selected authoritative tables is prohibited.
 
@@ -9792,7 +9797,7 @@ Selective data repair uses the typed operational repair path and is not called d
 
 ---
 
-# Regional Disaster Recovery
+## Regional Disaster Recovery
 
 Cross-region production recovery is optional for the MVP. Backup storage still uses a separate failure and deletion domain within the approved residency boundary.
 
@@ -9800,7 +9805,7 @@ Before cross-region recovery is claimed as supported, an ADR and exercise MUST d
 
 ---
 
-# Disaster Recovery Exercises
+## Disaster Recovery Exercises
 
 The quarterly exercise records:
 
@@ -9820,7 +9825,7 @@ An objective is not considered validated when the exercise excludes the slowest 
 
 ---
 
-# Persistence Testing Strategy
+## Persistence Testing Strategy
 
 The persistence architecture requires tests at several levels:
 
@@ -9848,7 +9853,7 @@ Security Tests
 
 ---
 
-# Schema Tests
+## Schema Tests
 
 Schema tests should verify:
 
@@ -9864,7 +9869,7 @@ Schema tests should verify:
 
 ---
 
-# Constraint Tests
+## Constraint Tests
 
 Every critical constraint should have:
 
@@ -9880,7 +9885,7 @@ invalid update test
 
 ---
 
-# Work Constraint Tests
+## Work Constraint Tests
 
 Verify:
 
@@ -9895,7 +9900,7 @@ Verify:
 
 ---
 
-# Decision Constraint Tests
+## Decision Constraint Tests
 
 Verify:
 
@@ -9910,7 +9915,7 @@ Verify:
 
 ---
 
-# Memory Constraint Tests
+## Memory Constraint Tests
 
 Verify:
 
@@ -9924,7 +9929,7 @@ Verify:
 
 ---
 
-# Identity and Membership Constraint Tests
+## Identity and Membership Constraint Tests
 
 Verify:
 
@@ -9938,7 +9943,7 @@ Verify:
 
 ---
 
-# Repository Integration Tests
+## Repository Integration Tests
 
 Repositories should be tested against real PostgreSQL.
 
@@ -9956,7 +9961,7 @@ Tests must verify:
 
 ---
 
-# Aggregate Round-Trip Tests
+## Aggregate Round-Trip Tests
 
 For every Aggregate:
 
@@ -9980,7 +9985,7 @@ Round-trip tests should include all lifecycle states.
 
 ---
 
-# Transaction Rollback Tests
+## Transaction Rollback Tests
 
 Inject failures after:
 
@@ -9999,7 +10004,7 @@ No partial committed state
 
 ---
 
-# Coordinated Transaction Tests
+## Coordinated Transaction Tests
 
 Required tests include:
 
@@ -10012,7 +10017,7 @@ Each test must inject failure at every intermediate persistence step.
 
 ---
 
-# Optimistic Concurrency Tests
+## Optimistic Concurrency Tests
 
 Simulate:
 
@@ -10032,7 +10037,7 @@ second mutation fails
 
 ---
 
-# Owner Lock Tests
+## Owner Lock Tests
 
 Using real concurrent transactions, test:
 
@@ -10046,7 +10051,7 @@ At least one active Owner must remain.
 
 ---
 
-# Worker Claim Tests
+## Worker Claim Tests
 
 Verify:
 
@@ -10059,7 +10064,7 @@ Verify:
 
 ---
 
-# Organization Isolation Tests
+## Organization Isolation Tests
 
 Mandatory tests include:
 
@@ -10076,7 +10081,7 @@ Mandatory tests include:
 
 ---
 
-# Foreign-Key Tests
+## Foreign-Key Tests
 
 Verify cross-Organization foreign keys reject:
 
@@ -10089,7 +10094,7 @@ Verify cross-Organization foreign keys reject:
 
 ---
 
-# Immutability Tests
+## Immutability Tests
 
 Database-level or repository-level tests must verify:
 
@@ -10101,7 +10106,7 @@ Database-level or repository-level tests must verify:
 
 ---
 
-# Migration Tests
+## Migration Tests
 
 Every migration path should be tested from:
 
@@ -10112,7 +10117,7 @@ Every migration path should be tested from:
 
 ---
 
-# Expand-and-Contract Tests
+## Expand-and-Contract Tests
 
 Verify:
 
@@ -10124,7 +10129,7 @@ Verify:
 
 ---
 
-# Backfill Tests
+## Backfill Tests
 
 Backfills must be tested for:
 
@@ -10138,7 +10143,7 @@ Backfills must be tested for:
 
 ---
 
-# Migration Performance Tests
+## Migration Performance Tests
 
 Large migrations should measure:
 
@@ -10152,7 +10157,7 @@ Large migrations should measure:
 
 ---
 
-# Security Tests
+## Security Tests
 
 Database security tests should verify:
 
@@ -10167,7 +10172,7 @@ Database security tests should verify:
 
 ---
 
-# Backup Tests
+## Backup Tests
 
 Backup tests should verify:
 
@@ -10180,7 +10185,7 @@ Backup tests should verify:
 
 ---
 
-# Point-in-Time Recovery Tests
+## Point-in-Time Recovery Tests
 
 PITR tests should simulate:
 
@@ -10200,7 +10205,7 @@ Then verify event and Aggregate consistency.
 
 ---
 
-# Disaster Recovery Tests
+## Disaster Recovery Tests
 
 A full exercise should test:
 
@@ -10215,7 +10220,7 @@ A full exercise should test:
 
 ---
 
-# Query Performance Tests
+## Query Performance Tests
 
 Performance tests should cover:
 
@@ -10231,7 +10236,7 @@ Performance tests should cover:
 
 ---
 
-# Query Plan Tests
+## Query Plan Tests
 
 Critical queries should be reviewed with:
 
@@ -10243,7 +10248,7 @@ Tests should confirm expected index use under realistic data volume.
 
 ---
 
-# Load Tests
+## Load Tests
 
 Load testing should include:
 
@@ -10257,7 +10262,7 @@ Load testing should include:
 
 ---
 
-# Connection Pool Tests
+## Connection Pool Tests
 
 Verify:
 
@@ -10271,7 +10276,7 @@ Verify:
 
 ---
 
-# Property-Based Persistence Tests
+## Property-Based Persistence Tests
 
 Recommended properties:
 
@@ -10307,7 +10312,7 @@ For every committed Domain Event:
 
 ---
 
-# Implementation Guidance
+## Implementation Guidance
 
 Persistence implementation should remain explicit and modular.
 
@@ -10344,7 +10349,7 @@ persistence/
 
 ---
 
-# Module Repository Structure
+## Module Repository Structure
 
 Example:
 
@@ -10370,7 +10375,7 @@ memory/
 
 ---
 
-# SQL Ownership
+## SQL Ownership
 
 SQL should live with the module that owns the table or query.
 
@@ -10378,7 +10383,7 @@ Avoid one global persistence package containing unrestricted access to all table
 
 ---
 
-# Repository Interface Design
+## Repository Interface Design
 
 Repository interfaces express Aggregate-specific domain intent.
 
@@ -10439,7 +10444,7 @@ Repository adapters do not own transaction commit, Outbox publication, retries, 
 
 ---
 
-# Unit of Work
+## Unit of Work
 
 A generic Unit of Work is optional.
 
@@ -10454,7 +10459,7 @@ If used, it must:
 
 ---
 
-# Object-Relational Mapping
+## Object-Relational Mapping
 
 An ORM may be used.
 
@@ -10471,7 +10476,7 @@ It must not obscure:
 
 ---
 
-# ORM Restrictions
+## ORM Restrictions
 
 Avoid:
 
@@ -10485,7 +10490,7 @@ Avoid:
 
 ---
 
-# SQL-First Operations
+## SQL-First Operations
 
 Direct SQL is appropriate for:
 
@@ -10501,7 +10506,7 @@ These operations must still respect module ownership.
 
 ---
 
-# Mapping Layer
+## Mapping Layer
 
 Database rows should map to persistence DTOs before constructing Domain objects.
 
@@ -10514,7 +10519,7 @@ Domain objects should not depend on:
 
 ---
 
-# Domain Hydration
+## Domain Hydration
 
 Hydration should use dedicated constructors or factories that:
 
@@ -10526,7 +10531,7 @@ Hydration should use dedicated constructors or factories that:
 
 ---
 
-# Save Flow
+## Save Flow
 
 Recommended repository save flow:
 
@@ -10550,7 +10555,7 @@ Outbox persistence remains coordinated by the Application transaction.
 
 ---
 
-# Event Collection
+## Event Collection
 
 The Application Service should collect Domain Events after successful Aggregate command execution.
 
@@ -10560,7 +10565,7 @@ They should be cleared from in-memory Aggregate state only after successful pers
 
 ---
 
-# Command Idempotency Order
+## Command Idempotency Order
 
 Recommended order:
 
@@ -10584,7 +10589,7 @@ Duplicate requests return the original bounded result.
 
 ---
 
-# Statement Timeouts
+## Statement Timeouts
 
 Recommended timeout classes:
 
@@ -10602,7 +10607,7 @@ Timeout configuration should be explicit per workload.
 
 ---
 
-# Connection Application Name
+## Connection Application Name
 
 Each process should identify itself through PostgreSQL connection metadata.
 
@@ -10624,7 +10629,7 @@ This supports operational diagnosis.
 
 ---
 
-# Database Time
+## Database Time
 
 Use database time for:
 
@@ -10637,7 +10642,7 @@ Use the injected domain clock for business facts when domain semantics require i
 
 ---
 
-# Integrity Checker
+## Integrity Checker
 
 A scheduled integrity checker may query critical invariants.
 
@@ -10652,7 +10657,7 @@ It must:
 
 ---
 
-# Data Repair Tooling
+## Data Repair Tooling
 
 Controlled repair tooling should support:
 
@@ -10669,7 +10674,7 @@ It must not become a routine business interface.
 
 ---
 
-# Development Environment
+## Development Environment
 
 Local and test environments should use PostgreSQL behavior compatible with production.
 
@@ -10684,7 +10689,7 @@ SQLite or in-memory substitutes are insufficient for testing:
 
 ---
 
-# Test Database Isolation
+## Test Database Isolation
 
 Automated tests may use:
 
@@ -10697,7 +10702,7 @@ Tests involving concurrency or committed Worker visibility require real commits 
 
 ---
 
-# Seed Data
+## Seed Data
 
 Seed data should be limited to:
 
@@ -10711,7 +10716,7 @@ Production seed processes must be idempotent and version-controlled.
 
 ---
 
-# Production Data Access
+## Production Data Access
 
 Direct production SQL access should be rare.
 
@@ -10727,7 +10732,7 @@ Required controls:
 
 ---
 
-# Operational Documentation
+## Operational Documentation
 
 The persistence implementation should include runbooks for:
 
@@ -10755,7 +10760,7 @@ Emergency data repair
 
 ---
 
-# Runbook: Migration Failure
+## Runbook: Migration Failure
 
 Recommended actions:
 
@@ -10770,7 +10775,7 @@ Recommended actions:
 
 ---
 
-# Runbook: Lock Contention
+## Runbook: Lock Contention
 
 Recommended actions:
 
@@ -10785,7 +10790,7 @@ Recommended actions:
 
 ---
 
-# Runbook: Backup Failure
+## Runbook: Backup Failure
 
 Recommended actions:
 
@@ -10800,7 +10805,7 @@ Recommended actions:
 
 ---
 
-# Runbook: Integrity Finding
+## Runbook: Integrity Finding
 
 Recommended actions:
 
@@ -10816,7 +10821,7 @@ Recommended actions:
 
 ---
 
-# MVP Exclusions
+## MVP Exclusions
 
 The following persistence capabilities are outside the MVP:
 
@@ -10852,7 +10857,7 @@ These require separate future design.
 
 ---
 
-# Future Extension Principles
+## Future Extension Principles
 
 Future persistence changes must preserve:
 
@@ -10871,7 +10876,7 @@ Future persistence changes must preserve:
 
 ---
 
-# Knowledge Persistence Future Phase
+## Knowledge Persistence Future Phase
 
 Future Knowledge persistence must remain separate from Approved Memory.
 
@@ -10893,7 +10898,7 @@ Promotion must remain a Human-authoritative workflow.
 
 ---
 
-# Evidence Persistence Future Phase
+## Evidence Persistence Future Phase
 
 Evidence may require:
 
@@ -10910,7 +10915,7 @@ Evidence must not be added as unstructured JSON to Memory without a defined mode
 
 ---
 
-# AI Employee Persistence Future Phase
+## AI Employee Persistence Future Phase
 
 AI Employee persistence may include:
 
@@ -10927,7 +10932,7 @@ AI Employees must not reuse Human Membership rows.
 
 ---
 
-# Organization Sharding Future Phase
+## Organization Sharding Future Phase
 
 If Organization sharding is introduced, the design must preserve:
 
@@ -10943,7 +10948,7 @@ Sharding is not justified for the MVP.
 
 ---
 
-# Implementation Checklist
+## Implementation Checklist
 
 Before persistence implementation is considered complete, verify:
 
@@ -10983,7 +10988,7 @@ Before persistence implementation is considered complete, verify:
 
 ---
 
-# Design Summary
+## Design Summary
 
 The AIOS persistence architecture uses PostgreSQL to provide:
 
@@ -11015,7 +11020,7 @@ The database reinforces invariants, protects relationships, and ensures atomic p
 
 ---
 
-# Core Guarantees
+## Core Guarantees
 
 The persistence architecture guarantees:
 
@@ -11036,9 +11041,9 @@ The persistence architecture guarantees:
 
 ---
 
-# Architect Review
+## Architect Review
 
-## Aggregate Mapping
+### Aggregate Mapping
 
 **Rating: ★★★★★**
 
@@ -11048,7 +11053,7 @@ The relational model preserves Domain boundaries rather than exposing generic ta
 
 ---
 
-## Relational Integrity
+### Relational Integrity
 
 **Rating: ★★★★★**
 
@@ -11056,7 +11061,7 @@ Foreign keys, composite Organization references, check constraints, partial uniq
 
 ---
 
-## Organization Isolation
+### Organization Isolation
 
 **Rating: ★★★★★**
 
@@ -11066,7 +11071,7 @@ Optional Row-Level Security provides a clear defense-in-depth path.
 
 ---
 
-## Concurrency
+### Concurrency
 
 **Rating: ★★★★★**
 
@@ -11076,7 +11081,7 @@ Selective row and advisory locking protect cross-Aggregate invariants such as La
 
 ---
 
-## Human Authority
+### Human Authority
 
 **Rating: ★★★★★**
 
@@ -11086,7 +11091,7 @@ Secretary and System principals cannot occupy Human reviewer fields.
 
 ---
 
-## Revision Integrity
+### Revision Integrity
 
 **Rating: ★★★★★**
 
@@ -11096,7 +11101,7 @@ Historical reviewed content remains explainable.
 
 ---
 
-## Event Reliability
+### Event Reliability
 
 **Rating: ★★★★★**
 
@@ -11106,7 +11111,7 @@ Consumer state supports effectively-once business outcomes.
 
 ---
 
-## Security
+### Security
 
 **Rating: ★★★★★**
 
@@ -11114,7 +11119,7 @@ Least-privilege database roles, network isolation, TLS, encryption, restricted p
 
 ---
 
-## Migration Safety
+### Migration Safety
 
 **Rating: ★★★★★**
 
@@ -11122,7 +11127,7 @@ Version-controlled migrations, expand-and-contract deployment, resumable backfil
 
 ---
 
-## Backup and Recovery
+### Backup and Recovery
 
 **Rating: ★★★★★**
 
@@ -11130,7 +11135,7 @@ The design preserves the full consistency boundary through encrypted backups, WA
 
 ---
 
-## Operational Readiness
+### Operational Readiness
 
 **Rating: ★★★★★**
 
@@ -11138,7 +11143,7 @@ The architecture includes indexing, query patterns, retention, cleanup, vacuum m
 
 ---
 
-## MVP Scope Discipline
+### MVP Scope Discipline
 
 **Rating: ★★★★★**
 
@@ -11148,7 +11153,7 @@ Future extension points remain explicit.
 
 ---
 
-## Final Assessment
+### Final Assessment
 
 ```text
 Architecture Quality:          ★★★★★
