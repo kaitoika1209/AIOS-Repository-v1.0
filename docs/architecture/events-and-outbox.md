@@ -5196,6 +5196,35 @@ A failure in one consumer MUST NOT block another consumer that already processed
 
 ---
 
+## Skip Policies
+
+`skipPolicy` is a required registration field, and its permitted values are:
+
+```text
+Prohibited
+RequiresSafetyEvidence
+AllowedWhenRebuildable
+```
+
+| Policy | Meaning | Allowed use |
+|---|---|---|
+| `Prohibited` | `SkipDeadLetter` is refused for this consumer under every authorization | Effects with no rebuild path and no compensation, where discarding a delivery silently loses an authoritative outcome |
+| `RequiresSafetyEvidence` | Skip is refused unless the request carries registered safety or compensation evidence establishing that later effects remain valid | Default for Domain Coordination Consumers and for irreversible Integration Consumers |
+| `AllowedWhenRebuildable` | Skip is permitted on the registered permission alone, because the discarded result can be reconstructed | Rebuildable independent projection results only |
+
+These correspond one-to-one with the Consumer Recovery Permission Matrix in
+`authorization.md`: `AllowedWhenRebuildable` is the "Skip rebuildable
+independent projection result" row, and `RequiresSafetyEvidence` is the "Skip
+Domain Coordination or irreversible Integration result" row, which the Admin is
+denied by default. `Prohibited` is the case neither row reaches — a registration
+that claims no skip is ever safe.
+
+The default for a registration that does not state one is `Prohibited`. A
+permissive default would let a consumer added without thought inherit the most
+dangerous recovery operation.
+
+---
+
 ## Default Policy by Consumer Type
 
 | Consumer type | Default continuation | Required qualification |

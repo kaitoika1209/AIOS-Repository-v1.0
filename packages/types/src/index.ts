@@ -11,5 +11,6 @@
 
 export * from "./ids.js";
 export * from "./statuses.js";
+export * from "./consumers.js";
 export * from "./authorization.js";
 export * from "./principal.js";

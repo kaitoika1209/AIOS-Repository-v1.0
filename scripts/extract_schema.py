@@ -47,6 +47,9 @@ TABLE_ORDER = [
     "memory_generation_operations",
     "outbox_messages",
     "processed_events",
+    "consumer_ordering_state",
+    "dead_letter_events",
+    "event_replays",
 ]
 
 SQL_BLOCK = re.compile(r"```sql\n(.*?)```", re.S)

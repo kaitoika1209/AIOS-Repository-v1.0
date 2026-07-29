@@ -5559,6 +5559,51 @@ consumer_name + organization_id + ordering_key_type + ordering_key
 
 Global rows with `organization_id IS NULL` require a separate partial unique index or an equivalent non-null platform-scope key; ordinary SQL uniqueness must not treat multiple global keys as distinct merely because Organization is null.
 
+---
+
+## Consumer Ordering State Conceptual DDL
+
+```sql
+CREATE TABLE consumer_ordering_state (
+    consumer_ordering_state_id uuid PRIMARY KEY,
+    consumer_name           text NOT NULL,
+    organization_id         uuid NULL,
+    ordering_key_type       text NOT NULL,
+    ordering_key            text NOT NULL,
+
+    last_terminal_sequence  bigint NULL,
+    blocked_event_id        uuid NULL,
+    blocked_sequence        bigint NULL,
+    blocked_at              timestamptz NULL,
+    block_reason_code       text NULL,
+
+    status                  text NOT NULL,
+    version                 bigint NOT NULL DEFAULT 1,
+    updated_at              timestamptz NOT NULL,
+
+    CONSTRAINT ck_consumer_ordering_state_status CHECK (
+        status IN ('Active', 'Blocked', 'Recovering')
+    ),
+
+    CONSTRAINT ck_consumer_ordering_state_blocked CHECK (
+        (status = 'Blocked') =
+        (blocked_event_id IS NOT NULL
+            AND blocked_at IS NOT NULL
+            AND block_reason_code IS NOT NULL)
+    )
+);
+```
+
+A surrogate primary key rather than the natural one, because
+`organization_id` is nullable for a global consumer and a null cannot take part
+in a primary key. Uniqueness is enforced by the partial index above, which is
+what makes the null-distinct behaviour explicit rather than accidental.
+
+`ck_consumer_ordering_state_blocked` keeps the block and its explanation
+inseparable. A row that says a key is blocked but not which delivery blocked it
+cannot be unblocked by any decision an operator is able to justify.
+
+
 The ordering-state update, a processed-event `Failed` transition, dead-letter creation, and any required recovery Outbox record commit atomically. A waiting delivery uses processed-event status `Blocked` and reason `BlockedByPredecessor`, or remains an equivalent queryable projection until materialized. It consumes no handler attempt.
 
 ---
@@ -5654,6 +5699,79 @@ An independent repository call to set `Resolved` or `Skipped` is prohibited.
 
 ---
 
+## Dead Letter Conceptual DDL
+
+```sql
+CREATE TABLE dead_letter_events (
+    dead_letter_id          uuid PRIMARY KEY,
+    organization_id         uuid NOT NULL,
+    consumer_name           text NOT NULL,
+    event_id                uuid NOT NULL,
+
+    ordering_key_type       text NULL,
+    ordering_key            text NULL,
+    source_sequence         bigint NULL,
+
+    failure_category        text NOT NULL,
+    error_code              text NOT NULL,
+    error_reference         text NULL,
+
+    status                  text NOT NULL,
+    assigned_to_identity_id uuid NULL,
+
+    first_failed_at         timestamptz NOT NULL,
+    last_failed_at          timestamptz NOT NULL,
+
+    resolution_type         text NULL,
+    resolution_reference    text NULL,
+    resolution_reason_code  text NULL,
+    resolved_by_identity_id   uuid NULL,
+    resolved_by_membership_id uuid NULL,
+    resolved_at             timestamptz NULL,
+    replay_id               uuid NULL,
+
+    version                 bigint NOT NULL DEFAULT 1,
+    created_at              timestamptz NOT NULL,
+    updated_at              timestamptz NOT NULL,
+
+    CONSTRAINT uq_dead_letter_consumer_event UNIQUE (consumer_name, event_id),
+
+    CONSTRAINT ck_dead_letter_status CHECK (
+        status IN ('Open', 'Investigating', 'ReadyForReplay', 'Resolved', 'Skipped')
+    ),
+
+    CONSTRAINT ck_dead_letter_resolution CHECK (
+        (status IN ('Resolved', 'Skipped')) =
+        (resolved_at IS NOT NULL
+            AND resolved_by_identity_id IS NOT NULL
+            AND resolved_by_membership_id IS NOT NULL
+            AND resolution_reason_code IS NOT NULL)
+    ),
+
+    FOREIGN KEY (organization_id, resolved_by_membership_id)
+        REFERENCES memberships (organization_id, membership_id)
+);
+```
+
+`error_reference` is a pointer, not the error. The document requires dead-letter
+metadata to stay bounded and to reference durable evidence rather than copy
+unrestricted payload or exception text, and a driver error routinely quotes the
+row it choked on.
+
+`ck_dead_letter_resolution` binds both terminal statuses to their attribution
+and reason. `Resolved` and `Skipped` are terminal, so a row that reaches either
+without recording who decided it and why is a record nobody can audit — and the
+resolution can never be revisited to supply the missing half.
+
+The `resolved_by_membership_id` foreign key is composite. Resolution is
+Organization business authority, so the resolver's Membership must belong to the
+same Organization as the dead letter; a platform operator cannot resolve
+another tenant's failure.
+
+
+
+---
+
 ## Replay Persistence
 
 Recommended table:
@@ -5738,6 +5856,92 @@ Running -> Completed
 Running -> Failed
 Running -> Cancelled        only before authoritative or external effect begins
 ```
+
+---
+
+## Replay Conceptual DDL
+
+```sql
+CREATE TABLE event_replays (
+    replay_id               uuid PRIMARY KEY,
+    organization_id         uuid NOT NULL,
+    original_event_id       uuid NOT NULL,
+    consumer_name           text NOT NULL,
+    replay_mode             text NOT NULL,
+
+    requested_by_identity_id   uuid NOT NULL,
+    requested_by_membership_id uuid NOT NULL,
+    reason_code             text NOT NULL,
+    reason                  text NOT NULL,
+
+    status                  text NOT NULL,
+
+    authorization_policy_id      text NOT NULL,
+    authorization_policy_version integer NOT NULL,
+    authorized_at           timestamptz NOT NULL,
+
+    source_processed_event_status  text NOT NULL,
+    expected_dead_letter_version   bigint NULL,
+    expected_ordering_state_version bigint NULL,
+
+    attempt_count           integer NOT NULL DEFAULT 0,
+    next_attempt_at         timestamptz NULL,
+    locked_by               text NULL,
+    locked_until            timestamptz NULL,
+    claim_version           bigint NOT NULL DEFAULT 0,
+
+    started_at              timestamptz NULL,
+    completed_at            timestamptz NULL,
+    result_code             text NULL,
+    result_reference        text NULL,
+    last_error_code         text NULL,
+    error_reference         text NULL,
+
+    version                 bigint NOT NULL DEFAULT 1,
+    created_at              timestamptz NOT NULL,
+    updated_at              timestamptz NOT NULL,
+
+    CONSTRAINT ck_event_replays_mode CHECK (
+        replay_mode IN (
+            'RetryOriginal',
+            'ReprocessWithCurrentHandler',
+            'RebuildProjection',
+            'ValidateOnly'
+        )
+    ),
+
+    CONSTRAINT ck_event_replays_status CHECK (
+        status IN (
+            'Requested', 'Validating', 'Running',
+            'Completed', 'Failed', 'Denied', 'Cancelled'
+        )
+    ),
+
+    CONSTRAINT ck_event_replays_terminal CHECK (
+        (status IN ('Completed', 'Failed', 'Denied', 'Cancelled'))
+        = (completed_at IS NOT NULL)
+    ),
+
+    FOREIGN KEY (organization_id, requested_by_membership_id)
+        REFERENCES memberships (organization_id, membership_id)
+);
+```
+
+`reason` and `reason_code` are `NOT NULL` because the intent record is the
+approval. The MVP does not require a second approver: "The authenticated
+authorized Human request is the approval and is captured as durable intent." A
+replay row with no stated reason would make that approval unauditable.
+
+`authorization_policy_id`, `authorization_policy_version`, and `authorized_at`
+record the authorization as it stood at request time. Authorization is evaluated
+twice, and comparing the recorded decision with the one revalidated at execution
+time is what makes a permission revoked in between observable rather than
+silent.
+
+There is no `requested_by` in any command payload that writes this table: both
+requester columns are derived from trusted execution context, per the same rule
+that forbids a recovery request from naming its own Organization.
+
 
 Terminal replay records retain immutable request, authorization, target, mode, and result identity. Investigation notes are separate append-only records or audit entries.
 
