@@ -30,6 +30,7 @@ import {
 } from "@aios/domain";
 
 import { requirePermission } from "./authorization.js";
+import { requireWorkRelationship } from "./relationships.js";
 import {
   NotFoundError,
   type RepositoryBundle,
@@ -148,6 +149,15 @@ export const submitBlockingDecisionUseCase = async (
       ctx.organizationId,
       currentDecision.relatedWorkId,
     );
+
+    // "RequestBlockingDecision | Assignee, Creator, or Admin" — on the Work,
+    // which is the resource whose lifecycle this blocks. The Decision half of
+    // the command carries its own permission but no Work relationship.
+    requireWorkRelationship(ctx.principal, currentWork, [
+      "Assignee",
+      "Creator",
+      "Administrator",
+    ]);
 
     const submitted = submitForReview(currentDecision, ctx);
 

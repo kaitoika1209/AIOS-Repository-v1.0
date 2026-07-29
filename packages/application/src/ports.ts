@@ -45,6 +45,16 @@ export interface IdGenerator {
   invitationId(): InvitationId;
   identityId(): IdentityId;
   /**
+   * Identifies one row of `work_participants` or `work_progress_records`.
+   *
+   * Both columns are typed `uuid`, so neither may be an opaque string. They are
+   * not branded types because neither is ever used as a lookup key — a
+   * participant is found by Membership and a progress record is never found at
+   * all, only appended and listed.
+   */
+  workParticipantId(): string;
+  workProgressRecordId(): string;
+  /**
    * Identifies one Decision revision.
    *
    * A submitted revision's id is what Work stores as `submittedSnapshotId`, so

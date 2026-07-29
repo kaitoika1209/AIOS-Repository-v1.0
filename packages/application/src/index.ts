@@ -7,6 +7,7 @@
  */
 
 export * from "./authorization.js";
+export * from "./relationships.js";
 export * from "./ports.js";
 export * from "./work-use-cases.js";
 export * from "./decision-use-cases.js";

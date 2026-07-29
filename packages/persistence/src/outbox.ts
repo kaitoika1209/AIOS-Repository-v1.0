@@ -30,6 +30,9 @@ const aggregateOf = (
   switch (event.type) {
     case "WorkCreated":
     case "WorkDetailsUpdated":
+    case "WorkAssignmentChanged":
+    case "WorkParticipantChanged":
+    case "WorkProgressRecorded":
     case "WorkStarted":
     case "WorkDecisionRequested":
     case "WorkDecisionOutcomeRecorded":

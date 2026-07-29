@@ -1004,6 +1004,293 @@ suite("AIOS API", () => {
     });
   });
 
+  describe("assignment and progress", () => {
+    it("assigns a Member and reports them on the Work", async () => {
+      const work = await createWork();
+
+      const res = await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(MEMBER))
+        .send({ assigneeMembershipId: REVIEWER.membership })
+        .expect(201);
+
+      expect(res.body.assigneeMembershipId).toBe(REVIEWER.membership);
+      expect(res.body.version).toBe(work.version + 1);
+    });
+
+    it("unassigns with an explicit null", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(MEMBER))
+        .send({ assigneeMembershipId: REVIEWER.membership })
+        .expect(201);
+
+      const res = await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(MEMBER))
+        .send({ assigneeMembershipId: null })
+        .expect(201);
+
+      expect(res.body.assigneeMembershipId).toBeNull();
+    });
+
+    it("keeps the ended assignment as a row", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(MEMBER))
+        .send({ assigneeMembershipId: REVIEWER.membership })
+        .expect(201);
+      await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(MEMBER))
+        .send({ assigneeMembershipId: OWNER.membership })
+        .expect(201);
+
+      const client = await pool.connect();
+      try {
+        const rows = await client.query<{
+          membership_id: string;
+          removed_at: Date | null;
+          removed_by_membership_id: string | null;
+        }>(
+          `SELECT membership_id, removed_at, removed_by_membership_id
+             FROM work_participants
+            WHERE work_id = $1
+            ORDER BY added_at`,
+          [work.workId],
+        );
+
+        expect(rows.rows).toHaveLength(2);
+        expect(rows.rows[0]).toMatchObject({
+          membership_id: REVIEWER.membership,
+          removed_by_membership_id: MEMBER.membership,
+        });
+        expect(rows.rows[0]!.removed_at).not.toBeNull();
+        expect(rows.rows[1]!.removed_at).toBeNull();
+      } finally {
+        client.release();
+      }
+    });
+
+    it("reports an assignee from another Organization as 404", async () => {
+      const work = await createWork();
+
+      // OUTSIDER's Membership is real, in OTHER_ORG. A 422 would confirm it
+      // exists somewhere.
+      await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(MEMBER))
+        .send({ assigneeMembershipId: OUTSIDER.membership })
+        .expect(404);
+    });
+
+    it("refuses a Member assigning Work they did not create", async () => {
+      const work = await createWork();
+
+      // A Member holds `work.assign` — "Limited" in the mapping table. The
+      // limit is the relationship, and the message names neither.
+      const res = await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(REVIEWER))
+        .send({ assigneeMembershipId: REVIEWER.membership })
+        .expect(403);
+
+      expect(res.body).toEqual({
+        code: "PERMISSION_DENIED",
+        message: "You do not have permission to perform this action.",
+        details: {},
+      });
+    });
+
+    it("lets an Owner assign Work they are a stranger to", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(OWNER))
+        .send({ assigneeMembershipId: OWNER.membership })
+        .expect(201);
+    });
+
+    it("replaces the participant set", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(MEMBER))
+        .send({ participantMembershipIds: [REVIEWER.membership, OWNER.membership] })
+        .expect(201);
+
+      const res = await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(MEMBER))
+        .send({ participantMembershipIds: [OWNER.membership] })
+        .expect(201);
+
+      expect(res.body.participantMembershipIds).toEqual([OWNER.membership]);
+    });
+
+    it("rejects a request that asks for nothing", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(MEMBER))
+        .send({})
+        .expect(400);
+    });
+
+    /** Work created by MEMBER, assigned to OWNER, and started. */
+    const assignedAndStarted = async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(MEMBER))
+        .send({ assigneeMembershipId: OWNER.membership })
+        .expect(201);
+      await request(server())
+        .post(`/works/${work.workId}/start`)
+        .set(as(MEMBER))
+        .expect(201);
+      return work;
+    };
+
+    it("records progress from the assignee", async () => {
+      const work = await assignedAndStarted();
+
+      const res = await request(server())
+        .post(`/works/${work.workId}/progress`)
+        .set(as(OWNER))
+        .send({ content: "Reviewed the migration plan." })
+        .expect(201);
+
+      expect(res.body.progress).toMatchObject([
+        {
+          content: "Reviewed the migration plan.",
+          recordedByMembershipId: OWNER.membership,
+        },
+      ]);
+      // Progress alone never completes Work.
+      expect(res.body.status).toBe("InProgress");
+    });
+
+    it("refuses progress from the creator who is not doing the work", async () => {
+      const work = await assignedAndStarted();
+
+      // MEMBER holds `work.record_progress` and created the Work. Neither is
+      // enough: "RecordProgress | Assignee or Participant" is the one row that
+      // excludes the Creator.
+      await request(server())
+        .post(`/works/${work.workId}/progress`)
+        .set(as(MEMBER))
+        .send({ content: "Looks fine from here." })
+        .expect(403);
+    });
+
+    it("refuses progress from a Reviewer at the permission, not the relationship", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(MEMBER))
+        .send({ assigneeMembershipId: REVIEWER.membership })
+        .expect(201);
+      await request(server())
+        .post(`/works/${work.workId}/start`)
+        .set(as(MEMBER))
+        .expect(201);
+
+      // The Reviewer is the assignee and so holds the relationship, but the
+      // role carries no `work.record_progress` at all. Step 5 refuses first,
+      // and the response is identical either way.
+      await request(server())
+        .post(`/works/${work.workId}/progress`)
+        .set(as(REVIEWER))
+        .send({ content: "On it." })
+        .expect(403);
+    });
+
+    it("refuses progress on Work that has not started", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(MEMBER))
+        .send({ assigneeMembershipId: MEMBER.membership })
+        .expect(201);
+
+      await request(server())
+        .post(`/works/${work.workId}/progress`)
+        .set(as(MEMBER))
+        .send({ content: "Not started yet." })
+        .expect(409);
+    });
+
+    it("emits the assignment, participant, and progress events", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(MEMBER))
+        .send({
+          assigneeMembershipId: MEMBER.membership,
+          participantMembershipIds: [REVIEWER.membership],
+        })
+        .expect(201);
+      await request(server())
+        .post(`/works/${work.workId}/start`)
+        .set(as(MEMBER))
+        .expect(201);
+      await request(server())
+        .post(`/works/${work.workId}/progress`)
+        .set(as(MEMBER))
+        .send({ content: "Under way." })
+        .expect(201);
+
+      const client = await pool.connect();
+      try {
+        const rows = await client.query<{ event_type: string }>(
+          `SELECT event_type FROM outbox_messages ORDER BY recorded_at, event_sequence`,
+        );
+        expect(rows.rows.map((r) => r.event_type)).toEqual([
+          "WorkCreated",
+          "WorkAssignmentChanged",
+          "WorkParticipantChanged",
+          "WorkStarted",
+          "WorkProgressRecorded",
+        ]);
+      } finally {
+        client.release();
+      }
+    });
+
+    it("survives a reload: children come back with the Work", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(MEMBER))
+        .send({
+          assigneeMembershipId: MEMBER.membership,
+          participantMembershipIds: [REVIEWER.membership],
+        })
+        .expect(201);
+      await request(server())
+        .post(`/works/${work.workId}/start`)
+        .set(as(MEMBER))
+        .expect(201);
+      await request(server())
+        .post(`/works/${work.workId}/progress`)
+        .set(as(MEMBER))
+        .send({ content: "Under way." })
+        .expect(201);
+
+      const res = await request(server())
+        .get(`/works/${work.workId}`)
+        .set(as(MEMBER))
+        .expect(200);
+
+      expect(res.body.assigneeMembershipId).toBe(MEMBER.membership);
+      expect(res.body.participantMembershipIds).toEqual([REVIEWER.membership]);
+      expect(res.body.progress).toHaveLength(1);
+    });
+  });
+
   describe("operational recovery (events.*)", () => {
     /**
      * A failed delivery, written directly.

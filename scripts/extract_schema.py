@@ -38,6 +38,8 @@ TABLE_ORDER = [
     "membership_role_assignments",
     "organization_invitations",
     "work_items",
+    "work_participants",
+    "work_progress_records",
     "decisions",
     "decision_revisions",
     "memories",

@@ -22,7 +22,7 @@ import {
 import type { Response } from "express";
 
 import { DomainError } from "@aios/domain";
-import { AuthorizationError, NotFoundError } from "@aios/application";
+import { AccessDeniedError, NotFoundError } from "@aios/application";
 
 export interface ErrorBody {
   readonly code: string;
@@ -69,7 +69,7 @@ const OPAQUE_CODES = new Set([
 ]);
 
 export const statusFor = (error: unknown): number => {
-  if (error instanceof AuthorizationError) return 403;
+  if (error instanceof AccessDeniedError) return 403;
   if (error instanceof NotFoundError) return 404;
   if (error instanceof DomainError) return DOMAIN_STATUS[error.code] ?? 400;
   if (error instanceof HttpException) return error.getStatus();
@@ -77,11 +77,13 @@ export const statusFor = (error: unknown): number => {
 };
 
 export const bodyFor = (error: unknown): ErrorBody => {
-  if (error instanceof AuthorizationError) {
+  if (error instanceof AccessDeniedError) {
     return {
       code: "PERMISSION_DENIED",
-      // Deliberately does not name the permission: that would tell a caller
-      // which capability to go looking for.
+      // Deliberately names neither the permission nor the missing relationship.
+      // The first would tell a caller which capability to go looking for; the
+      // second would tell them they hold the right role and only need to get
+      // themselves added to the resource. Both responses are byte-identical.
       message: "You do not have permission to perform this action.",
       details: {},
     };

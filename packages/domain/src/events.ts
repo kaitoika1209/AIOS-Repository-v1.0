@@ -64,6 +64,46 @@ export interface WorkDetailsUpdated extends DomainEventBase {
   readonly title: string;
 }
 
+/**
+ * The Work's assignee changed.
+ *
+ * Carries the resulting assignee rather than a verb, so an unassignment is the
+ * same event with `assigneeMembershipId: null`. A consumer that keeps a
+ * "my work" listing applies one rule instead of two.
+ */
+export interface WorkAssignmentChanged extends DomainEventBase {
+  readonly type: "WorkAssignmentChanged";
+  readonly workId: WorkId;
+  readonly assigneeMembershipId: MembershipId | null;
+  readonly previousAssigneeMembershipId: MembershipId | null;
+}
+
+/**
+ * A participant was added or removed.
+ *
+ * One event per Member changed, not one per command: the aggregate version is
+ * shared, and `event_sequence` distinguishes them within it.
+ */
+export interface WorkParticipantChanged extends DomainEventBase {
+  readonly type: "WorkParticipantChanged";
+  readonly workId: WorkId;
+  readonly membershipId: MembershipId;
+  readonly change: "Added" | "Removed";
+}
+
+/**
+ * An attributable progress update was appended.
+ *
+ * Carries no content. Progress text is free-form business detail, and the
+ * events document keeps payloads to what a consumer needs to route on; a
+ * consumer that needs the text reads the record.
+ */
+export interface WorkProgressRecorded extends DomainEventBase {
+  readonly type: "WorkProgressRecorded";
+  readonly workId: WorkId;
+  readonly progressRecordId: string;
+}
+
 export interface WorkStarted extends DomainEventBase {
   readonly type: "WorkStarted";
   readonly workId: WorkId;
@@ -221,6 +261,9 @@ export type MembershipEvent =
 export type WorkEvent =
   | WorkCreated
   | WorkDetailsUpdated
+  | WorkAssignmentChanged
+  | WorkParticipantChanged
+  | WorkProgressRecorded
   | WorkStarted
   | WorkDecisionRequested
   | WorkDecisionOutcomeRecorded

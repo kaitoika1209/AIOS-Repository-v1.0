@@ -9,19 +9,31 @@
  * re-implement that rule — they coordinate.
  */
 
-import type { OrganizationId, WorkId } from "@aios/types";
+import type { MembershipId, OrganizationId, WorkId } from "@aios/types";
 import {
+  addParticipant,
+  assigneeOf,
+  assignMember,
+  activeParticipantsOf,
   cancelWork,
   completeWork,
   createWork,
+  recordProgress,
+  removeParticipant,
   startWork,
+  unassignMember,
   updateWorkDetails,
   type ActorContext,
   type WorkState,
 } from "@aios/domain";
 
 import { requirePermission } from "./authorization.js";
-import { NotFoundError, type UseCaseDependencies } from "./ports.js";
+import { requireWorkRelationship } from "./relationships.js";
+import {
+  NotFoundError,
+  type RepositoryBundle,
+  type UseCaseDependencies,
+} from "./ports.js";
 
 export interface WorkCommandContext extends ActorContext {
   readonly organizationId: OrganizationId;
@@ -79,6 +91,12 @@ export const editWorkUseCase = async (
 
   return deps.uow.transaction(async (tx) => {
     const current = await loadWork(tx, ctx.organizationId, workId);
+    // "UpdateWorkDetails | Creator, Assignee, or Admin".
+    requireWorkRelationship(ctx.principal, current, [
+      "Creator",
+      "Assignee",
+      "Administrator",
+    ]);
     const { state, events } = updateWorkDetails(current, changes, ctx);
 
     await tx.work.update(state, current.version);
@@ -96,6 +114,12 @@ export const startWorkUseCase = async (
 
   return deps.uow.transaction(async (tx) => {
     const current = await loadWork(tx, ctx.organizationId, workId);
+    // "StartWork | Assignee, Creator, or Admin".
+    requireWorkRelationship(ctx.principal, current, [
+      "Assignee",
+      "Creator",
+      "Administrator",
+    ]);
     const { state, events } = startWork(current, ctx);
 
     await tx.work.update(state, current.version);
@@ -121,6 +145,12 @@ export const completeWorkUseCase = async (
 
   return deps.uow.transaction(async (tx) => {
     const current = await loadWork(tx, ctx.organizationId, workId);
+    // "CompleteWork | Assignee, Creator, or Admin".
+    requireWorkRelationship(ctx.principal, current, [
+      "Assignee",
+      "Creator",
+      "Administrator",
+    ]);
     const { state, events } = completeWork(current, completionSummary, ctx);
 
     await tx.work.update(state, current.version);
@@ -139,7 +169,165 @@ export const cancelWorkUseCase = async (
 
   return deps.uow.transaction(async (tx) => {
     const current = await loadWork(tx, ctx.organizationId, workId);
+    // "CancelWork | Creator, Admin, or Owner".
+    requireWorkRelationship(ctx.principal, current, ["Creator", "Administrator"]);
     const { state, events } = cancelWork(current, reason, ctx);
+
+    await tx.work.update(state, current.version);
+    await tx.outbox.append(events);
+    return state;
+  });
+};
+
+/**
+ * Set the Work's assignee and participant set in one request.
+ *
+ * ADR-0014 allows `work.assign` exactly one route, and the permission covers
+ * four Aggregate commands. Declaring the desired relationships rather than
+ * naming an operation is what reconciles the two: the service computes the
+ * delta and issues only the commands it implies, so `AssignMember`,
+ * `UnassignMember`, `AddParticipant`, and `RemoveParticipant` all remain
+ * distinct in the Aggregate and in the event stream.
+ *
+ * Each command is authorized separately, because the matrix does not give them
+ * the same required relationship: changing the assignee is Creator or Admin,
+ * while changing participants is also open to the Assignee.
+ */
+export const assignWorkUseCase = async (
+  deps: UseCaseDependencies,
+  ctx: WorkCommandContext,
+  workId: WorkId,
+  desired: {
+    readonly assigneeMembershipId?: MembershipId | null;
+    readonly participantMembershipIds?: readonly MembershipId[];
+  },
+): Promise<WorkState> => {
+  requirePermission(ctx.principal, "work.assign");
+
+  return deps.uow.transaction(async (tx) => {
+    const original = await loadWork(tx, ctx.organizationId, workId);
+    let current = original;
+    const events = [];
+
+    if (desired.assigneeMembershipId !== undefined) {
+      // "AssignMember / UnassignMember | Creator, Admin, or Owner".
+      requireWorkRelationship(ctx.principal, current, ["Creator", "Administrator"]);
+
+      const target = desired.assigneeMembershipId;
+      if (target !== null) {
+        await requireActiveMember(tx, ctx.organizationId, target);
+      }
+
+      if (assigneeOf(current) !== target) {
+        const result =
+          target === null
+            ? unassignMember(current, ctx)
+            : assignMember(
+                current,
+                { participantId: deps.ids.workParticipantId(), membershipId: target },
+                ctx,
+              );
+        current = result.state;
+        events.push(...result.events);
+      }
+    }
+
+    if (desired.participantMembershipIds !== undefined) {
+      // "AddParticipant / RemoveParticipant | Creator, Assignee, or Admin".
+      requireWorkRelationship(ctx.principal, current, [
+        "Creator",
+        "Assignee",
+        "Administrator",
+      ]);
+
+      const wanted = new Set(desired.participantMembershipIds);
+      const held = new Set(
+        activeParticipantsOf(current)
+          .filter((p) => p.relationshipType === "Participant")
+          .map((p) => p.membershipId),
+      );
+
+      for (const membershipId of held) {
+        if (wanted.has(membershipId)) continue;
+        const result = removeParticipant(current, membershipId, ctx);
+        current = result.state;
+        events.push(...result.events);
+      }
+
+      for (const membershipId of wanted) {
+        if (held.has(membershipId)) continue;
+        await requireActiveMember(tx, ctx.organizationId, membershipId);
+        const result = addParticipant(
+          current,
+          { participantId: deps.ids.workParticipantId(), membershipId },
+          ctx,
+        );
+        current = result.state;
+        events.push(...result.events);
+      }
+    }
+
+    // A request that asks for the state the Work is already in changes nothing
+    // and advances no version. Unlike an edit, there is no content here that a
+    // stale `If-Match` could silently overwrite.
+    if (events.length === 0) {
+      return current;
+    }
+
+    await tx.work.update(current, original.version);
+    await tx.outbox.append(events);
+    return current;
+  });
+};
+
+/**
+ * Validate that a target Membership exists, is Active, and is in this
+ * Organization.
+ *
+ * The Aggregate document assigns this to the Application Layer explicitly —
+ * "target Member reference is validated by the Application Layer" — because the
+ * Work Aggregate must not load the Membership Aggregate to find out.
+ *
+ * Reported as `404`, not `422`. A Membership in another Organization must not be
+ * distinguishable from one that does not exist.
+ */
+const requireActiveMember = async (
+  tx: { memberships: { findById: RepositoryBundle["memberships"]["findById"] } },
+  organizationId: OrganizationId,
+  membershipId: MembershipId,
+): Promise<void> => {
+  const membership = await tx.memberships.findById(organizationId, membershipId);
+  if (membership === null || membership.status !== "Active") {
+    throw new NotFoundError("Member");
+  }
+};
+
+/**
+ * Append an attributable progress update.
+ *
+ * The only Work command whose required relationship excludes the Creator and
+ * the Admin: "RecordProgress | Assignee or Participant". Progress is a claim
+ * about work someone is doing, so the people entitled to make it are the people
+ * doing it — an administrator watching from outside cannot report progress on
+ * another Member's behalf.
+ */
+export const recordProgressUseCase = async (
+  deps: UseCaseDependencies,
+  ctx: WorkCommandContext,
+  workId: WorkId,
+  content: string,
+): Promise<WorkState> => {
+  requirePermission(ctx.principal, "work.record_progress");
+
+  return deps.uow.transaction(async (tx) => {
+    const current = await loadWork(tx, ctx.organizationId, workId);
+    requireWorkRelationship(ctx.principal, current, ["Assignee", "Participant"]);
+
+    const { state, events } = recordProgress(
+      current,
+      { progressRecordId: deps.ids.workProgressRecordId(), content },
+      ctx,
+    );
 
     await tx.work.update(state, current.version);
     await tx.outbox.append(events);

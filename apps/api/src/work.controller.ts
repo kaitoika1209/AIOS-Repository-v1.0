@@ -20,18 +20,20 @@ import {
 } from "@nestjs/common";
 import type { Request } from "express";
 
-import { WorkId, type WorkStatus } from "@aios/types";
+import { MembershipId, WorkId, type WorkStatus } from "@aios/types";
 import {
+  assignWorkUseCase,
   cancelWorkUseCase,
   completeWorkUseCase,
   createWorkUseCase,
   editWorkUseCase,
   getWorkUseCase,
   listWorkUseCase,
+  recordProgressUseCase,
   startWorkUseCase,
   type UseCaseDependencies,
 } from "@aios/application";
-import type { WorkState } from "@aios/domain";
+import { activeParticipantsOf, assigneeOf, type WorkState } from "@aios/domain";
 
 import { contextOf } from "./request-context.js";
 import { USE_CASE_DEPENDENCIES } from "./tokens.js";
@@ -44,6 +46,14 @@ interface WorkResponse {
   status: WorkStatus;
   completionGate: string;
   blockedBy: string | null;
+  assigneeMembershipId: string | null;
+  participantMembershipIds: string[];
+  progress: {
+    progressRecordId: string;
+    content: string;
+    recordedByMembershipId: string;
+    recordedAt: string;
+  }[];
   startedAt: string | null;
   completedAt: string | null;
   completionSummary: string | null;
@@ -57,6 +67,18 @@ const present = (work: WorkState): WorkResponse => ({
   status: work.status,
   completionGate: work.completionGate.kind,
   blockedBy: work.blockingReference?.decisionId ?? null,
+  assigneeMembershipId: assigneeOf(work),
+  // Only the active relationships. Ended ones are retained in the Aggregate as
+  // history and are not part of "who is on this Work now".
+  participantMembershipIds: activeParticipantsOf(work)
+    .filter((p) => p.relationshipType === "Participant")
+    .map((p) => p.membershipId),
+  progress: work.progressRecords.map((record) => ({
+    progressRecordId: record.progressRecordId,
+    content: record.content,
+    recordedByMembershipId: record.recordedByMembershipId,
+    recordedAt: record.recordedAt.toISOString(),
+  })),
   startedAt: work.startedAt?.toISOString() ?? null,
   completedAt: work.completedAt?.toISOString() ?? null,
   completionSummary: work.completionSummary,
@@ -137,6 +159,86 @@ export class WorkController {
   ): Promise<WorkResponse> {
     return present(
       await startWorkUseCase(this.deps, contextOf(request), WorkId(workId)),
+    );
+  }
+
+  /**
+   * Set who is on the Work.
+   *
+   * Declarative rather than imperative, because ADR-0014 allows `work.assign`
+   * exactly one route and the permission covers four Aggregate commands. An
+   * omitted field means "leave it alone"; `assigneeMembershipId: null` clears
+   * the assignment, and a participant list replaces the set.
+   *
+   * This is not "a target state as a parameter" in ADR-0014's sense — no
+   * lifecycle status appears here, and the Work's status is unchanged by it.
+   */
+  @Post(":workId/assign")
+  async assign(
+    @Req() request: Request,
+    @Param("workId") workId: string,
+    @Body()
+    body: {
+      assigneeMembershipId?: unknown;
+      participantMembershipIds?: unknown;
+    },
+  ): Promise<WorkResponse> {
+    const desired: {
+      assigneeMembershipId?: MembershipId | null;
+      participantMembershipIds?: MembershipId[];
+    } = {};
+
+    if ("assigneeMembershipId" in body) {
+      const value = body.assigneeMembershipId;
+      if (value !== null && typeof value !== "string") {
+        throw new BadRequestException(
+          "assigneeMembershipId must be a Membership id or null.",
+        );
+      }
+      desired.assigneeMembershipId = value === null ? null : MembershipId(value);
+    }
+
+    if ("participantMembershipIds" in body) {
+      const value = body.participantMembershipIds;
+      if (!Array.isArray(value) || value.some((v) => typeof v !== "string")) {
+        throw new BadRequestException(
+          "participantMembershipIds must be an array of Membership ids.",
+        );
+      }
+      desired.participantMembershipIds = value.map((v) =>
+        MembershipId(v as string),
+      );
+    }
+
+    if (Object.keys(desired).length === 0) {
+      throw new BadRequestException(
+        "assigneeMembershipId or participantMembershipIds is required.",
+      );
+    }
+
+    return present(
+      await assignWorkUseCase(
+        this.deps,
+        contextOf(request),
+        WorkId(workId),
+        desired,
+      ),
+    );
+  }
+
+  @Post(":workId/progress")
+  async progress(
+    @Req() request: Request,
+    @Param("workId") workId: string,
+    @Body() body: { content?: unknown },
+  ): Promise<WorkResponse> {
+    return present(
+      await recordProgressUseCase(
+        this.deps,
+        contextOf(request),
+        WorkId(workId),
+        requireString(body.content, "content"),
+      ),
     );
   }
 

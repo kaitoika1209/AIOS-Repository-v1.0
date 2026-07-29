@@ -639,6 +639,12 @@ export class SequentialIds implements IdGenerator {
   identityId(): IdentityId {
     return `identity-${++this.n}` as IdentityId;
   }
+  workParticipantId(): string {
+    return `participant-${++this.n}`;
+  }
+  workProgressRecordId(): string {
+    return `progress-${++this.n}`;
+  }
   revisionId(): string {
     return `revision-${++this.n}`;
   }

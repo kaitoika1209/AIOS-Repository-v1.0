@@ -76,6 +76,12 @@ class UuidGenerator implements IdGenerator {
   identityId(): IdentityId {
     return IdentityId(randomUUID());
   }
+  workParticipantId(): string {
+    return randomUUID();
+  }
+  workProgressRecordId(): string {
+    return randomUUID();
+  }
   revisionId(): string {
     return randomUUID();
   }

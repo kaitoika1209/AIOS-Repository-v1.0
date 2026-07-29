@@ -2378,10 +2378,17 @@ work_participants
 - membership_id
 - relationship_type
 - added_by_identity_id
+- added_by_membership_id
 - added_at
 - removed_by_identity_id
+- removed_by_membership_id
 - removed_at
 ```
+
+Actor attribution carries both the Identity and the Membership, matching
+`work_items.created_by_*` and `work_items.completed_by_*`. The Membership is the
+Organization-scoped half of the actor, and it is the half that survives as
+evidence once that Membership is revoked.
 
 ---
 
@@ -2440,6 +2447,104 @@ REFERENCES memberships (
 ```
 
 This prevents assigning a Member from another Organization.
+
+---
+
+## Work Participant Table Conceptual DDL
+
+```sql
+CREATE TABLE work_participants (
+    work_participant_id     uuid PRIMARY KEY,
+    organization_id         uuid NOT NULL,
+    work_id                 uuid NOT NULL,
+    membership_id           uuid NOT NULL,
+    relationship_type       text NOT NULL,
+
+    added_by_identity_id    uuid NOT NULL,
+    added_by_membership_id  uuid NOT NULL,
+    added_at                timestamptz NOT NULL,
+
+    removed_by_identity_id  uuid NULL,
+    removed_by_membership_id uuid NULL,
+    removed_at              timestamptz NULL,
+
+    CONSTRAINT ck_work_participants_relationship_type CHECK (
+        relationship_type IN ('Assignee', 'Participant', 'Observer')
+    ),
+
+    CONSTRAINT ck_work_participants_removal CHECK (
+        (removed_at IS NULL
+            AND removed_by_identity_id IS NULL
+            AND removed_by_membership_id IS NULL)
+        OR (removed_at IS NOT NULL
+            AND removed_by_identity_id IS NOT NULL
+            AND removed_by_membership_id IS NOT NULL)
+    ),
+
+    CONSTRAINT ck_work_participants_removed_after_added CHECK (
+        removed_at IS NULL OR removed_at >= added_at
+    ),
+
+    FOREIGN KEY (organization_id, work_id)
+        REFERENCES work_items (organization_id, work_id),
+
+    FOREIGN KEY (organization_id, membership_id)
+        REFERENCES memberships (organization_id, membership_id)
+);
+```
+
+Rows are never deleted and never rewritten in place. Removing a relationship
+sets `removed_at` and its attribution columns, which is what keeps assignment
+and participant history traceable after the relationship ends.
+
+`ck_work_participants_removal` keeps the removal attribution inseparable from
+the removal itself: a row that records *when* a relationship ended but not *who*
+ended it cannot satisfy the traceability rule the Work Aggregate states.
+
+---
+
+## Work Progress Record Table Conceptual DDL
+
+Progress records are append-only, so this table has no update path and no
+version column: a correction is a new record, not a rewrite.
+
+```sql
+CREATE TABLE work_progress_records (
+    work_progress_record_id uuid PRIMARY KEY,
+    organization_id         uuid NOT NULL,
+    work_id                 uuid NOT NULL,
+
+    content                 text NOT NULL,
+
+    recorded_by_identity_id   uuid NOT NULL,
+    recorded_by_membership_id uuid NOT NULL,
+    recorded_at             timestamptz NOT NULL,
+
+    CONSTRAINT ck_work_progress_records_content CHECK (
+        length(btrim(content)) > 0
+    ),
+
+    FOREIGN KEY (organization_id, work_id)
+        REFERENCES work_items (organization_id, work_id),
+
+    FOREIGN KEY (organization_id, recorded_by_membership_id)
+        REFERENCES memberships (organization_id, membership_id)
+);
+```
+
+Attribution is `NOT NULL` because the Work Aggregate requires a progress actor
+to be attributable. The recording Member is stored by Membership as well as
+Identity so the record still names the Organization-scoped actor after that
+Membership is revoked.
+
+```sql
+CREATE INDEX ix_work_progress_records_work
+ON work_progress_records (
+    organization_id,
+    work_id,
+    recorded_at DESC
+);
+```
 
 ---
 

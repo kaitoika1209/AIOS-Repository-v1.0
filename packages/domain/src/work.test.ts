@@ -12,13 +12,20 @@ import {
 } from "@aios/types";
 
 import {
+  activeParticipantsOf,
+  addParticipant,
+  assigneeOf,
+  assignMember,
   cancelWork,
   updateWorkDetails,
   completeWork,
   createWork,
   recordDecisionOutcome,
+  recordProgress,
+  removeParticipant,
   requestBlockingDecision,
   startWork,
+  unassignMember,
   type ActorContext,
   type WorkState,
 } from "./work.js";
@@ -354,5 +361,251 @@ describe("editing Work details", () => {
   it("refuses a non-Human principal", () => {
     expect(() => updateWorkDetails(draft(), { title: "By the Secretary" }, ctx(secretary)))
       .toThrowError(/requires a Human Member/);
+  });
+});
+
+const ALICE = MembershipId("membership-alice");
+const BOB = MembershipId("membership-bob");
+
+const assigned = (to = ALICE): WorkState =>
+  assignMember(draft(), { participantId: "p-1", membershipId: to }, ctx()).state;
+
+describe("assignment", () => {
+  it("makes one Member responsible", () => {
+    const result = assignMember(
+      draft(),
+      { participantId: "p-1", membershipId: ALICE },
+      ctx(),
+    );
+
+    expect(assigneeOf(result.state)).toBe(ALICE);
+    expect(result.events.map((e) => e.type)).toEqual(["WorkAssignmentChanged"]);
+  });
+
+  it("ends the previous assignment rather than keeping both", () => {
+    const reassigned = assignMember(
+      assigned(ALICE),
+      { participantId: "p-2", membershipId: BOB },
+      ctx(),
+    ).state;
+
+    // "Who is responsible" must always have one answer.
+    expect(assigneeOf(reassigned)).toBe(BOB);
+    expect(
+      activeParticipantsOf(reassigned).filter(
+        (p) => p.relationshipType === "Assignee",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("keeps the ended assignment as history", () => {
+    const reassigned = assignMember(
+      assigned(ALICE),
+      { participantId: "p-2", membershipId: BOB },
+      ctx(),
+    ).state;
+
+    const ended = reassigned.participants.find((p) => p.membershipId === ALICE);
+    expect(ended?.removedAt).toEqual(NOW);
+    // Removal attribution is inseparable from the removal, matching
+    // ck_work_participants_removal.
+    expect(ended?.removedByIdentityId).toBe(IdentityId("identity-1"));
+    expect(ended?.removedByMembershipId).toBe(MembershipId("membership-1"));
+  });
+
+  it("reports the previous assignee on the event", () => {
+    const result = assignMember(
+      assigned(ALICE),
+      { participantId: "p-2", membershipId: BOB },
+      ctx(),
+    );
+
+    expect(result.events[0]).toMatchObject({
+      assigneeMembershipId: BOB,
+      previousAssigneeMembershipId: ALICE,
+    });
+  });
+
+  it("refuses to reassign to the current assignee", () => {
+    expect(() =>
+      assignMember(assigned(ALICE), { participantId: "p-2", membershipId: ALICE }, ctx()),
+    ).toThrowError(/already the assignee/);
+  });
+
+  it("unassigns, leaving nobody responsible", () => {
+    const result = unassignMember(assigned(ALICE), ctx());
+
+    expect(assigneeOf(result.state)).toBeNull();
+    expect(result.events[0]).toMatchObject({
+      assigneeMembershipId: null,
+      previousAssigneeMembershipId: ALICE,
+    });
+  });
+
+  it("refuses to unassign Work that has no assignee", () => {
+    expect(() => unassignMember(draft(), ctx())).toThrowError(/no assignee/);
+  });
+
+  it("refuses to assign terminal Work", () => {
+    const cancelled = cancelWork(draft(), "Not needed", ctx()).state;
+    expect(() =>
+      assignMember(cancelled, { participantId: "p-1", membershipId: ALICE }, ctx()),
+    ).toThrowError(/cannot accept work.assign/);
+  });
+});
+
+describe("participants", () => {
+  it("adds a participant without touching the assignee", () => {
+    const result = addParticipant(
+      assigned(ALICE),
+      { participantId: "p-2", membershipId: BOB },
+      ctx(),
+    );
+
+    expect(assigneeOf(result.state)).toBe(ALICE);
+    expect(result.events).toMatchObject([
+      { type: "WorkParticipantChanged", membershipId: BOB, change: "Added" },
+    ]);
+  });
+
+  it("refuses a duplicate active participant", () => {
+    const withBob = addParticipant(
+      draft(),
+      { participantId: "p-2", membershipId: BOB },
+      ctx(),
+    ).state;
+
+    expect(() =>
+      addParticipant(withBob, { participantId: "p-3", membershipId: BOB }, ctx()),
+    ).toThrowError(/already a participant/);
+  });
+
+  it("lets the assignee also be a participant", () => {
+    // The two relationships are independent rows, so this is not a duplicate.
+    const both = addParticipant(
+      assigned(ALICE),
+      { participantId: "p-2", membershipId: ALICE },
+      ctx(),
+    ).state;
+
+    expect(activeParticipantsOf(both)).toHaveLength(2);
+  });
+
+  it("ends a participant rather than dropping the row", () => {
+    const withBob = addParticipant(
+      draft(),
+      { participantId: "p-2", membershipId: BOB },
+      ctx(),
+    ).state;
+    const removed = removeParticipant(withBob, BOB, ctx()).state;
+
+    expect(activeParticipantsOf(removed)).toHaveLength(0);
+    expect(removed.participants).toHaveLength(1);
+    expect(removed.participants[0]?.removedAt).toEqual(NOW);
+  });
+
+  it("removing a participant does not remove their assignment", () => {
+    const both = addParticipant(
+      assigned(ALICE),
+      { participantId: "p-2", membershipId: ALICE },
+      ctx(),
+    ).state;
+    const removed = removeParticipant(both, ALICE, ctx()).state;
+
+    expect(assigneeOf(removed)).toBe(ALICE);
+  });
+
+  it("refuses to remove someone who is not a participant", () => {
+    expect(() => removeParticipant(draft(), BOB, ctx())).toThrowError(
+      /not a participant/,
+    );
+  });
+});
+
+describe("progress", () => {
+  it("appends an attributable record", () => {
+    const result = recordProgress(
+      inProgress(),
+      { progressRecordId: "pr-1", content: "Reviewed the migration plan." },
+      ctx(),
+    );
+
+    expect(result.state.progressRecords).toMatchObject([
+      {
+        progressRecordId: "pr-1",
+        content: "Reviewed the migration plan.",
+        recordedByIdentityId: IdentityId("identity-1"),
+        recordedByMembershipId: MembershipId("membership-1"),
+      },
+    ]);
+    expect(result.events.map((e) => e.type)).toEqual(["WorkProgressRecorded"]);
+  });
+
+  it("never completes the Work", () => {
+    // "progress alone never completes Work".
+    const before = inProgress();
+    const after = recordProgress(
+      before,
+      { progressRecordId: "pr-1", content: "Nearly done." },
+      ctx(),
+    ).state;
+
+    expect(after.status).toBe(before.status);
+    expect(after.completionGate).toEqual(before.completionGate);
+    expect(after.completedAt).toBeNull();
+  });
+
+  it("is allowed while waiting for a Decision", () => {
+    expect(
+      recordProgress(waiting(), { progressRecordId: "pr-1", content: "Chased it." }, ctx())
+        .state.progressRecords,
+    ).toHaveLength(1);
+  });
+
+  it("refuses progress on Work that has not started", () => {
+    expect(() =>
+      recordProgress(draft(), { progressRecordId: "pr-1", content: "Started?" }, ctx()),
+    ).toThrowError(/cannot accept work.record_progress/);
+  });
+
+  it("refuses progress on completed Work", () => {
+    const completed = completeWork(inProgress(), "Done", ctx()).state;
+    expect(() =>
+      recordProgress(completed, { progressRecordId: "pr-1", content: "More" }, ctx()),
+    ).toThrowError(/cannot accept work.record_progress/);
+  });
+
+  it("refuses blank content", () => {
+    expect(() =>
+      recordProgress(inProgress(), { progressRecordId: "pr-1", content: "   " }, ctx()),
+    ).toThrowError(/content is required/);
+  });
+
+  it("appends rather than replaces", () => {
+    const first = recordProgress(
+      inProgress(),
+      { progressRecordId: "pr-1", content: "First" },
+      ctx(),
+    ).state;
+    const second = recordProgress(
+      first,
+      { progressRecordId: "pr-2", content: "Second" },
+      ctx(),
+    ).state;
+
+    expect(second.progressRecords.map((r) => r.content)).toEqual([
+      "First",
+      "Second",
+    ]);
+  });
+
+  it("refuses a non-Human principal", () => {
+    expect(() =>
+      recordProgress(
+        inProgress(),
+        { progressRecordId: "pr-1", content: "By the Secretary" },
+        ctx(secretary),
+      ),
+    ).toThrowError(/requires a Human Member/);
   });
 });

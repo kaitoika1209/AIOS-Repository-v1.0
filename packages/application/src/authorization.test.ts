@@ -80,6 +80,17 @@ describe("role to permission mapping", () => {
     }
   });
 
+  it("gives a Member the limited work permissions the mapping table lists", () => {
+    // "Work assignment | Yes | Yes | Limited | No" and "Work completion | Yes |
+    // Yes | Related Work only | No by default". Both are held as permissions and
+    // narrowed by the required resource relationship, which is what "Limited"
+    // and "Related" mean — see relationships.test.ts for the narrowing itself.
+    for (const permission of ["work.assign", "work.complete"] as const) {
+      expect(rolePermissions.Member).toContain(permission);
+      expect(rolePermissions.Reviewer).not.toContain(permission);
+    }
+  });
+
   it("does not let an Admin approve Decisions or Memory by default", () => {
     // The mapping table marks Decision and Memory review "Optional" for Admin,
     // so the default grant must not include it.

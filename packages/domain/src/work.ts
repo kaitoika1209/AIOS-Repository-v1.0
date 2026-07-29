@@ -41,12 +41,67 @@ import {
 } from "./errors.js";
 import { stampWork, type WorkEvent } from "./events.js";
 
+/**
+ * How a Member relates to the Work.
+ *
+ * `Observer` is a value the persistence document recommends but no command
+ * produces: the Aggregate's participant commands are untyped, so an added
+ * participant is a `Participant`. Kept in the type because the column's check
+ * constraint accepts it, and a read of existing data must be representable.
+ */
+export type WorkRelationshipType = "Assignee" | "Participant" | "Observer";
+
+/**
+ * One Member's relationship to the Work, active or ended.
+ *
+ * Ended relationships are retained rather than dropped. "Assignment and
+ * participant history remains traceable" is an Aggregate rule, so the record of
+ * who was responsible when something happened has to survive their removal.
+ */
+export interface WorkParticipant {
+  readonly participantId: string;
+  readonly membershipId: MembershipId;
+  readonly relationshipType: WorkRelationshipType;
+  readonly addedByIdentityId: IdentityId;
+  readonly addedByMembershipId: MembershipId;
+  readonly addedAt: Date;
+  readonly removedByIdentityId: IdentityId | null;
+  readonly removedByMembershipId: MembershipId | null;
+  readonly removedAt: Date | null;
+}
+
+/** An attributable progress update. Append-only: there is no edit command. */
+export interface WorkProgressRecord {
+  readonly progressRecordId: string;
+  readonly content: string;
+  readonly recordedByIdentityId: IdentityId;
+  readonly recordedByMembershipId: MembershipId;
+  readonly recordedAt: Date;
+}
+
+export const isActive = (participant: WorkParticipant): boolean =>
+  participant.removedAt === null;
+
+/** The Member currently responsible for the Work, if any. */
+export const assigneeOf = (work: WorkState): MembershipId | null =>
+  work.participants.find(
+    (p) => isActive(p) && p.relationshipType === "Assignee",
+  )?.membershipId ?? null;
+
+/** Every Member currently related to the Work, in any relationship. */
+export const activeParticipantsOf = (
+  work: WorkState,
+): readonly WorkParticipant[] => work.participants.filter(isActive);
+
 export interface WorkState {
   readonly workId: WorkId;
   readonly organizationId: OrganizationId;
   readonly title: string;
   readonly description: string | null;
   readonly status: WorkStatus;
+  /** Active and ended relationships alike; use `activeParticipantsOf` to filter. */
+  readonly participants: readonly WorkParticipant[];
+  readonly progressRecords: readonly WorkProgressRecord[];
   readonly completionGate: CompletionGate;
   readonly blockingReference: BlockingReference | null;
   readonly createdByIdentityId: IdentityId;
@@ -163,6 +218,8 @@ export const createWork = (
     title,
     description: input.description?.trim() || null,
     status: "Draft",
+    participants: [],
+    progressRecords: [],
     completionGate: gateNotRequired(),
     blockingReference: null,
     createdByIdentityId: actor.identityId,
@@ -237,6 +294,319 @@ export const updateWorkDetails = (
         workId: state.workId,
         title: state.title,
         organizationId: state.organizationId,
+        occurredAt: ctx.now,
+        actorIdentityId: actor.identityId,
+        actorMembershipId: actor.membershipId,
+      },
+    ]),
+  };
+};
+
+/**
+ * Statuses that still accept a relationship change.
+ *
+ * "Work must be non-terminal" in the Aggregate document, spelled out rather
+ * than derived, so a new status has to be classified deliberately.
+ */
+const NON_TERMINAL: readonly WorkStatus[] = [
+  "Draft",
+  "InProgress",
+  "WaitingForDecision",
+];
+
+const activeRelationship = (
+  work: WorkState,
+  membershipId: MembershipId,
+  relationshipType: WorkRelationshipType,
+): WorkParticipant | undefined =>
+  work.participants.find(
+    (p) =>
+      isActive(p) &&
+      p.membershipId === membershipId &&
+      p.relationshipType === relationshipType,
+  );
+
+const end = (
+  participant: WorkParticipant,
+  actor: { identityId: IdentityId; membershipId: MembershipId },
+  now: Date,
+): WorkParticipant => ({
+  ...participant,
+  removedByIdentityId: actor.identityId,
+  removedByMembershipId: actor.membershipId,
+  removedAt: now,
+});
+
+/**
+ * Make a Member responsible for the Work.
+ *
+ * At most one active Assignee: `uq_work_participants_active_relationship` stops
+ * a duplicate row, and the responsibility rule stops a second person. An
+ * existing Assignee is ended in the same command rather than left alongside the
+ * new one, so "who is responsible" always has one answer.
+ *
+ * The target Membership is validated by the Application Layer — the Aggregate
+ * never loads another Aggregate to check that a Member exists.
+ */
+export const assignMember = (
+  work: WorkState,
+  input: { readonly participantId: string; readonly membershipId: MembershipId },
+  ctx: ActorContext,
+): CommandResult<WorkState, WorkEvent> => {
+  const actor = requireHuman(ctx, "work.assign");
+  requireSameOrganization(work, ctx, "Work");
+  requireStatus(work, "work.assign", NON_TERMINAL);
+
+  const previous = assigneeOf(work);
+  if (previous === input.membershipId) {
+    throw new ValidationError("This Member is already the assignee.", {
+      field: "assigneeMembershipId",
+    });
+  }
+
+  const participants = work.participants.map((p) =>
+    isActive(p) && p.relationshipType === "Assignee" ? end(p, actor, ctx.now) : p,
+  );
+
+  const version = nextVersion(work.version);
+  const state: WorkState = {
+    ...work,
+    participants: [
+      ...participants,
+      {
+        participantId: input.participantId,
+        membershipId: input.membershipId,
+        relationshipType: "Assignee",
+        addedByIdentityId: actor.identityId,
+        addedByMembershipId: actor.membershipId,
+        addedAt: ctx.now,
+        removedByIdentityId: null,
+        removedByMembershipId: null,
+        removedAt: null,
+      },
+    ],
+    version,
+  };
+
+  return {
+    state,
+    events: stampWork(version, [
+      {
+        type: "WorkAssignmentChanged",
+        workId: work.workId,
+        assigneeMembershipId: input.membershipId,
+        previousAssigneeMembershipId: previous,
+        organizationId: work.organizationId,
+        occurredAt: ctx.now,
+        actorIdentityId: actor.identityId,
+        actorMembershipId: actor.membershipId,
+      },
+    ]),
+  };
+};
+
+/** Leave the Work with no responsible Member. */
+export const unassignMember = (
+  work: WorkState,
+  ctx: ActorContext,
+): CommandResult<WorkState, WorkEvent> => {
+  const actor = requireHuman(ctx, "work.assign");
+  requireSameOrganization(work, ctx, "Work");
+  requireStatus(work, "work.assign", NON_TERMINAL);
+
+  const previous = assigneeOf(work);
+  if (previous === null) {
+    throw new ValidationError("This Work has no assignee.", {
+      field: "assigneeMembershipId",
+    });
+  }
+
+  const version = nextVersion(work.version);
+  const state: WorkState = {
+    ...work,
+    participants: work.participants.map((p) =>
+      isActive(p) && p.relationshipType === "Assignee" ? end(p, actor, ctx.now) : p,
+    ),
+    version,
+  };
+
+  return {
+    state,
+    events: stampWork(version, [
+      {
+        type: "WorkAssignmentChanged",
+        workId: work.workId,
+        assigneeMembershipId: null,
+        previousAssigneeMembershipId: previous,
+        organizationId: work.organizationId,
+        occurredAt: ctx.now,
+        actorIdentityId: actor.identityId,
+        actorMembershipId: actor.membershipId,
+      },
+    ]),
+  };
+};
+
+/**
+ * Add a Member who takes part without owning responsibility.
+ *
+ * Independent of assignment: the Assignee is not implicitly a Participant, and
+ * removing a Participant does not touch the Assignee.
+ */
+export const addParticipant = (
+  work: WorkState,
+  input: { readonly participantId: string; readonly membershipId: MembershipId },
+  ctx: ActorContext,
+): CommandResult<WorkState, WorkEvent> => {
+  const actor = requireHuman(ctx, "work.assign");
+  requireSameOrganization(work, ctx, "Work");
+  requireStatus(work, "work.assign", NON_TERMINAL);
+
+  if (activeRelationship(work, input.membershipId, "Participant") !== undefined) {
+    throw new ValidationError("This Member is already a participant.", {
+      field: "participantMembershipIds",
+    });
+  }
+
+  const version = nextVersion(work.version);
+  const state: WorkState = {
+    ...work,
+    participants: [
+      ...work.participants,
+      {
+        participantId: input.participantId,
+        membershipId: input.membershipId,
+        relationshipType: "Participant",
+        addedByIdentityId: actor.identityId,
+        addedByMembershipId: actor.membershipId,
+        addedAt: ctx.now,
+        removedByIdentityId: null,
+        removedByMembershipId: null,
+        removedAt: null,
+      },
+    ],
+    version,
+  };
+
+  return {
+    state,
+    events: stampWork(version, [
+      {
+        type: "WorkParticipantChanged",
+        workId: work.workId,
+        membershipId: input.membershipId,
+        change: "Added",
+        organizationId: work.organizationId,
+        occurredAt: ctx.now,
+        actorIdentityId: actor.identityId,
+        actorMembershipId: actor.membershipId,
+      },
+    ]),
+  };
+};
+
+export const removeParticipant = (
+  work: WorkState,
+  membershipId: MembershipId,
+  ctx: ActorContext,
+): CommandResult<WorkState, WorkEvent> => {
+  const actor = requireHuman(ctx, "work.assign");
+  requireSameOrganization(work, ctx, "Work");
+  requireStatus(work, "work.assign", NON_TERMINAL);
+
+  const existing = activeRelationship(work, membershipId, "Participant");
+  if (existing === undefined) {
+    throw new ValidationError("This Member is not a participant.", {
+      field: "participantMembershipIds",
+    });
+  }
+
+  const version = nextVersion(work.version);
+  const state: WorkState = {
+    ...work,
+    // Ended, not dropped. The row stays as the evidence of who took part while
+    // the Work was being done.
+    participants: work.participants.map((p) =>
+      p.participantId === existing.participantId ? end(p, actor, ctx.now) : p,
+    ),
+    version,
+  };
+
+  return {
+    state,
+    events: stampWork(version, [
+      {
+        type: "WorkParticipantChanged",
+        workId: work.workId,
+        membershipId,
+        change: "Removed",
+        organizationId: work.organizationId,
+        occurredAt: ctx.now,
+        actorIdentityId: actor.identityId,
+        actorMembershipId: actor.membershipId,
+      },
+    ]),
+  };
+};
+
+const MAX_PROGRESS = 4000;
+
+/**
+ * Append an attributable progress update.
+ *
+ * Refused while the Work is still `Draft`: there is no progress on work that
+ * has not started. Refused once terminal for the same reason an edit is.
+ *
+ * Progress alone never completes Work. That is not enforced by a check here but
+ * by the absence of any status change — recording progress advances the version
+ * and nothing else.
+ */
+export const recordProgress = (
+  work: WorkState,
+  input: { readonly progressRecordId: string; readonly content: string },
+  ctx: ActorContext,
+): CommandResult<WorkState, WorkEvent> => {
+  const actor = requireHuman(ctx, "work.record_progress");
+  requireSameOrganization(work, ctx, "Work");
+  requireStatus(work, "work.record_progress", ["InProgress", "WaitingForDecision"]);
+
+  const content = input.content.trim();
+  if (content.length === 0) {
+    throw new ValidationError("Progress content is required.", {
+      field: "content",
+    });
+  }
+  if (content.length > MAX_PROGRESS) {
+    throw new ValidationError(
+      `Progress content exceeds ${MAX_PROGRESS} characters.`,
+      { field: "content", max: MAX_PROGRESS },
+    );
+  }
+
+  const version = nextVersion(work.version);
+  const state: WorkState = {
+    ...work,
+    progressRecords: [
+      ...work.progressRecords,
+      {
+        progressRecordId: input.progressRecordId,
+        content,
+        recordedByIdentityId: actor.identityId,
+        recordedByMembershipId: actor.membershipId,
+        recordedAt: ctx.now,
+      },
+    ],
+    version,
+  };
+
+  return {
+    state,
+    events: stampWork(version, [
+      {
+        type: "WorkProgressRecorded",
+        workId: work.workId,
+        progressRecordId: input.progressRecordId,
+        organizationId: work.organizationId,
         occurredAt: ctx.now,
         actorIdentityId: actor.identityId,
         actorMembershipId: actor.membershipId,

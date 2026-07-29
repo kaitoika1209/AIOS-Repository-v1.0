@@ -171,6 +171,36 @@ The `operation` value recorded for observability is the permission identifier, s
 `POST /works/{workId}/complete` reports `work.complete`. Route and telemetry cannot
 drift apart.
 
+### `work.assign` declares relationships rather than naming an operation
+
+One permission covers four Aggregate commands. The Work Authorization Matrix gives
+`work.assign` to `AssignMember`, `UnassignMember`, `AddParticipant`, and
+`RemoveParticipant`, while the rule above allows the permission exactly one route.
+
+`POST /works/{workId}/assign` therefore states the relationships the Work should have
+when the request finishes:
+
+```json
+{ "assigneeMembershipId": "…", "participantMembershipIds": ["…"] }
+```
+
+An omitted field leaves that relationship alone; `assigneeMembershipId: null` clears the
+assignment; the participant list replaces the set. The service computes the delta and
+issues only the Aggregate commands it implies, so the four commands stay distinct in
+the Aggregate, in the audit history, and in the event stream — `WorkAssignmentChanged`
+and `WorkParticipantChanged` are still emitted separately.
+
+This does not weaken "a command route never accepts a target state as a parameter".
+That rule is about lifecycle status: it stops `PATCH /works/{id}` with
+`{"status": "Completed"}` from bypassing a command's permission and preconditions.
+A relationship set is not a lifecycle state, carries no status, and leaves the Work's
+status untouched.
+
+The alternative — a route per command — was rejected because it would require either
+four routes sharing one permission, or three new permissions. The permission catalogue
+is closed and derived from the authorization document, so inventing permissions to
+satisfy a routing convention would put the code ahead of the document it implements.
+
 ### Optimistic concurrency is explicit
 
 Aggregates carry a `version`. Every mutating request supplies the expected version via

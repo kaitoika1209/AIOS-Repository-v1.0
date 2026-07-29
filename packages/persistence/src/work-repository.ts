@@ -16,7 +16,33 @@ import type { OrganizationId, WorkId } from "@aios/types";
 import { VersionConflictError, type WorkState } from "@aios/domain";
 import type { WorkRepository } from "@aios/application";
 
-import { gateColumns, hydrateWork, type WorkRow } from "./mapping.js";
+import {
+  gateColumns,
+  hydrateWork,
+  type WorkParticipantRow,
+  type WorkProgressRow,
+  type WorkRow,
+} from "./mapping.js";
+
+const PARTICIPANT_COLUMNS = `
+  work_participant_id,
+  membership_id,
+  relationship_type,
+  added_by_identity_id,
+  added_by_membership_id,
+  added_at,
+  removed_by_identity_id,
+  removed_by_membership_id,
+  removed_at
+`;
+
+const PROGRESS_COLUMNS = `
+  work_progress_record_id,
+  content,
+  recorded_by_identity_id,
+  recorded_by_membership_id,
+  recorded_at
+`;
 
 const COLUMNS = `
   work_id,
@@ -62,7 +88,80 @@ export class PostgresWorkRepository implements WorkRepository {
     );
 
     const row = result.rows[0];
-    return row === undefined ? null : hydrateWork(row);
+    if (row === undefined) {
+      return null;
+    }
+
+    const [participants, progress] = await Promise.all([
+      this.participantsOf(organizationId, [workId]),
+      this.progressOf(organizationId, [workId]),
+    ]);
+
+    return hydrateWork(row, {
+      participants: participants.get(workId) ?? [],
+      progress: progress.get(workId) ?? [],
+    });
+  }
+
+  /**
+   * Child rows for a set of Work, keyed by Work.
+   *
+   * Read in one statement per collection rather than one per Work: a listing of
+   * fifty Work would otherwise issue a hundred extra queries, and the
+   * Aggregate cannot be hydrated without them.
+   */
+  private async participantsOf(
+    organizationId: OrganizationId,
+    workIds: readonly WorkId[],
+  ): Promise<Map<WorkId, WorkParticipantRow[]>> {
+    const grouped = new Map<WorkId, WorkParticipantRow[]>();
+    if (workIds.length === 0) {
+      return grouped;
+    }
+
+    const result = await this.client.query<WorkParticipantRow & { work_id: string }>(
+      `SELECT work_id, ${PARTICIPANT_COLUMNS}
+         FROM work_participants
+        WHERE organization_id = $1
+          AND work_id = ANY($2::uuid[])
+        ORDER BY added_at`,
+      [organizationId, workIds],
+    );
+
+    for (const row of result.rows) {
+      const key = row.work_id as WorkId;
+      const list = grouped.get(key);
+      if (list === undefined) grouped.set(key, [row]);
+      else list.push(row);
+    }
+    return grouped;
+  }
+
+  private async progressOf(
+    organizationId: OrganizationId,
+    workIds: readonly WorkId[],
+  ): Promise<Map<WorkId, WorkProgressRow[]>> {
+    const grouped = new Map<WorkId, WorkProgressRow[]>();
+    if (workIds.length === 0) {
+      return grouped;
+    }
+
+    const result = await this.client.query<WorkProgressRow & { work_id: string }>(
+      `SELECT work_id, ${PROGRESS_COLUMNS}
+         FROM work_progress_records
+        WHERE organization_id = $1
+          AND work_id = ANY($2::uuid[])
+        ORDER BY recorded_at`,
+      [organizationId, workIds],
+    );
+
+    for (const row of result.rows) {
+      const key = row.work_id as WorkId;
+      const list = grouped.get(key);
+      if (list === undefined) grouped.set(key, [row]);
+      else list.push(row);
+    }
+    return grouped;
   }
 
   async insert(work: WorkState): Promise<void> {
@@ -191,6 +290,114 @@ export class PostgresWorkRepository implements WorkRepository {
     if (result.rowCount === 0) {
       throw new VersionConflictError(expectedVersion, -1);
     }
+
+    await this.writeChildren(work);
+  }
+
+  /**
+   * Reconcile the child collections against what is stored.
+   *
+   * Unknown rows are inserted; known participant rows receive their removal
+   * only. Content columns are never rewritten, because neither collection has an
+   * edit command: a participant row's relationship and attribution are fixed at
+   * insert, and a progress record is append-only. Writing them again would make
+   * a rewrite possible through a path the Aggregate does not offer.
+   */
+  private async writeChildren(work: WorkState): Promise<void> {
+    const storedParticipants = await this.client.query<{
+      work_participant_id: string;
+      removed_at: Date | null;
+    }>(
+      `SELECT work_participant_id, removed_at
+         FROM work_participants
+        WHERE organization_id = $1 AND work_id = $2`,
+      [work.organizationId, work.workId],
+    );
+    const known = new Map(
+      storedParticipants.rows.map((r) => [r.work_participant_id, r.removed_at]),
+    );
+
+    for (const participant of work.participants) {
+      if (!known.has(participant.participantId)) {
+        await this.insertParticipant(work, participant);
+        continue;
+      }
+      // Only the transition from active to ended is written, and only once.
+      if (participant.removedAt !== null && known.get(participant.participantId) === null) {
+        await this.client.query(
+          `UPDATE work_participants
+              SET removed_by_identity_id = $1,
+                  removed_by_membership_id = $2,
+                  removed_at = $3
+            WHERE organization_id = $4
+              AND work_participant_id = $5
+              AND removed_at IS NULL`,
+          [
+            participant.removedByIdentityId,
+            participant.removedByMembershipId,
+            participant.removedAt,
+            work.organizationId,
+            participant.participantId,
+          ],
+        );
+      }
+    }
+
+    const storedProgress = await this.client.query<{ work_progress_record_id: string }>(
+      `SELECT work_progress_record_id
+         FROM work_progress_records
+        WHERE organization_id = $1 AND work_id = $2`,
+      [work.organizationId, work.workId],
+    );
+    const recorded = new Set(
+      storedProgress.rows.map((r) => r.work_progress_record_id),
+    );
+
+    for (const record of work.progressRecords) {
+      if (recorded.has(record.progressRecordId)) continue;
+      await this.client.query(
+        `INSERT INTO work_progress_records (
+           work_progress_record_id, organization_id, work_id, content,
+           recorded_by_identity_id, recorded_by_membership_id, recorded_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          record.progressRecordId,
+          work.organizationId,
+          work.workId,
+          record.content,
+          record.recordedByIdentityId,
+          record.recordedByMembershipId,
+          record.recordedAt,
+        ],
+      );
+    }
+  }
+
+  private async insertParticipant(
+    work: WorkState,
+    participant: WorkState["participants"][number],
+  ): Promise<void> {
+    await this.client.query(
+      `INSERT INTO work_participants (
+         work_participant_id, organization_id, work_id, membership_id,
+         relationship_type,
+         added_by_identity_id, added_by_membership_id, added_at,
+         removed_by_identity_id, removed_by_membership_id, removed_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [
+        participant.participantId,
+        work.organizationId,
+        work.workId,
+        participant.membershipId,
+        participant.relationshipType,
+        participant.addedByIdentityId,
+        participant.addedByMembershipId,
+        participant.addedAt,
+        participant.removedByIdentityId,
+        participant.removedByMembershipId,
+        participant.removedAt,
+      ],
+    );
   }
 
   async listByOrganization(
@@ -204,6 +411,17 @@ export class PostgresWorkRepository implements WorkRepository {
       [organizationId],
     );
 
-    return result.rows.map(hydrateWork);
+    const workIds = result.rows.map((r) => r.work_id as WorkId);
+    const [participants, progress] = await Promise.all([
+      this.participantsOf(organizationId, workIds),
+      this.progressOf(organizationId, workIds),
+    ]);
+
+    return result.rows.map((row) =>
+      hydrateWork(row, {
+        participants: participants.get(row.work_id as WorkId) ?? [],
+        progress: progress.get(row.work_id as WorkId) ?? [],
+      }),
+    );
   }
 }

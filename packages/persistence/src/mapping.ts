@@ -19,7 +19,13 @@ import type {
   WorkId,
   WorkStatus,
 } from "@aios/types";
-import type { CompletionGate, WorkState } from "@aios/domain";
+import type {
+  CompletionGate,
+  WorkParticipant,
+  WorkProgressRecord,
+  WorkRelationshipType,
+  WorkState,
+} from "@aios/domain";
 
 /** Shape of a `work_items` row, as the driver returns it. */
 export interface WorkRow {
@@ -49,6 +55,48 @@ export interface WorkRow {
   cancellation_reason: string | null;
   version: string | number;
 }
+
+/** Shape of a `work_participants` row. */
+export interface WorkParticipantRow {
+  work_participant_id: string;
+  membership_id: string;
+  relationship_type: string;
+  added_by_identity_id: string;
+  added_by_membership_id: string;
+  added_at: Date;
+  removed_by_identity_id: string | null;
+  removed_by_membership_id: string | null;
+  removed_at: Date | null;
+}
+
+/** Shape of a `work_progress_records` row. */
+export interface WorkProgressRow {
+  work_progress_record_id: string;
+  content: string;
+  recorded_by_identity_id: string;
+  recorded_by_membership_id: string;
+  recorded_at: Date;
+}
+
+export const hydrateParticipant = (row: WorkParticipantRow): WorkParticipant => ({
+  participantId: row.work_participant_id,
+  membershipId: row.membership_id as MembershipId,
+  relationshipType: row.relationship_type as WorkRelationshipType,
+  addedByIdentityId: row.added_by_identity_id as IdentityId,
+  addedByMembershipId: row.added_by_membership_id as MembershipId,
+  addedAt: row.added_at,
+  removedByIdentityId: row.removed_by_identity_id as IdentityId | null,
+  removedByMembershipId: row.removed_by_membership_id as MembershipId | null,
+  removedAt: row.removed_at,
+});
+
+export const hydrateProgress = (row: WorkProgressRow): WorkProgressRecord => ({
+  progressRecordId: row.work_progress_record_id,
+  content: row.content,
+  recordedByIdentityId: row.recorded_by_identity_id as IdentityId,
+  recordedByMembershipId: row.recorded_by_membership_id as MembershipId,
+  recordedAt: row.recorded_at,
+});
 
 /**
  * `version` is `bigint`, which `pg` returns as a string to avoid precision
@@ -92,12 +140,28 @@ const toGate = (row: WorkRow): CompletionGate => {
   }
 };
 
-export const hydrateWork = (row: WorkRow): WorkState => ({
+/**
+ * Hydrate Work from its row and its child rows.
+ *
+ * `children` is required rather than defaulted. A default of "no participants"
+ * would hydrate a Work whose assignee silently appears to be nobody, and the
+ * relationship check that decides who may act on it would then deny the actual
+ * assignee. A partially loaded Aggregate must not be constructible by omission.
+ */
+export const hydrateWork = (
+  row: WorkRow,
+  children: {
+    readonly participants: readonly WorkParticipantRow[];
+    readonly progress: readonly WorkProgressRow[];
+  },
+): WorkState => ({
   workId: row.work_id as WorkId,
   organizationId: row.organization_id as OrganizationId,
   title: row.title,
   description: row.description,
   status: row.status as WorkStatus,
+  participants: children.participants.map(hydrateParticipant),
+  progressRecords: children.progress.map(hydrateProgress),
   completionGate: toGate(row),
   blockingReference:
     row.blocking_decision_id === null

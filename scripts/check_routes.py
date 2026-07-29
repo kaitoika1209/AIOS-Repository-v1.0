@@ -41,8 +41,6 @@ ENFORCED = re.compile(r'requirePermission\(\s*[^,]+,\s*"([a-z_]+\.[a-z_]+)"')
 # it appears in ADR-0014's catalogue, so the route is specified and the
 # permission is granted to roles — there is simply no handler yet.
 UNIMPLEMENTED: dict[str, str] = {
-    "work.assign": "needs the work_participants child table",
-    "work.record_progress": "needs a progress-record child table",
     # The three recovery operations that assert something about the original
     # delivery. Each needs a registered ConsumerRegistration to decide whether
     # the assertion is safe for a given consumer, and consumer registration is
