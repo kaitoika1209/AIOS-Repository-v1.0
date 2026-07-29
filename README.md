@@ -67,8 +67,20 @@ content until it passes local validation (ADR-0004): a draft asserting a figure,
 date, identifier, or name the Work never recorded is discarded and never reaches
 a reviewer. See [Memory Generation Policy](docs/architecture/memory-generation-policy.md).
 
-One thing is still deliberately stubbed: authentication is a development header
-rather than Clerk.
+Authentication is Clerk (ADR-0013). Set `CLERK_JWT_KEY` — the PEM public key
+from the Clerk dashboard, which verifies sessions without a network call — or
+`CLERK_SECRET_KEY` to fetch the JWKS instead. `CLERK_AUTHORIZED_PARTIES` is a
+comma-separated list of frontend origins permitted to mint a session.
+
+With neither set, the API falls back to a development header adapter that
+verifies nothing, and it refuses to start that way unless `NODE_ENV` is
+`development` or `test`. Clerk authenticates only: Organization, Membership,
+roles, and invitations stay in PostgreSQL, and Clerk Organizations are not used.
+
+Invitation delivery is not built. Sending email is an `ExternalBusinessEffect`,
+which the events architecture places outside the baseline MVP until an External
+Effect Contract exists — so an invitation token is shown once in the UI and
+delivered by hand.
 
 Current progress:
 
@@ -161,9 +173,13 @@ one who can approve a Decision or a Memory. Switching between them is how the
 human-authority boundary becomes visible — including that the Secretary drafts a
 Memory but can never approve its own draft.
 
-The invitation token is shown once in the UI because nothing delivers it yet:
-the `MembershipInvited` consumer that would send an email is not in this
-release. Only its hash is ever stored.
+The invitation token is shown once in the UI because nothing delivers it. A
+`MembershipInvited` consumer that sent email would be an `ExternalBusinessEffect`
+consumer, which the MVP Side-Effect Scope table lists as out of the baseline
+until an External Effect Contract, adapter, security review, runbook, metrics,
+and tests exist. The consumer registry refuses to enable one, so this is an
+absence the code enforces rather than a task nobody has reached. Only the
+token's hash is ever stored.
 
 Generation quality is evaluated rather than proven. Fixture cases run in CI with
 no credential; the live half needs one:

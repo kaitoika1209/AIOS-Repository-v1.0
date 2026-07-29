@@ -29,6 +29,7 @@ import { DecisionController } from "./decision.controller.js";
 import { InvitationController } from "./invitation.controller.js";
 import { MemoryController } from "./memory.controller.js";
 import { OrganizationMemberController } from "./organization.controller.js";
+import { ClerkAuthAdapter, clerkOptionsFrom } from "./clerk-auth.js";
 import { DevAuthAdapter } from "./dev-auth.js";
 import { DomainExceptionFilter } from "./http-errors.js";
 import { PrincipalResolver } from "./principal-resolver.js";
@@ -132,9 +133,45 @@ export const createApp = async (options: AppOptions): Promise<INestApplication> 
   return app;
 };
 
+/**
+ * Choose the authentication adapter for an environment.
+ *
+ * Clerk when it is configured, the development stub only when it is not *and*
+ * the environment permits one. There is no flag that selects the stub: an
+ * environment that fails to configure Clerk in production must fail to start,
+ * not fall back to an adapter that verifies nothing.
+ */
+export const chooseAuth = (
+  env: NodeJS.ProcessEnv,
+): { auth: AuthAdapter; reason: string } => {
+  const clerk = clerkOptionsFrom(env);
+  if (clerk !== null) {
+    return {
+      auth: new ClerkAuthAdapter(clerk),
+      reason:
+        clerk.jwtKey !== undefined && clerk.jwtKey.length > 0
+          ? "Clerk (networkless, CLERK_JWT_KEY)"
+          : "Clerk (JWKS fetched with CLERK_SECRET_KEY)",
+    };
+  }
+
+  const environment = env["NODE_ENV"] ?? "development";
+  if (environment !== "development" && environment !== "test") {
+    throw new Error(
+      "Clerk is not configured and the development auth adapter performs no " +
+        `verification, so it must not run with NODE_ENV=${environment}. ` +
+        "Set CLERK_JWT_KEY or CLERK_SECRET_KEY.",
+    );
+  }
+
+  return { auth: new DevAuthAdapter(), reason: "development stub (no verification)" };
+};
+
 export const buildDevApp = async (connectionString: string) => {
   const pool = new Pool({ connectionString });
-  const app = await createApp({ pool, auth: new DevAuthAdapter() });
+  const { auth, reason: authReason } = chooseAuth(process.env);
+  console.log(`Authentication: ${authReason}`);
+  const app = await createApp({ pool, auth });
 
   // The asynchronous halves of ADR-0007 and ADR-0008. Production runs these as
   // a separate worker; in development they poll in-process so a blocked Work

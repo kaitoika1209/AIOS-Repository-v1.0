@@ -1,9 +1,9 @@
 /**
  * API entry point.
  *
- * Refuses to start outside development with the development auth adapter, which
- * performs no verification. Clerk replaces `DevAuthAdapter` and nothing else
- * (ADR-0013).
+ * Clerk authenticates when it is configured; the development adapter runs only
+ * in development and test, and `chooseAuth` refuses to start otherwise. Clerk
+ * replaces `DevAuthAdapter` and nothing else (ADR-0013).
  */
 
 import "reflect-metadata";
@@ -16,19 +16,14 @@ const main = async (): Promise<void> => {
     throw new Error("DATABASE_URL is required.");
   }
 
-  const environment = process.env["NODE_ENV"] ?? "development";
-  if (environment !== "development" && environment !== "test") {
-    throw new Error(
-      "The development auth adapter performs no verification and must not run " +
-        `outside development (NODE_ENV=${environment}). Wire Clerk first.`,
-    );
-  }
-
+  // The adapter choice, and its refusal to run unverified outside development,
+  // live in `chooseAuth` so the same rule applies to every entry point rather
+  // than only to this one.
   const app = await buildDevApp(connectionString);
   const port = Number.parseInt(process.env["PORT"] ?? "3001", 10);
 
   await app.listen(port);
-  console.log(`AIOS API listening on :${port} (auth: development stub)`);
+  console.log(`AIOS API listening on :${port}`);
 };
 
 main().catch((error: unknown) => {
