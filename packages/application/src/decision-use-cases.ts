@@ -30,7 +30,10 @@ import {
 } from "@aios/domain";
 
 import { requirePermission } from "./authorization.js";
-import { requireWorkRelationship } from "./relationships.js";
+import {
+  requireDecisionRelationship,
+  requireWorkRelationship,
+} from "./relationships.js";
 import {
   NotFoundError,
   type RepositoryBundle,
@@ -126,6 +129,12 @@ export const editDecisionDraftUseCase = async (
 
   return deps.uow.transaction(async (tx) => {
     const current = await loadDecision(tx, ctx.organizationId, decisionId);
+    // "EditDraft | Creator, Contributor, or Admin".
+    requireDecisionRelationship(ctx.principal, current, [
+      "Creator",
+      "Contributor",
+      "Administrator",
+    ]);
     const { state, events } = updateDraft(current, changes, ctx);
 
     await tx.decisions.update(state, current.version);
@@ -149,6 +158,13 @@ export const submitBlockingDecisionUseCase = async (
       ctx.organizationId,
       currentDecision.relatedWorkId,
     );
+
+    // "SubmitForReview | Creator, Contributor, or Admin".
+    requireDecisionRelationship(ctx.principal, currentDecision, [
+      "Creator",
+      "Contributor",
+      "Administrator",
+    ]);
 
     // "RequestBlockingDecision | Assignee, Creator, or Admin" — on the Work,
     // which is the resource whose lifecycle this blocks. The Decision half of
@@ -242,6 +258,12 @@ export const startRevisionUseCase = async (
 
   return deps.uow.transaction(async (tx) => {
     const current = await loadDecision(tx, ctx.organizationId, decisionId);
+    // "StartRevision | Creator, Contributor, or Admin".
+    requireDecisionRelationship(ctx.principal, current, [
+      "Creator",
+      "Contributor",
+      "Administrator",
+    ]);
     const { state } = startRevision(current, deps.ids.revisionId(), ctx);
 
     await tx.decisions.update(state, current.version);

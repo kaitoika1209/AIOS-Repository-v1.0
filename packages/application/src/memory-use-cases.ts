@@ -28,6 +28,7 @@ import {
 } from "@aios/domain";
 
 import { requirePermission } from "./authorization.js";
+import { requireMemoryRelationship } from "./relationships.js";
 import {
   buildProviderInput,
   canonicalize,
@@ -300,6 +301,31 @@ export const getMemoryForWorkUseCase = async (
 ): Promise<MemoryState | null> =>
   deps.uow.transaction((tx) => tx.memories.findActiveByWork(ctx.organizationId, workId));
 
+/**
+ * The relationship a Memory authoring command requires.
+ *
+ * "Editor, related Work Member, or Admin", which needs the source Work: a
+ * Memory is the record of completed Work, and the people entitled to correct it
+ * are the people who did that Work.
+ *
+ * Reading a second Aggregate here is a read for authorization, not a second
+ * mutation — ADR-0005 constrains what one transaction may *change*, and this
+ * changes nothing. A Work that cannot be read yields null, which denies the
+ * relationship rather than granting it.
+ */
+const requireMemoryAuthoring = async (
+  tx: RepositoryBundle,
+  ctx: WorkCommandContext,
+  memory: MemoryState,
+): Promise<void> => {
+  const sourceWork = await tx.work.findById(ctx.organizationId, memory.sourceWorkId);
+  requireMemoryRelationship(ctx.principal, memory, sourceWork, [
+    "Editor",
+    "RelatedWorkMember",
+    "Administrator",
+  ]);
+};
+
 export const editMemoryUseCase = async (
   deps: UseCaseDependencies,
   ctx: WorkCommandContext,
@@ -311,6 +337,7 @@ export const editMemoryUseCase = async (
 
   return deps.uow.transaction(async (tx) => {
     const current = await loadMemory(tx, ctx.organizationId, memoryId);
+    await requireMemoryAuthoring(tx, ctx, current);
     const { state } = editGeneratedMemory(current, changes, contentHash, ctx);
     await tx.memories.update(state, current.version);
     return state;
@@ -326,6 +353,7 @@ export const submitMemoryUseCase = async (
 
   return deps.uow.transaction(async (tx) => {
     const current = await loadMemory(tx, ctx.organizationId, memoryId);
+    await requireMemoryAuthoring(tx, ctx, current);
     const { state, events } = submitMemoryForReview(current, ctx);
     await tx.memories.update(state, current.version);
     await tx.outbox.append(events);

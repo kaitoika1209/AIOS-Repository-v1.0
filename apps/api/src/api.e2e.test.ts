@@ -47,6 +47,10 @@ const MEMBER = { identity: "33333333-3333-3333-3333-333333333333", membership: "
 const REVIEWER = { identity: "77777777-7777-7777-7777-777777777777", membership: "88888888-8888-8888-8888-888888888888", subject: "reviewer-1" };
 const OUTSIDER = { identity: "99999999-9999-9999-9999-999999999999", membership: "aaaaaaaa-9999-9999-9999-999999999999", subject: "outsider-1" };
 const OWNER = { identity: "bbbbbbbb-1111-1111-1111-111111111111", membership: "cccccccc-1111-1111-1111-111111111111", subject: "owner-1" };
+// A second plain Member of ORG, related to nothing. Exists so the relationship
+// half of authorization can be tested apart from the permission half: STRANGER
+// holds every ordinary Member permission and no relationship to any resource.
+const STRANGER = { identity: "dddddddd-1111-1111-1111-111111111111", membership: "eeeeeeee-1111-1111-1111-111111111111", subject: "stranger-1" };
 
 suite("AIOS API", () => {
   let pool: Pool;
@@ -100,7 +104,7 @@ suite("AIOS API", () => {
         [SECRETARY_IDENTITY_ID],
       );
 
-      for (const who of [MEMBER, REVIEWER, OUTSIDER, OWNER]) {
+      for (const who of [MEMBER, REVIEWER, OUTSIDER, OWNER, STRANGER]) {
         await client.query(
           `INSERT INTO human_identities
              (identity_id, status, display_name, version, created_at, updated_at)
@@ -133,6 +137,7 @@ suite("AIOS API", () => {
         [MEMBER, ORG, "Member"],
         [REVIEWER, ORG, "Reviewer"],
         [OWNER, ORG, "OrganizationOwner"],
+        [STRANGER, ORG, "Member"],
         [OUTSIDER, OTHER_ORG, "Member"],
       ] as const) {
         await client.query(
@@ -322,6 +327,55 @@ suite("AIOS API", () => {
         .set(as(MEMBER))
         .send({ question: "Something else entirely?" })
         .expect(409);
+    });
+
+    it("refuses an unrelated Member editing or submitting a Draft Decision", async () => {
+      const work = await createWork();
+      const decision = await request(server())
+        .post("/decisions")
+        .set(as(MEMBER))
+        .send({
+          relatedWorkId: work.workId,
+          title: "Which database?",
+          question: "Which database should we use?",
+          options: [{ optionId: "pg", summary: "PostgreSQL" }],
+          isBlocking: true,
+        })
+        .expect(201);
+
+      // "EditDraft | Creator, Contributor, or Admin". STRANGER holds
+      // `decision.edit_draft` and `decision.submit` and authored no revision.
+      await request(server())
+        .patch(`/decisions/${decision.body.decisionId}`)
+        .set(as(STRANGER))
+        .send({ question: "Rewriting someone else's proposal." })
+        .expect(403);
+
+      await request(server())
+        .post(`/decisions/${decision.body.decisionId}/submit`)
+        .set(as(STRANGER))
+        .expect(403);
+    });
+
+    it("lets an Admin edit a Draft Decision they did not create", async () => {
+      const work = await createWork();
+      const decision = await request(server())
+        .post("/decisions")
+        .set(as(MEMBER))
+        .send({
+          relatedWorkId: work.workId,
+          title: "Which database?",
+          question: "Which database should we use?",
+          options: [{ optionId: "pg", summary: "PostgreSQL" }],
+          isBlocking: true,
+        })
+        .expect(201);
+
+      await request(server())
+        .patch(`/decisions/${decision.body.decisionId}`)
+        .set(as(OWNER))
+        .send({ question: "Which database should we standardise on?" })
+        .expect(200);
     });
 
     it("refuses a Reviewer editing Work they may not edit", async () => {
@@ -723,6 +777,63 @@ suite("AIOS API", () => {
         .set(as(MEMBER))
         .expect(201);
       expect(submitted.body.status).toBe("InReview");
+    });
+
+
+    it("refuses an unrelated Member editing or submitting the draft", async () => {
+      const draft = await draftFor();
+
+      // STRANGER holds `memory.edit_generated` and `memory.submit` — every
+      // Member does. "Editor, related Work Member, or Admin" is what they lack:
+      // the Memory is the record of Work they took no part in.
+      await request(server())
+        .patch(`/memories/${draft.memoryId}`)
+        .set(as(STRANGER))
+        .send({ summary: "Rewriting someone else's record." })
+        .expect(403);
+
+      await request(server())
+        .post(`/memories/${draft.memoryId}/submit`)
+        .set(as(STRANGER))
+        .expect(403);
+    });
+
+    it("lets a participant on the source Work edit the draft", async () => {
+      const work = await createWork("Ship the beta");
+      await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(MEMBER))
+        .send({ participantMembershipIds: [STRANGER.membership] })
+        .expect(201);
+      await request(server()).post(`/works/${work.workId}/start`).set(as(MEMBER)).expect(201);
+      await request(server())
+        .post(`/works/${work.workId}/complete`)
+        .set(as(MEMBER))
+        .send({ completionSummary: "Beta shipped on Friday" })
+        .expect(201);
+      await drainOutbox(pool, dependenciesFor(pool), 20, memoryOptions);
+
+      const memory = await request(server())
+        .get(`/memories/by-work/${work.workId}`)
+        .set(as(MEMBER))
+        .expect(200);
+
+      // The participant relationship is on the Work, and it reaches the Memory
+      // generated from it.
+      await request(server())
+        .patch(`/memories/${memory.body.memory.memoryId}`)
+        .set(as(STRANGER))
+        .send({ summary: "I was there; this is what happened." })
+        .expect(200);
+    });
+
+    it("lets an Owner who took no part in the Work edit the draft", async () => {
+      const draft = await draftFor();
+      await request(server())
+        .patch(`/memories/${draft.memoryId}`)
+        .set(as(OWNER))
+        .send({ summary: "Administrative correction." })
+        .expect(200);
     });
 
     it("a Member cannot approve; a Reviewer can, and approval is terminal", async () => {

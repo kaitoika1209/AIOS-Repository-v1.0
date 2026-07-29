@@ -19,7 +19,11 @@ import {
 } from "@aios/types";
 
 import { RelationshipRequiredError } from "./authorization.js";
-import { resolveWorkRelationships } from "./relationships.js";
+import {
+  resolveDecisionRelationships,
+  resolveMemoryRelationships,
+  resolveWorkRelationships,
+} from "./relationships.js";
 import {
   assignWorkUseCase,
   cancelWorkUseCase,
@@ -29,6 +33,12 @@ import {
   recordProgressUseCase,
   startWorkUseCase,
 } from "./work-use-cases.js";
+import {
+  createDecisionUseCase,
+  editDecisionDraftUseCase,
+} from "./decision-use-cases.js";
+import type { MemoryState } from "@aios/domain";
+
 import { buildTestHarness } from "./testing/in-memory.js";
 
 const ORG = OrganizationId("org-1");
@@ -337,5 +347,170 @@ describe("recording progress", () => {
         "Reported on their behalf.",
       ),
     ).rejects.toBeInstanceOf(RelationshipRequiredError);
+  });
+});
+
+describe("Decision relationships", () => {
+  const withDecision = async () => {
+    const h = await harness();
+    const decision = await createDecisionUseCase(h.deps, ctx(CREATOR), {
+      relatedWorkId: h.workId,
+      title: "Launch timing",
+      question: "Launch on Friday?",
+      options: [{ optionId: "yes", summary: "Yes" }],
+    });
+    return { ...h, decisionId: decision.decisionId };
+  };
+
+  it("reports the creator, who is also the first revision's author", async () => {
+    const h = await withDecision();
+    const decision = (await h.decisions.findById(ORG, h.decisionId))!;
+
+    expect([...resolveDecisionRelationships(principal(CREATOR), decision)].sort()).toEqual(
+      ["Contributor", "Creator"],
+    );
+  });
+
+  it("reports nothing for an unrelated Member", async () => {
+    const h = await withDecision();
+    const decision = (await h.decisions.findById(ORG, h.decisionId))!;
+
+    expect([...resolveDecisionRelationships(principal(OTHER), decision)]).toEqual([]);
+  });
+
+  it("refuses an unrelated Member editing the Draft", async () => {
+    const h = await withDecision();
+
+    await expect(
+      editDecisionDraftUseCase(h.deps, ctx(OTHER), h.decisionId, {
+        question: "Rewriting someone else's proposal.",
+      }),
+    ).rejects.toBeInstanceOf(RelationshipRequiredError);
+  });
+
+  it("makes the author of any revision a Contributor", async () => {
+    const h = await withDecision();
+    const created = (await h.decisions.findById(ORG, h.decisionId))!;
+
+    // A later revision is authored by whoever starts it, which is how someone
+    // who did not create the Decision becomes entitled to edit it. Asserted on
+    // the resolver rather than driven through `startRevisionUseCase`, which
+    // needs a Rejected Decision and so a full submit-and-reject cycle.
+    const withSecondRevision = {
+      ...created,
+      revisions: [
+        ...created.revisions,
+        { ...created.revisions[0]!, revisionId: "rev-2", revisionNumber: 2,
+          createdByMembershipId: WORKER },
+      ],
+    };
+
+    expect([
+      ...resolveDecisionRelationships(principal(WORKER), withSecondRevision),
+    ]).toEqual(["Contributor"]);
+    // And the creator stays a Creator regardless of who revised it.
+    expect([
+      ...resolveDecisionRelationships(principal(CREATOR), withSecondRevision),
+    ]).toContain("Creator");
+  });
+});
+
+describe("Memory relationships", () => {
+  const memory = (
+    editorMembershipId: MembershipId | null,
+    sourceWorkId: WorkId,
+  ): MemoryState =>
+    ({
+      memoryId: "memory-1",
+      organizationId: ORG,
+      sourceWorkId,
+      status: "Generated",
+      isActive: true,
+      // Provenance is irrelevant to relationship resolution and long enough that
+      // building a real one would obscure what the test is about.
+      provenance: {} as MemoryState["provenance"],
+      revisions: [
+        {
+          revisionId: "rev-1",
+          revisionNumber: 1,
+          status: "Draft",
+          title: "t",
+          summary: "s",
+          content: "c",
+          sourceReferences: [],
+          author:
+            editorMembershipId === null
+              ? { actorType: "AI", actorId: IdentityId("secretary"), membershipId: null }
+              : {
+                  actorType: "HumanMember",
+                  actorId: IdentityId("identity-editor"),
+                  membershipId: editorMembershipId,
+                },
+          contentHash: "h",
+          createdAt: NOW,
+        },
+      ],
+      currentRevisionId: "rev-1",
+      submittedRevisionId: null,
+      reviewedRevisionId: null,
+      reviewRecords: [],
+      version: 1 as AggregateVersion,
+    }) as unknown as MemoryState;
+
+  it("does not make the generating Secretary an Editor", async () => {
+    const h = await harness();
+    const work = (await h.work.findById(ORG, h.workId))!;
+
+    // The generated first revision has no Membership on its author record, so
+    // nobody becomes an Editor by generation alone.
+    expect([
+      ...resolveMemoryRelationships(principal(OTHER), memory(null, h.workId), work),
+    ]).toEqual([]);
+  });
+
+  it("reaches the Members of the source Work", async () => {
+    const h = await harness();
+    await assignWorkUseCase(h.deps, ctx(CREATOR), h.workId, {
+      participantMembershipIds: [WORKER],
+    });
+    const work = (await h.work.findById(ORG, h.workId))!;
+
+    expect([
+      ...resolveMemoryRelationships(principal(WORKER), memory(null, h.workId), work),
+    ]).toEqual(["RelatedWorkMember"]);
+  });
+
+  it("denies the Work relationship when the source Work cannot be read", async () => {
+    const h = await harness();
+
+    // Null is not evidence of a relationship. Treating an unreadable source as
+    // permissive would turn a failed read into an authorization grant.
+    expect([
+      ...resolveMemoryRelationships(principal(CREATOR), memory(null, h.workId), null),
+    ]).toEqual([]);
+  });
+
+  it("does not count an Admin as a related Work Member", async () => {
+    const h = await harness();
+    const work = (await h.work.findById(ORG, h.workId))!;
+
+    // Administrator is reported, but not RelatedWorkMember — the matrix lists
+    // them separately and folding them together would erase the distinction.
+    expect([
+      ...resolveMemoryRelationships(
+        principal(OTHER, ["OrganizationAdmin"]),
+        memory(null, h.workId),
+        work,
+      ),
+    ]).toEqual(["Administrator"]);
+  });
+
+  it("reports a human editor", async () => {
+    const h = await harness();
+    const work = (await h.work.findById(ORG, h.workId))!;
+
+    expect([
+      ...resolveMemoryRelationships(principal(OTHER), memory(OTHER, h.workId), work),
+    ]).toEqual(["Editor"]);
   });
 });
