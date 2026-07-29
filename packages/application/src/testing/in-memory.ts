@@ -24,12 +24,14 @@ import {
   type DomainEvent,
   type MemoryState,
   type MembershipState,
+  type OrganizationState,
   type WorkState,
 } from "@aios/domain";
 
 import type {
   Clock,
   ConsumerDeliveryRepository,
+  OrganizationRepository,
   DeadLetteredDelivery,
   DecisionRepository,
   EventRecoveryRepository,
@@ -48,6 +50,55 @@ import type {
   UnitOfWork,
   WorkRepository,
 } from "../ports.js";
+
+/**
+ * The Organization repository, with the bootstrap kept atomic.
+ *
+ * `bootstrap` writes both rows or neither, mirroring the single transaction the
+ * real adapter uses. A double that inserted the Organization and then the
+ * Membership as two independent steps would let a test pass while the invariant
+ * the bootstrap exists to protect was broken.
+ */
+export class InMemoryOrganizationRepository implements OrganizationRepository {
+  private readonly rows = new Map<string, OrganizationState>();
+
+  constructor(private readonly memberships: InMemoryMembershipRepository) {}
+
+  async findById(organizationId: OrganizationId): Promise<OrganizationState | null> {
+    return this.rows.get(organizationId) ?? null;
+  }
+
+  async bootstrap(input: {
+    organization: OrganizationState;
+    ownerMembership: MembershipState;
+    roleAssignmentId: string;
+  }): Promise<void> {
+    if (this.rows.has(input.organization.organizationId)) {
+      throw new Error("Organization already exists.");
+    }
+    this.rows.set(input.organization.organizationId, input.organization);
+    await this.memberships.insert(input.ownerMembership);
+  }
+
+  async update(
+    organization: OrganizationState,
+    expectedVersion: number,
+  ): Promise<void> {
+    const existing = this.rows.get(organization.organizationId);
+    if (existing === undefined) {
+      throw new Error(`Organization ${organization.organizationId} does not exist.`);
+    }
+    if (existing.version !== expectedVersion) {
+      throw new VersionConflictError(expectedVersion, existing.version);
+    }
+    this.rows.set(organization.organizationId, organization);
+  }
+
+  /** Seed an Organization that already exists. */
+  seed(organization: OrganizationState): void {
+    this.rows.set(organization.organizationId, organization);
+  }
+}
 
 export class InMemoryWorkRepository implements WorkRepository {
   private readonly rows = new Map<string, WorkState>();
@@ -794,6 +845,12 @@ export class SequentialIds implements IdGenerator {
   identityId(): IdentityId {
     return `identity-${++this.n}` as IdentityId;
   }
+  organizationId(): OrganizationId {
+    return `organization-${++this.n}` as OrganizationId;
+  }
+  roleAssignmentId(): string {
+    return `role-assignment-${++this.n}`;
+  }
   deadLetterId(): string {
     return `dead-letter-${++this.n}`;
   }
@@ -820,9 +877,11 @@ export const buildTestHarness = (now = new Date("2026-07-28T10:00:00Z")) => {
   const deliveries = new InMemoryConsumerDeliveryRepository();
   const replays = new InMemoryReplayRepository();
   const memberships = new InMemoryMembershipRepository();
+  const organizations = new InMemoryOrganizationRepository(memberships);
   const identities = new InMemoryIdentityRepository();
   const outbox = new InMemoryOutbox();
   const bundle = {
+    organizations,
     work,
     decisions,
     memories,

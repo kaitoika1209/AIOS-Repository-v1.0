@@ -149,6 +149,9 @@ export class ClerkAuthAdapter implements AuthAdapter {
       // Seeds the Human Identity created when an invitation is accepted. Falls
       // back to the subject so the row is never nameless.
       displayName: stringOr(claims.name, stringOr(claims.email, subject)),
+      ...(typeof claims.email === "string" && claims.email.length > 0
+        ? { email: claims.email }
+        : {}),
     };
   }
 }

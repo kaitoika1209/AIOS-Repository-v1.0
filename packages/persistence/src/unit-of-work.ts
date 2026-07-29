@@ -23,6 +23,7 @@ import {
   PostgresMembershipRepository,
 } from "./membership-repository.js";
 import { PostgresMemoryRepository } from "./memory-repository.js";
+import { PostgresOrganizationRepository } from "./organization-repository.js";
 import { PostgresOutbox } from "./outbox.js";
 import { PostgresWorkRepository } from "./work-repository.js";
 
@@ -36,6 +37,7 @@ export class PostgresUnitOfWork implements UnitOfWork {
       await client.query("BEGIN");
 
       const result = await fn({
+        organizations: new PostgresOrganizationRepository(client),
         work: new PostgresWorkRepository(client),
         decisions: new PostgresDecisionRepository(client),
         memories: new PostgresMemoryRepository(client),

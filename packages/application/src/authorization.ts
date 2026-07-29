@@ -31,6 +31,7 @@ import {
  */
 const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
   OrganizationOwner: [
+    "organization.rename",
     "organization.read_members",
     "organization.invite_member",
     "organization.resend_invitation",
@@ -65,6 +66,7 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     "events.replay_projection",
   ],
   OrganizationAdmin: [
+    "organization.rename",
     "organization.read_members",
     "organization.invite_member",
     "organization.resend_invitation",

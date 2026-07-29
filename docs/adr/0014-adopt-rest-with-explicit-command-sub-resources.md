@@ -94,7 +94,7 @@ GET    /organizations/{organizationId}/members
 POST   /organizations/{organizationId}/members
 ```
 
-### Invitation acceptance is the one route without an Organization context
+### Two routes have no Organization context
 
 ```text
 POST /invitations/accept
@@ -111,8 +111,27 @@ from the invitation token, which names the Organization. The route accepts no
 `organizationId` parameter of any kind — a caller cannot choose which Organization to
 join.
 
-This is the only exemption. Any future route that claims one is a defect until this ADR
-is amended.
+### Organization creation is the other
+
+```text
+POST /organizations
+```
+
+The same structure, one step earlier. Creating an Organization is the act of bringing
+one into existence, so the caller cannot hold a Membership in it and
+`X-Organization-Id` has nothing to name.
+
+It is exempt from Organization resolution and, unlike every command route, carries **no
+permission at all**. There is no principal for one to attach to: permissions are held
+through a Membership, evaluated within one Organization, and neither exists yet.
+Authority is being an authenticated, Active Human Identity — which the bootstrap verifies
+before it writes anything.
+
+The route accepts no `organizationId`: the identifier is server-generated, so a caller
+cannot choose it or collide with an existing tenant.
+
+These are the only two exemptions. Any further route that claims one is a defect until
+this ADR is amended.
 
 ### State transitions are explicit command sub-resources
 
@@ -157,6 +176,7 @@ target state as a parameter.
 | `memory.approve` | `POST /memories/{memoryId}/approve` |
 | `memory.reject` | `POST /memories/{memoryId}/reject` |
 | `memory.reopen` | `POST /memories/{memoryId}/reopen` |
+| `organization.rename` | `PATCH /organizations/{organizationId}` |
 | `organization.read_members` | `GET /organizations/{organizationId}/members` |
 | `organization.invite_member` | `POST /organizations/{organizationId}/members` |
 | `organization.resend_invitation` | `POST /organizations/{organizationId}/members/{membershipId}/resend-invitation` |

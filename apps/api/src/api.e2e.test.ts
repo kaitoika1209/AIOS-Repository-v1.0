@@ -1405,6 +1405,212 @@ suite("AIOS API", () => {
   });
 
 
+  describe("Organization creation", () => {
+    /**
+     * A subject with no Identity and no Membership anywhere.
+     *
+     * Not seeded in `beforeEach`: the point is that creation works for someone
+     * the system has never seen, which is the only way the first Organization
+     * can ever exist.
+     */
+    const FOUNDER = { subject: "founder-1", email: "founder@example.test" };
+
+    const asFounder = () => ({
+      "x-dev-subject": FOUNDER.subject,
+      "x-dev-display-name": "Olivia Reed",
+      "x-dev-email": FOUNDER.email,
+    });
+
+    it("creates an Organization for a subject with no Membership at all", async () => {
+      // No `x-organization-id`: the route is exempt from Organization
+      // resolution, because the Organization does not exist yet.
+      const res = await request(server())
+        .post("/organizations")
+        .set(asFounder())
+        .send({ name: "Northwind" })
+        .expect(201);
+
+      expect(res.body).toMatchObject({ name: "Northwind", status: "Active", version: 1 });
+      expect(res.body.organizationId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(res.body.membershipId).toMatch(/^[0-9a-f-]{36}$/);
+    });
+
+    it("makes the creator an active Owner who can immediately act", async () => {
+      const created = await request(server())
+        .post("/organizations")
+        .set(asFounder())
+        .send({ name: "Northwind" })
+        .expect(201);
+
+      const scoped = {
+        "x-dev-subject": FOUNDER.subject,
+        "x-organization-id": created.body.organizationId,
+      };
+
+      // The bootstrap invariant, observed from outside: the Organization is
+      // Active and its Owner already holds authority in the same request cycle.
+      const members = await request(server())
+        .get(`/organizations/${created.body.organizationId}/members`)
+        .set(scoped)
+        .expect(200);
+
+      expect(members.body.items).toHaveLength(1);
+      expect(members.body.items[0]).toMatchObject({
+        membershipId: created.body.membershipId,
+        status: "Active",
+        roles: ["OrganizationOwner"],
+      });
+
+      await request(server())
+        .post("/works")
+        .set(scoped)
+        .send({ title: "First Work" })
+        .expect(201);
+    });
+
+    it("creates the Human Identity, and reuses it for a second Organization", async () => {
+      const first = await request(server())
+        .post("/organizations")
+        .set(asFounder())
+        .send({ name: "First" })
+        .expect(201);
+      const second = await request(server())
+        .post("/organizations")
+        .set(asFounder())
+        .send({ name: "Second" })
+        .expect(201);
+
+      expect(second.body.organizationId).not.toBe(first.body.organizationId);
+
+      const client = await pool.connect();
+      try {
+        const identities = await client.query<{ n: number }>(
+          `SELECT count(*)::int AS n FROM authentication_subjects WHERE subject = $1`,
+          [FOUNDER.subject],
+        );
+        // "A person may have Memberships in multiple Organizations" — one
+        // Identity, two Organizations.
+        expect(identities.rows[0]!.n).toBe(1);
+
+        const memberships = await client.query<{ n: number }>(
+          `SELECT count(*)::int AS n FROM memberships m
+             JOIN human_identities h ON h.identity_id = m.identity_id
+             JOIN authentication_subjects s ON s.identity_id = h.identity_id
+            WHERE s.subject = $1`,
+          [FOUNDER.subject],
+        );
+        expect(memberships.rows[0]!.n).toBe(2);
+      } finally {
+        client.release();
+      }
+    });
+
+    it("writes the Owner role assignment", async () => {
+      const created = await request(server())
+        .post("/organizations")
+        .set(asFounder())
+        .send({ name: "Northwind" })
+        .expect(201);
+
+      const client = await pool.connect();
+      try {
+        const roles = await client.query<{
+          role: string;
+          assigned_by_membership_id: string;
+        }>(
+          `SELECT role, assigned_by_membership_id FROM membership_role_assignments
+            WHERE membership_id = $1`,
+          [created.body.membershipId],
+        );
+        // The creator is their own assigner: there is no earlier actor to
+        // attribute the first Owner role to.
+        expect(roles.rows[0]).toEqual({
+          role: "OrganizationOwner",
+          assigned_by_membership_id: created.body.membershipId,
+        });
+      } finally {
+        client.release();
+      }
+    });
+
+    it("writes nothing when the name is rejected", async () => {
+      await request(server())
+        .post("/organizations")
+        .set(asFounder())
+        .send({ name: "   " })
+        .expect(400);
+
+      const client = await pool.connect();
+      try {
+        const subjects = await client.query<{ n: number }>(
+          `SELECT count(*)::int AS n FROM authentication_subjects WHERE subject = $1`,
+          [FOUNDER.subject],
+        );
+        // The Identity is created inside the same transaction, so a refusal
+        // leaves no orphan behind.
+        expect(subjects.rows[0]!.n).toBe(0);
+      } finally {
+        client.release();
+      }
+    });
+
+    it("refuses an unauthenticated caller", async () => {
+      await request(server())
+        .post("/organizations")
+        .send({ name: "Anonymous" })
+        .expect(401);
+    });
+
+    it("emits OrganizationCreated and MembershipActivated", async () => {
+      await request(server())
+        .post("/organizations")
+        .set(asFounder())
+        .send({ name: "Northwind" })
+        .expect(201);
+
+      const client = await pool.connect();
+      try {
+        const rows = await client.query<{ event_type: string; aggregate_type: string }>(
+          `SELECT event_type, aggregate_type FROM outbox_messages
+            ORDER BY recorded_at, event_sequence`,
+        );
+        expect(rows.rows).toEqual([
+          { event_type: "OrganizationCreated", aggregate_type: "Organization" },
+          { event_type: "MembershipActivated", aggregate_type: "Membership" },
+        ]);
+      } finally {
+        client.release();
+      }
+    });
+
+    it("renames, and refuses a Member renaming", async () => {
+      const renamed = await request(server())
+        .patch(`/organizations/${ORG}`)
+        .set(as(OWNER))
+        .send({ name: "Renamed Org" })
+        .expect(200);
+      expect(renamed.body.name).toBe("Renamed Org");
+
+      await request(server())
+        .patch(`/organizations/${ORG}`)
+        .set(as(MEMBER))
+        .send({ name: "Mine now" })
+        .expect(403);
+    });
+
+    it("reports another Organization in the path as 404", async () => {
+      await request(server())
+        .patch(`/organizations/${OTHER_ORG}`)
+        .set(as(OWNER))
+        .send({ name: "Not mine" })
+        .expect(404);
+      await request(server())
+        .get(`/organizations/${OTHER_ORG}`)
+        .set(as(OWNER))
+        .expect(404);
+    });
+  });
+
   describe("Member lifecycle", () => {
     const members = `/organizations/${ORG}/members`;
 

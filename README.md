@@ -55,10 +55,16 @@ record a blocking Decision, complete the Work, and have a human review and
 approve the resulting organizational Memory — browser to HTTP API to PostgreSQL,
 with the Outbox carrying the asynchronous steps.
 
-Members join through the real invitation flow: an Owner or Admin invites an
+Organizations are created through the API: `POST /organizations` takes a name
+and nothing else, and brings the Organization and its first Owner Membership
+into existence in one transaction. That route holds no permission and needs no
+`X-Organization-Id` — the caller cannot be a Member of something that does not
+exist yet — so authority is being an authenticated, Active Human Identity.
+
+Members then join through the invitation flow: an Owner or Admin invites an
 address, a single-use token is issued, and accepting it is what creates the
-Membership that carries authority. Only the Organization and its first Owner are
-seeded, because Organization creation has no command yet.
+Membership that carries authority. An Owner or Admin can also suspend,
+reactivate, or revoke a Member, and the last active Owner cannot be removed.
 
 Memory generation calls Anthropic when `ANTHROPIC_API_KEY` is set, and a
 deterministic generator when it is not — so the whole loop runs on a laptop with
@@ -157,8 +163,9 @@ pnpm --filter @aios/api dev                # API on :3001
 pnpm --filter @aios/web dev                # UI on :3000
 ```
 
-The seed creates only what has no command yet: one Organization, its first
-Owner (Olivia), and the Secretary. **Everyone else joins by invitation.** Sign in
+The seed creates one Organization, its first Owner (Olivia), and the Secretary,
+so the loop is runnable immediately — the same shape `POST /organizations`
+produces. **Everyone else joins by invitation.** Sign in
 as Olivia, open **Members**, invite Alice as a `Member` and Raj as a `Reviewer`,
 then switch identity and accept each invitation.
 

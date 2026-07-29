@@ -31,6 +31,9 @@ export class DevAuthAdapter implements AuthAdapter {
       // Clerk supplies a name with the session; here it comes from a header so
       // an invitation accepted by a new subject gets a readable Identity.
       displayName: request.header("x-dev-display-name") ?? subject,
+      ...(request.header("x-dev-email") === undefined
+        ? {}
+        : { email: request.header("x-dev-email")! }),
     };
   }
 }

@@ -28,6 +28,7 @@ import type {
 import type {
   DecisionState,
   DomainEvent,
+  OrganizationState,
   MemoryState,
   MembershipState,
   WorkState,
@@ -38,6 +39,9 @@ export interface Clock {
 }
 
 export interface IdGenerator {
+  organizationId(): OrganizationId;
+  /** Identifies one row of `membership_role_assignments`. */
+  roleAssignmentId(): string;
   /** Recovery row identifiers. Both columns are typed `uuid`. */
   deadLetterId(): string;
   replayId(): string;
@@ -65,6 +69,31 @@ export interface IdGenerator {
    * and reject an opaque non-UUID string at write time.
    */
   revisionId(): string;
+}
+
+export interface OrganizationRepository {
+  findById(organizationId: OrganizationId): Promise<OrganizationState | null>;
+
+  /**
+   * Create the Organization and the creator's Owner Membership together.
+   *
+   * One method rather than two calls, because the bootstrap invariant is that
+   * "Organization = Active, Active Owner Membership = Missing" must never become
+   * externally visible. Two repository calls in one transaction would satisfy
+   * that too, but only as long as every future caller remembered to make both.
+   *
+   * This is the exceptional coordinated creation the identity document permits:
+   * "Exceptional bootstrap workflows may coordinate multiple new Aggregates in
+   * one PostgreSQL transaction." It does not merge the Aggregates — each is
+   * constructed by its own command and persisted as its own row.
+   */
+  bootstrap(input: {
+    readonly organization: OrganizationState;
+    readonly ownerMembership: MembershipState;
+    readonly roleAssignmentId: string;
+  }): Promise<void>;
+
+  update(organization: OrganizationState, expectedVersion: number): Promise<void>;
 }
 
 export interface WorkRepository {
@@ -149,7 +178,8 @@ export interface IdentityRepository {
   createWithSubject(input: {
     readonly identityId: IdentityId;
     readonly displayName: string;
-    readonly primaryEmail: string;
+    /** Null when the authentication provider supplies no address. */
+    readonly primaryEmail: string | null;
     readonly provider: string;
     readonly issuer: string;
     readonly subject: string;
@@ -367,6 +397,7 @@ export interface UnitOfWork {
 }
 
 export interface RepositoryBundle {
+  readonly organizations: OrganizationRepository;
   readonly work: WorkRepository;
   readonly decisions: DecisionRepository;
   readonly memories: MemoryRepository;

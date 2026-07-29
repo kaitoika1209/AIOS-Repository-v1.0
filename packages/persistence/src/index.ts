@@ -22,3 +22,4 @@ export * from "./unit-of-work.js";
 
 export * from "./consumer-delivery-repository.js";
 export * from "./replay-repository.js";
+export * from "./organization-repository.js";

@@ -18,6 +18,7 @@ export type DomainErrorCode =
   | "MEMORY_INVALID_TRANSITION"
   | "MEMORY_IMMUTABLE"
   | "MEMBERSHIP_INVALID_TRANSITION"
+  | "ORGANIZATION_INVALID_TRANSITION"
   | "INVITATION_NOT_ACCEPTABLE"
   | "CROSS_ORGANIZATION_REFERENCE"
   | "HUMAN_AUTHORITY_REQUIRED"
@@ -52,6 +53,7 @@ const TRANSITION_CODES = {
   Decision: "DECISION_INVALID_TRANSITION",
   Memory: "MEMORY_INVALID_TRANSITION",
   Membership: "MEMBERSHIP_INVALID_TRANSITION",
+  Organization: "ORGANIZATION_INVALID_TRANSITION",
 } as const satisfies Record<string, DomainErrorCode>;
 
 export class InvalidTransitionError extends DomainError {

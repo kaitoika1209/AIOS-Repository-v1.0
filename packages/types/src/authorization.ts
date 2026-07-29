@@ -58,6 +58,7 @@ export const MEMORY_PERMISSIONS = [
  * the former.
  */
 export const ORGANIZATION_PERMISSIONS = [
+  "organization.rename",
   "organization.read_members",
   "organization.invite_member",
   "organization.resend_invitation",

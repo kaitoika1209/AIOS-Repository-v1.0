@@ -10,6 +10,7 @@ export * from "./authorization.js";
 export * from "./consumer-registry.js";
 export * from "./relationships.js";
 export * from "./ports.js";
+export * from "./organization-use-cases.js";
 export * from "./work-use-cases.js";
 export * from "./decision-use-cases.js";
 export * from "./event-recovery-use-cases.js";

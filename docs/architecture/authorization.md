@@ -1076,6 +1076,7 @@ memory.approve
 memory.reject
 memory.reopen
 
+organization.rename
 organization.read_members
 organization.invite_member
 organization.resend_invitation
@@ -1096,6 +1097,13 @@ Membership invitation is split into one permission per command rather than a sin
 otherwise: inviting, resending, and revoking are three routes. The split also makes the
 narrower grants expressible — reading the member list is not administration, and is held
 by every role.
+
+`organization.rename` is catalogued for the same reason: `docs/product/mvp.md`
+requires the MVP to support "Organization naming". Organization *creation* has no
+permission at all — the creator holds no Membership in the Organization they are
+creating, so there is no principal for a permission to attach to. Its route is
+authenticated and exempt from Organization resolution, exactly as invitation
+acceptance is.
 
 `organization.suspend_member`, `organization.reactivate_member`, and
 `organization.revoke_member` were previously listed as Reserved with no route. That was a

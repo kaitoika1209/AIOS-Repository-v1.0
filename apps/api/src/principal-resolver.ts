@@ -36,6 +36,16 @@ export interface AuthenticatedSubject {
    * entirely — the tuple above is what identifies a subject.
    */
   readonly displayName?: string;
+  /**
+   * Profile data, like `displayName` and with the same standing.
+   *
+   * ADR-0013: "`human_identities.primary_email` and `display_name` are
+   * AIOS-owned profile values, synchronizable from Clerk but never used as a
+   * join key." Absent when the provider supplies none, and the column is
+   * nullable — an Identity with no recorded address is representable, and
+   * inventing one would make an unverified address look verified.
+   */
+  readonly email?: string;
 }
 
 export type ResolutionFailure =

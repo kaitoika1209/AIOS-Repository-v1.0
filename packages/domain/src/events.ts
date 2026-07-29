@@ -276,6 +276,27 @@ export interface MembershipRevoked extends DomainEventBase {
   readonly reason: string;
 }
 
+/**
+ * Organization events.
+ *
+ * The registered subset this release emits. `OrganizationSuspended`,
+ * `OrganizationReactivated`, and `OrganizationArchived` are registered names
+ * with no command in this release — mvp.md requires creation, naming, and basic
+ * settings, and says "Deleting an Organization and long-term retention policy
+ * are not required for the first release".
+ */
+export interface OrganizationCreated extends DomainEventBase {
+  readonly type: "OrganizationCreated";
+  readonly name: string;
+}
+
+export interface OrganizationRenamed extends DomainEventBase {
+  readonly type: "OrganizationRenamed";
+  readonly name: string;
+}
+
+export type OrganizationEvent = OrganizationCreated | OrganizationRenamed;
+
 export type MembershipEvent =
   | MembershipInvited
   | MembershipActivated
@@ -306,7 +327,8 @@ export type DomainEvent =
   | WorkEvent
   | DecisionEvent
   | MemoryEvent
-  | MembershipEvent;
+  | MembershipEvent
+  | OrganizationEvent;
 
 /**
  * Outcome-bearing Decision events, which the Application Layer projects onto
@@ -348,6 +370,13 @@ export const stampMemory = (
   aggregateVersion: number,
   events: readonly Unstamped<MemoryEvent>[],
 ): readonly MemoryEvent[] => withVersion<MemoryEvent>(aggregateVersion, events);
+
+/** Stamp an Organization command's events with the version the Aggregate reached. */
+export const stampOrganization = (
+  aggregateVersion: number,
+  events: readonly Unstamped<OrganizationEvent>[],
+): readonly OrganizationEvent[] =>
+  withVersion<OrganizationEvent>(aggregateVersion, events);
 
 /** Stamp a Membership command's events with the version the Aggregate reached. */
 export const stampMembership = (

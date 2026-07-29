@@ -26,7 +26,10 @@ import type { OutboxPort } from "@aios/application";
  */
 const aggregateOf = (
   event: DomainEvent,
-): { type: "Work" | "Decision" | "Memory" | "Membership"; id: string } => {
+): {
+  type: "Work" | "Decision" | "Memory" | "Membership" | "Organization";
+  id: string;
+} => {
   switch (event.type) {
     case "WorkCreated":
     case "WorkDetailsUpdated":
@@ -59,6 +62,13 @@ const aggregateOf = (
     case "MembershipReactivated":
     case "MembershipRevoked":
       return { type: "Membership", id: event.membershipId };
+
+    case "OrganizationCreated":
+    case "OrganizationRenamed":
+      // The Organization is its own stream, keyed by itself. `organizationId`
+      // is both the tenant scope and the aggregate id here, which is true of no
+      // other aggregate.
+      return { type: "Organization", id: event.organizationId };
   }
 };
 

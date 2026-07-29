@@ -18,6 +18,7 @@ import {
   InvitationId,
   MembershipId,
   MemoryId,
+  OrganizationId,
   WorkId,
 } from "@aios/types";
 import type { Clock, IdGenerator, UseCaseDependencies } from "@aios/application";
@@ -28,6 +29,7 @@ import { chooseGenerator } from "./anthropic-memory-generator.js";
 import { DecisionController } from "./decision.controller.js";
 import { InvitationController } from "./invitation.controller.js";
 import { MemoryController } from "./memory.controller.js";
+import { OrganizationAdminController } from "./organization-admin.controller.js";
 import { OrganizationMemberController } from "./organization.controller.js";
 import { ClerkAuthAdapter, clerkOptionsFrom } from "./clerk-auth.js";
 import { DevAuthAdapter } from "./dev-auth.js";
@@ -77,6 +79,12 @@ class UuidGenerator implements IdGenerator {
   identityId(): IdentityId {
     return IdentityId(randomUUID());
   }
+  organizationId(): OrganizationId {
+    return OrganizationId(randomUUID());
+  }
+  roleAssignmentId(): string {
+    return randomUUID();
+  }
   deadLetterId(): string {
     return randomUUID();
   }
@@ -115,6 +123,7 @@ export const createApp = async (options: AppOptions): Promise<INestApplication> 
       WorkController,
       DecisionController,
       MemoryController,
+      OrganizationAdminController,
       OrganizationMemberController,
       InvitationController,
       AdminEventsController,

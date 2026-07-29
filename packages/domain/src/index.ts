@@ -15,3 +15,4 @@ export * from "./work.js";
 export * from "./decision.js";
 export * from "./memory.js";
 export * from "./membership.js";
+export * from "./organization.js";
