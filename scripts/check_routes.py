@@ -40,16 +40,7 @@ ENFORCED = re.compile(r'requirePermission\(\s*[^,]+,\s*"([a-z_]+\.[a-z_]+)"')
 # Routed, documented, and not yet built. Each entry is a promise, not an excuse:
 # it appears in ADR-0014's catalogue, so the route is specified and the
 # permission is granted to roles — there is simply no handler yet.
-UNIMPLEMENTED: dict[str, str] = {
-    # The three recovery operations that assert something about the original
-    # delivery. Each needs a registered ConsumerRegistration to decide whether
-    # the assertion is safe for a given consumer, and consumer registration is
-    # not in this release. RetryOriginal asserts nothing, which is why
-    # `events.retry` ships and these do not.
-    "events.skip": "needs a registered ConsumerRegistration policy",
-    "events.replay_domain_consumer": "needs a registered ConsumerRegistration policy",
-    "events.replay_projection": "needs a registered ConsumerRegistration policy",
-}
+UNIMPLEMENTED: dict[str, str] = {}
 
 
 def enforced_permissions() -> set[str]:

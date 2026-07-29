@@ -29,6 +29,8 @@ import {
 
 import type {
   Clock,
+  ConsumerDeliveryRepository,
+  DeadLetteredDelivery,
   DecisionRepository,
   EventRecoveryRepository,
   FailedEventSummary,
@@ -41,6 +43,7 @@ import type {
   IdGenerator,
   OrganizationMemberSummary,
   OutboxPort,
+  ReplayRepository,
   RepositoryBundle,
   UnitOfWork,
   WorkRepository,
@@ -558,6 +561,158 @@ export class InMemoryEventRecoveryRepository implements EventRecoveryRepository 
   }
 }
 
+
+/**
+ * Consumer-side delivery state, modelled closely enough that the atomicity
+ * rules are exercised.
+ *
+ * `skip` refuses unless the dead letter is non-terminal, the version matches,
+ * and the processed event is `Failed` — the three conditions that make the real
+ * skip a single fenced sequence rather than three hopeful updates.
+ */
+export class InMemoryConsumerDeliveryRepository
+  implements ConsumerDeliveryRepository
+{
+  private readonly rows = new Map<
+    string,
+    DeadLetteredDelivery & { orderingBlocked: boolean }
+  >();
+
+  private static key(consumerName: string, eventId: string): string {
+    return `${consumerName}|${eventId}`;
+  }
+
+  async claim(): Promise<"Claimed" | "AlreadyHandled" | "Blocked"> {
+    return "Claimed";
+  }
+
+  async complete(): Promise<void> {}
+
+  async fail(): Promise<void> {}
+
+  async listDeadLettered(
+    organizationId: OrganizationId,
+    limit: number,
+  ): Promise<readonly DeadLetteredDelivery[]> {
+    return [...this.rows.values()]
+      .filter(
+        (d) =>
+          d.organizationId === organizationId &&
+          d.deadLetterStatus !== "Resolved" &&
+          d.deadLetterStatus !== "Skipped",
+      )
+      .slice(0, limit);
+  }
+
+  async findDeadLetter(
+    organizationId: OrganizationId,
+    deadLetterId: string,
+  ): Promise<DeadLetteredDelivery | null> {
+    return (
+      [...this.rows.values()].find(
+        (d) => d.organizationId === organizationId && d.deadLetterId === deadLetterId,
+      ) ?? null
+    );
+  }
+
+  async skip(input: {
+    organizationId: OrganizationId;
+    deadLetterId: string;
+    expectedDeadLetterVersion: number;
+    orderingBroken: boolean;
+  }): Promise<boolean> {
+    const found = await this.findDeadLetter(input.organizationId, input.deadLetterId);
+    if (
+      found === null ||
+      found.deadLetterVersion !== input.expectedDeadLetterVersion ||
+      (found.deadLetterStatus !== "Open" && found.deadLetterStatus !== "Investigating") ||
+      found.processedEventStatus !== "Failed"
+    ) {
+      return false;
+    }
+
+    this.rows.set(InMemoryConsumerDeliveryRepository.key(found.consumerName, found.eventId), {
+      ...found,
+      deadLetterStatus: "Skipped",
+      processedEventStatus: "Skipped",
+      deadLetterVersion: found.deadLetterVersion + 1,
+      orderingBlocked: false,
+    });
+    return true;
+  }
+
+  async reprocess(input: {
+    organizationId: OrganizationId;
+    deadLetterId: string;
+    expectedDeadLetterVersion: number;
+  }): Promise<boolean> {
+    const found = await this.findDeadLetter(input.organizationId, input.deadLetterId);
+    if (
+      found === null ||
+      found.deadLetterVersion !== input.expectedDeadLetterVersion ||
+      (found.deadLetterStatus !== "Open" && found.deadLetterStatus !== "Investigating")
+    ) {
+      return false;
+    }
+
+    this.rows.set(InMemoryConsumerDeliveryRepository.key(found.consumerName, found.eventId), {
+      ...found,
+      deadLetterStatus: "ReadyForReplay",
+      processedEventStatus: "RetryPending",
+      deadLetterVersion: found.deadLetterVersion + 1,
+      orderingBlocked: false,
+    });
+    return true;
+  }
+
+  /** Seed a dead-lettered delivery. */
+  seed(delivery: DeadLetteredDelivery): void {
+    this.rows.set(
+      InMemoryConsumerDeliveryRepository.key(delivery.consumerName, delivery.eventId),
+      { ...delivery, orderingBlocked: true },
+    );
+  }
+}
+
+export class InMemoryReplayRepository implements ReplayRepository {
+  readonly rows: {
+    replayId: string;
+    consumerName: string;
+    replayMode: string;
+    status: string;
+    reasonCode: string;
+    resultCode?: string;
+  }[] = [];
+
+  async record(input: {
+    replayId: string;
+    consumerName: string;
+    replayMode: string;
+    status: string;
+    reasonCode: string;
+  }): Promise<void> {
+    this.rows.push({
+      replayId: input.replayId,
+      consumerName: input.consumerName,
+      replayMode: input.replayMode,
+      status: input.status,
+      reasonCode: input.reasonCode,
+    });
+  }
+
+  async settle(input: {
+    replayId: string;
+    status: string;
+    resultCode: string;
+  }): Promise<void> {
+    const row = this.rows.find((r) => r.replayId === input.replayId);
+    if (row !== undefined) {
+      row.status = input.status;
+      row.resultCode = input.resultCode;
+    }
+  }
+}
+
 export class InMemoryOutbox implements OutboxPort {
   readonly events: DomainEvent[] = [];
 
@@ -639,6 +794,12 @@ export class SequentialIds implements IdGenerator {
   identityId(): IdentityId {
     return `identity-${++this.n}` as IdentityId;
   }
+  deadLetterId(): string {
+    return `dead-letter-${++this.n}`;
+  }
+  replayId(): string {
+    return `replay-${++this.n}`;
+  }
   workParticipantId(): string {
     return `participant-${++this.n}`;
   }
@@ -656,6 +817,8 @@ export const buildTestHarness = (now = new Date("2026-07-28T10:00:00Z")) => {
   const memories = new InMemoryMemoryRepository();
   const generationOperations = new InMemoryGenerationOperationRepository();
   const eventRecovery = new InMemoryEventRecoveryRepository();
+  const deliveries = new InMemoryConsumerDeliveryRepository();
+  const replays = new InMemoryReplayRepository();
   const memberships = new InMemoryMembershipRepository();
   const identities = new InMemoryIdentityRepository();
   const outbox = new InMemoryOutbox();
@@ -665,6 +828,8 @@ export const buildTestHarness = (now = new Date("2026-07-28T10:00:00Z")) => {
     memories,
     generationOperations,
     eventRecovery,
+    deliveries,
+    replays,
     memberships,
     identities,
     outbox,

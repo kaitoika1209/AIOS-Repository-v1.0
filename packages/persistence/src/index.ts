@@ -19,3 +19,6 @@ export * from "./memory-repository.js";
 export * from "./work-repository.js";
 export * from "./outbox.js";
 export * from "./unit-of-work.js";
+
+export * from "./consumer-delivery-repository.js";
+export * from "./replay-repository.js";

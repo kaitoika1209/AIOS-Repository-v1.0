@@ -92,6 +92,8 @@ suite("AIOS API", () => {
     try {
       await client.query(
         `TRUNCATE decision_revisions, decisions, work_items, outbox_messages,
+                  dead_letter_events, event_replays, processed_events,
+                  consumer_ordering_state,
                   memory_revisions, memories,
                   membership_role_assignments, memberships,
                   authentication_subjects, organizations, human_identities CASCADE`,
@@ -1577,23 +1579,361 @@ suite("AIOS API", () => {
         .expect(400);
     });
 
-    it("exposes no route for the recovery operations that need a consumer policy", async () => {
-      // Skip and the two replays assert something about the original delivery,
-      // and deciding whether that assertion is safe needs a registered
-      // ConsumerRegistration. Absent, not silently permitted.
-      const eventId = await seedFailed(ORG);
-      await request(server())
-        .post(`/admin/events/${eventId}/skip`)
+    /**
+     * A dead-lettered consumer delivery, written directly.
+     *
+     * Driving a real consumer to permanent failure needs a deliberately broken
+     * handler; what the recovery commands need is the pair of rows.
+     */
+    const seedDeadLetter = async (
+      consumerName: string,
+      organizationId = ORG,
+      orderingKey: string | null = null,
+    ): Promise<{ deadLetterId: string; eventId: string }> => {
+      const eventId = randomUUID();
+      const deadLetterId = randomUUID();
+      const client = await pool.connect();
+      try {
+        await client.query(
+          `INSERT INTO processed_events
+             (consumer_name, event_id, event_type, schema_version, organization_id,
+              aggregate_type, aggregate_id, aggregate_version, correlation_id,
+              status, attempt_count, first_received_at, failed_at,
+              ordering_key_type, ordering_key, source_sequence)
+           VALUES ($1, $2, 'DecisionApproved', 1, $3, 'Decision', $4, 1, $5,
+                   'Failed', 5, now(), now(), $6, $7, 1)`,
+          [
+            consumerName, eventId, organizationId, randomUUID(), randomUUID(),
+            orderingKey === null ? null : "AggregateStream", orderingKey,
+          ],
+        );
+        await client.query(
+          `INSERT INTO dead_letter_events
+             (dead_letter_id, organization_id, consumer_name, event_id,
+              ordering_key_type, ordering_key, source_sequence,
+              failure_category, error_code, status,
+              first_failed_at, last_failed_at, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, 1, 'DomainRejection', 'WORK_INVALID_TRANSITION',
+                   'Open', now(), now(), now(), now())`,
+          [
+            deadLetterId, organizationId, consumerName, eventId,
+            orderingKey === null ? null : "AggregateStream", orderingKey,
+          ],
+        );
+        if (orderingKey !== null) {
+          await client.query(
+            `INSERT INTO consumer_ordering_state
+               (consumer_ordering_state_id, consumer_name, organization_id,
+                ordering_key_type, ordering_key, blocked_event_id, blocked_sequence,
+                blocked_at, block_reason_code, status, updated_at)
+             VALUES (gen_random_uuid(), $1, $2, 'AggregateStream', $3, $4, 1,
+                     now(), 'WORK_INVALID_TRANSITION', 'Blocked', now())`,
+            [consumerName, organizationId, orderingKey, eventId],
+          );
+        }
+      } finally {
+        client.release();
+      }
+      return { deadLetterId, eventId };
+    };
+
+    const deadLetterRow = async (deadLetterId: string) => {
+      const client = await pool.connect();
+      try {
+        const result = await client.query<{
+          status: string;
+          version: string;
+          resolved_by_membership_id: string | null;
+          resolution_reason_code: string | null;
+        }>(
+          `SELECT status, version, resolved_by_membership_id, resolution_reason_code
+             FROM dead_letter_events WHERE dead_letter_id = $1`,
+          [deadLetterId],
+        );
+        return result.rows[0]!;
+      } finally {
+        client.release();
+      }
+    };
+
+    it("lists dead-lettered deliveries separately from failed publications", async () => {
+      const { deadLetterId, eventId } = await seedDeadLetter("decision-outcome");
+
+      const res = await request(server())
+        .get("/admin/events/dead-letters")
         .set(as(OWNER))
-        .expect(404);
-      await request(server())
-        .post("/admin/events/replay/consumer")
+        .expect(200);
+
+      expect(res.body.items).toHaveLength(1);
+      expect(res.body.items[0]).toMatchObject({
+        deadLetterId,
+        eventId,
+        consumerName: "decision-outcome",
+        status: "Open",
+        processedEventStatus: "Failed",
+        errorCode: "WORK_INVALID_TRANSITION",
+        version: 1,
+      });
+
+      // The Outbox is untouched: a consumer failing is not a publication failure.
+      const published = await request(server())
+        .get("/admin/events/failed")
         .set(as(OWNER))
+        .expect(200);
+      expect(published.body.items).toEqual([]);
+    });
+
+    it("does not show another Organization's dead letters", async () => {
+      await seedDeadLetter("decision-outcome", OTHER_ORG);
+      const res = await request(server())
+        .get("/admin/events/dead-letters")
+        .set(as(OWNER))
+        .expect(200);
+      expect(res.body.items).toEqual([]);
+    });
+
+    it("refuses to skip a consumer whose registration prohibits it", async () => {
+      const { deadLetterId } = await seedDeadLetter("memory-generation");
+
+      // `memory-generation` registers skipPolicy=Prohibited: its recovery store
+      // is the generation operation, and discarding the trigger would leave two
+      // records disagreeing about whether the Work was ever considered.
+      await request(server())
+        .post(`/admin/events/dead-letters/${deadLetterId}/skip`)
+        .set(as(OWNER))
+        .send({ expectedVersion: 1, reasonCode: "OPERATOR_DECISION", reason: "Stuck." })
+        .expect(422);
+
+      expect((await deadLetterRow(deadLetterId)).status).toBe("Open");
+    });
+
+    it("refuses to skip a Domain Coordination consumer with no safety evidence", async () => {
+      const { deadLetterId } = await seedDeadLetter("decision-outcome");
+
+      // "Allow only with registered safety or compensation evidence."
+      await request(server())
+        .post(`/admin/events/dead-letters/${deadLetterId}/skip`)
+        .set(as(OWNER))
+        .send({ expectedVersion: 1, reasonCode: "OPERATOR_DECISION", reason: "Stuck." })
+        .expect(422);
+
+      expect((await deadLetterRow(deadLetterId)).status).toBe("Open");
+    });
+
+    it("skips atomically once the evidence is supplied", async () => {
+      const { deadLetterId, eventId } = await seedDeadLetter(
+        "decision-outcome",
+        ORG,
+        "Decision:x",
+      );
+
+      await request(server())
+        .post(`/admin/events/dead-letters/${deadLetterId}/skip`)
+        .set(as(OWNER))
+        .send({
+          expectedVersion: 1,
+          reasonCode: "COMPENSATED",
+          reason: "The Work was resolved directly by its owner.",
+          safetyEvidenceReference: "runbook/decision-outcome-manual-resolution",
+        })
+        .expect(204);
+
+      const dead = await deadLetterRow(deadLetterId);
+      expect(dead.status).toBe("Skipped");
+      // The resolution attribution is inseparable from the resolution.
+      expect(dead.resolved_by_membership_id).toBe(OWNER.membership);
+      expect(dead.resolution_reason_code).toBe("COMPENSATED");
+
+      const client = await pool.connect();
+      try {
+        // Processed event and ordering state moved in the same transaction.
+        const processed = await client.query<{ status: string }>(
+          `SELECT status FROM processed_events WHERE event_id = $1`,
+          [eventId],
+        );
+        expect(processed.rows[0]!.status).toBe("Skipped");
+
+        const ordering = await client.query<{ status: string }>(
+          `SELECT status FROM consumer_ordering_state WHERE ordering_key = 'Decision:x'`,
+        );
+        expect(ordering.rows[0]!.status).toBe("Active");
+      } finally {
+        client.release();
+      }
+    });
+
+    it("refuses a skip fenced on a stale version", async () => {
+      const { deadLetterId } = await seedDeadLetter("decision-outcome");
+
+      await request(server())
+        .post(`/admin/events/dead-letters/${deadLetterId}/skip`)
+        .set(as(OWNER))
+        .send({
+          expectedVersion: 7,
+          reasonCode: "COMPENSATED",
+          reason: "Resolved directly.",
+          safetyEvidenceReference: "runbook/x",
+        })
+        .expect(409);
+
+      expect((await deadLetterRow(deadLetterId)).status).toBe("Open");
+    });
+
+    it("requires an expected version, a reason code, and a reason", async () => {
+      const { deadLetterId } = await seedDeadLetter("decision-outcome");
+
+      for (const body of [
+        { reasonCode: "X", reason: "y", safetyEvidenceReference: "r" },
+        { expectedVersion: 1, reason: "y", safetyEvidenceReference: "r" },
+        { expectedVersion: 1, reasonCode: "X", safetyEvidenceReference: "r" },
+      ]) {
+        await request(server())
+          .post(`/admin/events/dead-letters/${deadLetterId}/skip`)
+          .set(as(OWNER))
+          .send(body)
+          .expect(400);
+      }
+    });
+
+    it("denies an Admin the domain-consumer reprocess by default", async () => {
+      const { deadLetterId } = await seedDeadLetter("decision-outcome");
+
+      // "Deny unless explicit Organization policy grants it", and no
+      // per-Organization policy exists in this release.
+      const client = await pool.connect();
+      try {
+        await client.query(
+          `UPDATE membership_role_assignments SET role = 'OrganizationAdmin'
+            WHERE membership_id = $1`,
+          [OWNER.membership],
+        );
+      } finally {
+        client.release();
+      }
+
+      await request(server())
+        .post(`/admin/events/dead-letters/${deadLetterId}/reprocess`)
+        .set(as(OWNER))
+        .send({ expectedVersion: 1, reasonCode: "HANDLER_FIXED", reason: "Deployed a fix." })
+        .expect(403);
+    });
+
+    it("queues a reprocess and records the durable intent", async () => {
+      const { deadLetterId, eventId } = await seedDeadLetter(
+        "decision-outcome",
+        ORG,
+        "Decision:y",
+      );
+
+      const res = await request(server())
+        .post(`/admin/events/dead-letters/${deadLetterId}/reprocess`)
+        .set(as(OWNER))
+        .send({ expectedVersion: 1, reasonCode: "HANDLER_FIXED", reason: "Deployed a fix." })
+        .expect(201);
+
+      expect(res.body.replayId).toMatch(/^[0-9a-f-]{36}$/);
+
+      const client = await pool.connect();
+      try {
+        const replay = await client.query<{
+          replay_mode: string;
+          status: string;
+          requested_by_membership_id: string;
+          reason_code: string;
+          authorization_policy_version: number;
+        }>(`SELECT * FROM event_replays WHERE replay_id = $1`, [res.body.replayId]);
+
+        // The intent is the approval, so it records who asked and under which
+        // policy — not just that something happened.
+        expect(replay.rows[0]).toMatchObject({
+          replay_mode: "ReprocessWithCurrentHandler",
+          status: "Running",
+          requested_by_membership_id: OWNER.membership,
+          reason_code: "HANDLER_FIXED",
+          authorization_policy_version: 1,
+        });
+
+        const processed = await client.query<{ status: string; attempt_count: number }>(
+          `SELECT status, attempt_count FROM processed_events WHERE event_id = $1`,
+          [eventId],
+        );
+        // Requeued for the current handler, with the attempt history intact.
+        expect(processed.rows[0]).toEqual({ status: "RetryPending", attempt_count: 5 });
+
+        const ordering = await client.query<{ status: string }>(
+          `SELECT status FROM consumer_ordering_state WHERE ordering_key = 'Decision:y'`,
+        );
+        expect(ordering.rows[0]!.status).toBe("Recovering");
+      } finally {
+        client.release();
+      }
+    });
+
+    it("refuses to reprocess another Organization's dead letter as 404", async () => {
+      const { deadLetterId } = await seedDeadLetter("decision-outcome", OTHER_ORG);
+
+      await request(server())
+        .post(`/admin/events/dead-letters/${deadLetterId}/reprocess`)
+        .set(as(OWNER))
+        .send({ expectedVersion: 1, reasonCode: "HANDLER_FIXED", reason: "Fix." })
         .expect(404);
+    });
+
+    it("refuses a projection rebuild for a consumer that is not a projection", async () => {
+      // The route is implemented and authorized; the registry answers that
+      // there is no projection to rebuild. That refusal is the honest outcome,
+      // and it is recorded as a Denied replay so the attempt is auditable.
       await request(server())
         .post("/admin/events/replay/projection")
         .set(as(OWNER))
+        .send({
+          consumerName: "decision-outcome",
+          reasonCode: "DRIFT",
+          reason: "Suspected drift.",
+        })
+        .expect(422);
+
+      const client = await pool.connect();
+      try {
+        const replay = await client.query<{ status: string; result_code: string }>(
+          `SELECT status, result_code FROM event_replays WHERE replay_mode = 'RebuildProjection'`,
+        );
+        expect(replay.rows[0]).toMatchObject({
+          status: "Denied",
+          result_code: "NOT_A_PROJECTION",
+        });
+      } finally {
+        client.release();
+      }
+    });
+
+    it("reports an unregistered consumer as absent", async () => {
+      await request(server())
+        .post("/admin/events/replay/projection")
+        .set(as(OWNER))
+        .send({ consumerName: "no-such-consumer", reasonCode: "X", reason: "y" })
         .expect(404);
+    });
+
+    it("denies a Member every consumer recovery command", async () => {
+      const { deadLetterId } = await seedDeadLetter("decision-outcome");
+
+      await request(server()).get("/admin/events/dead-letters").set(as(MEMBER)).expect(403);
+      await request(server())
+        .post(`/admin/events/dead-letters/${deadLetterId}/skip`)
+        .set(as(MEMBER))
+        .send({ expectedVersion: 1, reasonCode: "X", reason: "y" })
+        .expect(403);
+      await request(server())
+        .post(`/admin/events/dead-letters/${deadLetterId}/reprocess`)
+        .set(as(MEMBER))
+        .send({ expectedVersion: 1, reasonCode: "X", reason: "y" })
+        .expect(403);
+      await request(server())
+        .post("/admin/events/replay/projection")
+        .set(as(MEMBER))
+        .send({ consumerName: "decision-outcome", reasonCode: "X", reason: "y" })
+        .expect(403);
     });
   });
 });

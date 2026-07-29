@@ -13,7 +13,9 @@ import type { Pool, PoolClient } from "pg";
 
 import type { RepositoryBundle, UnitOfWork } from "@aios/application";
 
+import { PostgresConsumerDeliveryRepository } from "./consumer-delivery-repository.js";
 import { PostgresDecisionRepository } from "./decision-repository.js";
+import { PostgresReplayRepository } from "./replay-repository.js";
 import { PostgresEventRecoveryRepository } from "./event-recovery-repository.js";
 import { PostgresGenerationOperationRepository } from "./generation-operation-repository.js";
 import {
@@ -39,6 +41,8 @@ export class PostgresUnitOfWork implements UnitOfWork {
         memories: new PostgresMemoryRepository(client),
         generationOperations: new PostgresGenerationOperationRepository(client),
         eventRecovery: new PostgresEventRecoveryRepository(client),
+        deliveries: new PostgresConsumerDeliveryRepository(client),
+        replays: new PostgresReplayRepository(client),
         memberships: new PostgresMembershipRepository(client),
         identities: new PostgresIdentityRepository(client),
         outbox: new PostgresOutbox(client),

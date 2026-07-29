@@ -38,6 +38,9 @@ export interface Clock {
 }
 
 export interface IdGenerator {
+  /** Recovery row identifiers. Both columns are typed `uuid`. */
+  deadLetterId(): string;
+  replayId(): string;
   workId(): WorkId;
   decisionId(): DecisionId;
   memoryId(): MemoryId;
@@ -369,6 +372,8 @@ export interface RepositoryBundle {
   readonly memories: MemoryRepository;
   readonly generationOperations: GenerationOperationRepository;
   readonly eventRecovery: EventRecoveryRepository;
+  readonly deliveries: ConsumerDeliveryRepository;
+  readonly replays: ReplayRepository;
   readonly memberships: MembershipRepository;
   readonly identities: IdentityRepository;
   readonly outbox: OutboxPort;
@@ -395,3 +400,164 @@ export class NotFoundError extends Error {
 }
 
 export type { Permission };
+
+/**
+ * One consumer's delivery of one event.
+ *
+ * Distinct from the Outbox row, and the distinction is the whole recovery
+ * model: `outbox_messages` records whether an event was *published*, while
+ * `processed_events` records whether a named consumer *handled* it. One event
+ * reaches several consumers, and one of them failing is not a publication
+ * failure. `events.retry` re-publishes; skip and replay act here.
+ */
+export interface ConsumerDelivery {
+  readonly consumerName: string;
+  readonly eventId: string;
+  readonly organizationId: OrganizationId;
+  readonly status: string;
+  readonly attemptCount: number;
+  readonly orderingKeyType: string | null;
+  readonly orderingKey: string | null;
+}
+
+/** A failed delivery an operator may act on, with its dead-letter row. */
+export interface DeadLetteredDelivery {
+  readonly deadLetterId: string;
+  readonly consumerName: string;
+  readonly eventId: string;
+  readonly eventType: string;
+  readonly organizationId: OrganizationId;
+  readonly deadLetterStatus: string;
+  readonly deadLetterVersion: number;
+  readonly processedEventStatus: string;
+  readonly errorCode: string;
+  readonly failureCategory: string;
+  readonly orderingKeyType: string | null;
+  readonly orderingKey: string | null;
+  readonly orderingStateVersion: number | null;
+  readonly firstFailedAt: Date;
+  readonly lastFailedAt: Date;
+}
+
+export interface ConsumerDeliveryRepository {
+  /**
+   * Take this delivery for one attempt, or report why not.
+   *
+   * `AlreadyHandled` covers both `Processed` and `Skipped`: at-least-once
+   * delivery means a redelivery is expected, and a skipped result is terminal
+   * and "cannot later be converted to Processed by generic replay".
+   */
+  claim(input: {
+    readonly consumerName: string;
+    readonly eventId: string;
+    readonly eventType: string;
+    readonly schemaVersion: number;
+    readonly organizationId: OrganizationId;
+    readonly aggregateType: string;
+    readonly aggregateId: string;
+    readonly aggregateVersion: number;
+    readonly correlationId: string;
+    readonly orderingKeyType: string | null;
+    readonly orderingKey: string | null;
+    readonly sourceSequence: number | null;
+    readonly now: Date;
+  }): Promise<"Claimed" | "AlreadyHandled" | "Blocked">;
+
+  /** Processing -> Processed. */
+  complete(input: {
+    readonly consumerName: string;
+    readonly eventId: string;
+    readonly now: Date;
+  }): Promise<void>;
+
+  /**
+   * Processing -> Failed, with the dead letter and ordering decision the
+   * registration's failure-continuation policy requires, in one transaction.
+   */
+  fail(input: {
+    readonly consumerName: string;
+    readonly eventId: string;
+    readonly organizationId: OrganizationId;
+    readonly deadLetterId: string;
+    readonly failureCategory: string;
+    readonly errorCode: string;
+    readonly blockOrderingKey: boolean;
+    readonly now: Date;
+  }): Promise<void>;
+
+  /** Dead letters an operator may act on, newest failure first. */
+  listDeadLettered(
+    organizationId: OrganizationId,
+    limit: number,
+  ): Promise<readonly DeadLetteredDelivery[]>;
+
+  findDeadLetter(
+    organizationId: OrganizationId,
+    deadLetterId: string,
+  ): Promise<DeadLetteredDelivery | null>;
+
+  /**
+   * The atomic skip the events document specifies.
+   *
+   * Every step in one statement sequence inside the caller's transaction:
+   * processed event `Failed -> Skipped`, dead letter `-> Skipped`, and the
+   * ordering decision. "A partial skip is prohibited."
+   *
+   * Fenced on the expected dead-letter version, so a skip authorized against
+   * one view of the failure cannot apply to a different one.
+   */
+  skip(input: {
+    readonly organizationId: OrganizationId;
+    readonly deadLetterId: string;
+    readonly expectedDeadLetterVersion: number;
+    readonly expectedOrderingStateVersion: number | null;
+    readonly reasonCode: string;
+    readonly resolvedByIdentityId: IdentityId;
+    readonly resolvedByMembershipId: MembershipId;
+    readonly orderingBroken: boolean;
+    readonly now: Date;
+  }): Promise<boolean>;
+
+  /**
+   * Return a dead-lettered delivery to `Pending` so the worker reprocesses it
+   * with the currently deployed handler.
+   *
+   * Fenced the same way, and refuses a dead letter that is already terminal.
+   */
+  reprocess(input: {
+    readonly organizationId: OrganizationId;
+    readonly deadLetterId: string;
+    readonly expectedDeadLetterVersion: number;
+    readonly now: Date;
+  }): Promise<boolean>;
+}
+
+/** The durable replay intent, written before execution. */
+export interface ReplayRepository {
+  record(input: {
+    readonly replayId: string;
+    readonly organizationId: OrganizationId;
+    readonly originalEventId: string;
+    readonly consumerName: string;
+    readonly replayMode: string;
+    readonly requestedByIdentityId: IdentityId;
+    readonly requestedByMembershipId: MembershipId;
+    readonly reasonCode: string;
+    readonly reason: string;
+    readonly status: string;
+    readonly authorizationPolicyId: string;
+    readonly authorizationPolicyVersion: number;
+    readonly sourceProcessedEventStatus: string;
+    readonly expectedDeadLetterVersion: number | null;
+    readonly now: Date;
+  }): Promise<void>;
+
+  /** Move a replay to a terminal status, recording the outcome. */
+  settle(input: {
+    readonly replayId: string;
+    readonly organizationId: OrganizationId;
+    readonly status: string;
+    readonly resultCode: string;
+    readonly now: Date;
+  }): Promise<void>;
+}

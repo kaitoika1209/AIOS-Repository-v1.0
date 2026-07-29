@@ -53,6 +53,23 @@ const DOMAIN_STATUS: Readonly<Record<string, number>> = {
   INVITATION_NOT_ACCEPTABLE: 404,
 };
 
+/**
+ * Application error codes that are not `DomainError`s.
+ *
+ * `RECOVERY_NOT_PERMITTED` is `422`: the request is well formed and the caller
+ * holds the permission, but the consumer's registration forbids the operation.
+ * A `403` would say the caller lacks authority, which is the wrong diagnosis —
+ * no role grants a skip the registration prohibits.
+ */
+const APPLICATION_STATUS: Readonly<Record<string, number>> = {
+  RECOVERY_NOT_PERMITTED: 422,
+};
+
+const codeOf = (error: unknown): string | null =>
+  typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code: unknown }).code)
+    : null;
+
 /** Codes for framework exceptions that carry none of their own. */
 const STATUS_CODES: Readonly<Record<number, string>> = {
   401: "NOT_AUTHENTICATED",
@@ -72,6 +89,10 @@ export const statusFor = (error: unknown): number => {
   if (error instanceof AccessDeniedError) return 403;
   if (error instanceof NotFoundError) return 404;
   if (error instanceof DomainError) return DOMAIN_STATUS[error.code] ?? 400;
+
+  const code = codeOf(error);
+  if (code !== null && code in APPLICATION_STATUS) return APPLICATION_STATUS[code]!;
+
   if (error instanceof HttpException) return error.getStatus();
   return 500;
 };
@@ -104,6 +125,15 @@ export const bodyFor = (error: unknown): ErrorBody => {
       code: error.code,
       message: error.message,
       details: error.details as Record<string, unknown>,
+    };
+  }
+
+  const applicationCode = codeOf(error);
+  if (applicationCode !== null && applicationCode in APPLICATION_STATUS) {
+    return {
+      code: applicationCode,
+      message: error instanceof Error ? error.message : "Not permitted.",
+      details: {},
     };
   }
 

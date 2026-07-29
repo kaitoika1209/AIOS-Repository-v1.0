@@ -163,13 +163,25 @@ target state as a parameter.
 | `organization.revoke_invitation` | `POST /organizations/{organizationId}/members/{membershipId}/revoke-invitation` |
 | `events.inspect_failed` | `GET /admin/events/failed` |
 | `events.retry` | `POST /admin/events/{eventId}/retry` |
-| `events.skip` | `POST /admin/events/{eventId}/skip` |
-| `events.replay_domain_consumer` | `POST /admin/events/replay/consumer` |
+| `events.skip` | `POST /admin/events/dead-letters/{deadLetterId}/skip` |
+| `events.replay_domain_consumer` | `POST /admin/events/dead-letters/{deadLetterId}/reprocess` |
 | `events.replay_projection` | `POST /admin/events/replay/projection` |
 
 The `operation` value recorded for observability is the permission identifier, so
 `POST /works/{workId}/complete` reports `work.complete`. Route and telemetry cannot
 drift apart.
+
+### Recovery routes are addressed by what they recover
+
+`events.retry` acts on publication and is keyed by `eventId`, because an Outbox row
+is one event published once. The other three act on *consumption* — one named
+consumer's handling of one event — and are keyed by `deadLetterId`, which identifies
+that pair.
+
+Keying them by `eventId` would be ambiguous the moment a second consumer registers
+for the same event type: two deliveries can fail independently, and skipping "the
+event" would not say which result is being discarded. The dead letter is the thing
+an operator inspects, so it is the thing the command names.
 
 ### `work.assign` declares relationships rather than naming an operation
 
