@@ -30,6 +30,8 @@ import {
 import type {
   Clock,
   DecisionRepository,
+  EventRecoveryRepository,
+  FailedEventSummary,
   GenerationOperation,
   GenerationOperationRepository,
   IdentityRecord,
@@ -491,6 +493,71 @@ export class InMemoryGenerationOperationRepository
   }
 }
 
+/**
+ * Failed deliveries as the recovery routes see them.
+ *
+ * Separate from `InMemoryOutbox` on purpose: the outbox port only appends, and
+ * a failed delivery is a state the *publisher* produces, not the use case. Tests
+ * seed that state directly, which is also what a real incident looks like from
+ * the recovery side.
+ */
+export class InMemoryEventRecoveryRepository implements EventRecoveryRepository {
+  private readonly rows = new Map<
+    string,
+    FailedEventSummary & { organizationId: OrganizationId; status: string }
+  >();
+
+  async listFailed(
+    organizationId: OrganizationId,
+    limit: number,
+  ): Promise<readonly FailedEventSummary[]> {
+    return [...this.rows.values()]
+      .filter((r) => r.organizationId === organizationId && r.status === "Failed")
+      .slice(0, limit)
+      .map(({ organizationId: _organizationId, status: _status, ...summary }) => summary);
+  }
+
+  async retryFailed(
+    organizationId: OrganizationId,
+    eventId: string,
+    _now: Date,
+  ): Promise<boolean> {
+    const row = this.rows.get(eventId);
+    // All three conditions in one place, matching the single conditional
+    // UPDATE the PostgreSQL adapter issues.
+    if (
+      row === undefined ||
+      row.organizationId !== organizationId ||
+      row.status !== "Failed"
+    ) {
+      return false;
+    }
+    // `attemptCount` is deliberately carried over unchanged.
+    this.rows.set(eventId, { ...row, status: "Pending" });
+    return true;
+  }
+
+  /** Seed a failed delivery. */
+  seedFailed(
+    organizationId: OrganizationId,
+    summary: FailedEventSummary,
+  ): void {
+    this.rows.set(summary.eventId, {
+      ...summary,
+      organizationId,
+      status: "Failed",
+    });
+  }
+
+  /** Exposed so tests can assert what a retry did to the row. */
+  statusOf(eventId: string): { status: string; attemptCount: number } | null {
+    const row = this.rows.get(eventId);
+    return row === undefined
+      ? null
+      : { status: row.status, attemptCount: row.attemptCount };
+  }
+}
+
 export class InMemoryOutbox implements OutboxPort {
   readonly events: DomainEvent[] = [];
 
@@ -582,6 +649,7 @@ export const buildTestHarness = (now = new Date("2026-07-28T10:00:00Z")) => {
   const decisions = new InMemoryDecisionRepository();
   const memories = new InMemoryMemoryRepository();
   const generationOperations = new InMemoryGenerationOperationRepository();
+  const eventRecovery = new InMemoryEventRecoveryRepository();
   const memberships = new InMemoryMembershipRepository();
   const identities = new InMemoryIdentityRepository();
   const outbox = new InMemoryOutbox();
@@ -590,6 +658,7 @@ export const buildTestHarness = (now = new Date("2026-07-28T10:00:00Z")) => {
     decisions,
     memories,
     generationOperations,
+    eventRecovery,
     memberships,
     identities,
     outbox,

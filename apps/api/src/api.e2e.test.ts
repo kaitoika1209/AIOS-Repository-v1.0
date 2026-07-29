@@ -1003,4 +1003,199 @@ suite("AIOS API", () => {
       }
     });
   });
+
+  describe("operational recovery (events.*)", () => {
+    /**
+     * A failed delivery, written directly.
+     *
+     * The publisher produces this state after exhausting its retries, and
+     * driving it there through the worker would take a deliberately broken
+     * consumer. What the recovery routes need is the row, not the story that
+     * produced it.
+     */
+    const seedFailed = async (
+      organizationId: string,
+      overrides: { attemptCount?: number } = {},
+    ): Promise<string> => {
+      const eventId = randomUUID();
+      const client = await pool.connect();
+      try {
+        await client.query(
+          `INSERT INTO outbox_messages
+             (outbox_id, event_id, event_type, event_category, schema_version,
+              aggregate_type, aggregate_id, aggregate_version, event_sequence,
+              organization_id, payload, headers, destination,
+              occurred_at, recorded_at, correlation_id, actor_reference,
+              status, attempt_count, next_attempt_at, first_attempt_at,
+              last_attempt_at, last_error_code, last_error_message)
+           VALUES ($1, $2, 'WorkCreated', 'Domain', 1,
+                   'Work', $3, 1, 1,
+                   $4, $5, '{}'::jsonb, 'domain',
+                   now(), now(), $6, $7,
+                   'Failed', $8, now(), now(),
+                   now(), 'CONSUMER_TIMEOUT', 'timed out reading title=Confidential')`,
+          [
+            randomUUID(),
+            eventId,
+            randomUUID(),
+            organizationId,
+            JSON.stringify({ title: "Confidential merger terms" }),
+            randomUUID(),
+            JSON.stringify({ identityId: MEMBER.identity }),
+            overrides.attemptCount ?? 5,
+          ],
+        );
+      } finally {
+        client.release();
+      }
+      return eventId;
+    };
+
+    const rowOf = async (eventId: string) => {
+      const client = await pool.connect();
+      try {
+        const result = await client.query<{ status: string; attempt_count: number }>(
+          `SELECT status, attempt_count FROM outbox_messages WHERE event_id = $1`,
+          [eventId],
+        );
+        return result.rows[0]!;
+      } finally {
+        client.release();
+      }
+    };
+
+    it("lists failed deliveries for an Owner", async () => {
+      const eventId = await seedFailed(ORG);
+
+      const res = await request(server())
+        .get("/admin/events/failed")
+        .set(as(OWNER))
+        .expect(200);
+
+      expect(res.body.items).toHaveLength(1);
+      expect(res.body.items[0]).toMatchObject({
+        eventId,
+        eventType: "WorkCreated",
+        aggregateType: "Work",
+        attemptCount: 5,
+        lastErrorCode: "CONSUMER_TIMEOUT",
+      });
+    });
+
+    it("does not disclose the payload, headers, actor, or error message", async () => {
+      await seedFailed(ORG);
+
+      const res = await request(server())
+        .get("/admin/events/failed")
+        .set(as(OWNER))
+        .expect(200);
+
+      // Asserted against the serialised response rather than key by key: a
+      // field added to the summary later would leak silently otherwise.
+      const body = JSON.stringify(res.body);
+      expect(body).not.toContain("Confidential");
+      expect(body).not.toContain("timed out");
+      expect(body).not.toContain(MEMBER.identity);
+      expect(Object.keys(res.body.items[0]).sort()).toEqual(
+        [
+          "aggregateId",
+          "aggregateType",
+          "aggregateVersion",
+          "attemptCount",
+          "eventId",
+          "eventType",
+          "lastAttemptAt",
+          "lastErrorCode",
+          "occurredAt",
+        ].sort(),
+      );
+    });
+
+    it("does not show another Organization's failures", async () => {
+      await seedFailed(OTHER_ORG);
+
+      const res = await request(server())
+        .get("/admin/events/failed")
+        .set(as(OWNER))
+        .expect(200);
+
+      expect(res.body.items).toEqual([]);
+    });
+
+    it("denies a Member both inspection and retry", async () => {
+      const eventId = await seedFailed(ORG);
+
+      await request(server()).get("/admin/events/failed").set(as(MEMBER)).expect(403);
+      await request(server())
+        .post(`/admin/events/${eventId}/retry`)
+        .set(as(MEMBER))
+        .expect(403);
+    });
+
+    it("returns a failed delivery to Pending without erasing attempt_count", async () => {
+      const eventId = await seedFailed(ORG, { attemptCount: 5 });
+
+      await request(server())
+        .post(`/admin/events/${eventId}/retry`)
+        .set(as(OWNER))
+        .expect(204);
+
+      // The evidence of how hard the system already tried survives the retry,
+      // which is what stops a poisonous message from cycling forever while
+      // looking untouched.
+      expect(await rowOf(eventId)).toEqual({ status: "Pending", attempt_count: 5 });
+    });
+
+    it("reports another Organization's failed event as 404, not 403", async () => {
+      const eventId = await seedFailed(OTHER_ORG);
+
+      await request(server())
+        .post(`/admin/events/${eventId}/retry`)
+        .set(as(OWNER))
+        .expect(404);
+
+      expect(await rowOf(eventId)).toMatchObject({ status: "Failed" });
+    });
+
+    it("refuses to retry an event that is not Failed", async () => {
+      const eventId = await seedFailed(ORG);
+      await request(server())
+        .post(`/admin/events/${eventId}/retry`)
+        .set(as(OWNER))
+        .expect(204);
+
+      // Now Pending. A second retry must not reset the schedule of a message
+      // that is already queued.
+      await request(server())
+        .post(`/admin/events/${eventId}/retry`)
+        .set(as(OWNER))
+        .expect(404);
+    });
+
+    it("rejects a malformed event id as a client error", async () => {
+      await request(server())
+        .post("/admin/events/not-a-uuid/retry")
+        .set(as(OWNER))
+        .expect(400);
+    });
+
+    it("exposes no route for the recovery operations that need a consumer policy", async () => {
+      // Skip and the two replays assert something about the original delivery,
+      // and deciding whether that assertion is safe needs a registered
+      // ConsumerRegistration. Absent, not silently permitted.
+      const eventId = await seedFailed(ORG);
+      await request(server())
+        .post(`/admin/events/${eventId}/skip`)
+        .set(as(OWNER))
+        .expect(404);
+      await request(server())
+        .post("/admin/events/replay/consumer")
+        .set(as(OWNER))
+        .expect(404);
+      await request(server())
+        .post("/admin/events/replay/projection")
+        .set(as(OWNER))
+        .expect(404);
+    });
+  });
 });

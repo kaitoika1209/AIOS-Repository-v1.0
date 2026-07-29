@@ -287,6 +287,55 @@ export interface GenerationOperationRepository {
   }): Promise<void>;
 }
 
+/**
+ * A failed delivery, as an operator is permitted to see it.
+ *
+ * The authorization document calls this "redacted failed-event metadata", and
+ * the redaction is the point: `payload` carries the business content of a Work,
+ * Decision, or Memory, and an operator diagnosing a delivery failure has no need
+ * of it. `last_error_message` is excluded for the same reason — a driver error
+ * routinely quotes the row it choked on.
+ *
+ * What is left is enough to decide whether to retry: what failed, how often, and
+ * with which error code.
+ */
+export interface FailedEventSummary {
+  readonly eventId: string;
+  readonly eventType: string;
+  readonly aggregateType: string;
+  readonly aggregateId: string;
+  readonly aggregateVersion: number;
+  readonly attemptCount: number;
+  readonly lastErrorCode: string | null;
+  readonly occurredAt: Date;
+  readonly lastAttemptAt: Date | null;
+}
+
+export interface EventRecoveryRepository {
+  /** Failed deliveries in one Organization, newest failure first. */
+  listFailed(
+    organizationId: OrganizationId,
+    limit: number,
+  ): Promise<readonly FailedEventSummary[]>;
+
+  /**
+   * Return one failed delivery to `Pending`.
+   *
+   * Scoped by Organization in the statement itself, not by a check the caller
+   * could forget: the source event determines the Organization, and a recovery
+   * request cannot name another one. Returns false when no row matched — an
+   * event that is not Failed, or belongs elsewhere.
+   *
+   * `attempt_count` is preserved. Resetting it would erase the evidence of how
+   * hard the system already tried and let a poisonous message cycle forever.
+   */
+  retryFailed(
+    organizationId: OrganizationId,
+    eventId: string,
+    now: Date,
+  ): Promise<boolean>;
+}
+
 export interface OutboxPort {
   append(events: readonly DomainEvent[]): Promise<void>;
 }
@@ -309,6 +358,7 @@ export interface RepositoryBundle {
   readonly decisions: DecisionRepository;
   readonly memories: MemoryRepository;
   readonly generationOperations: GenerationOperationRepository;
+  readonly eventRecovery: EventRecoveryRepository;
   readonly memberships: MembershipRepository;
   readonly identities: IdentityRepository;
   readonly outbox: OutboxPort;

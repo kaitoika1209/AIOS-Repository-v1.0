@@ -11,6 +11,7 @@
 export * from "./mapping.js";
 export * from "./decision-mapping.js";
 export * from "./decision-repository.js";
+export * from "./event-recovery-repository.js";
 export * from "./generation-operation-repository.js";
 export * from "./membership-repository.js";
 export * from "./memory-mapping.js";

@@ -23,6 +23,7 @@ import {
 import type { Clock, IdGenerator, UseCaseDependencies } from "@aios/application";
 import { PostgresUnitOfWork } from "@aios/persistence";
 
+import { AdminEventsController } from "./admin-events.controller.js";
 import { chooseGenerator } from "./anthropic-memory-generator.js";
 import { DecisionController } from "./decision.controller.js";
 import { InvitationController } from "./invitation.controller.js";
@@ -103,6 +104,7 @@ export const createApp = async (options: AppOptions): Promise<INestApplication> 
       MemoryController,
       OrganizationMemberController,
       InvitationController,
+      AdminEventsController,
     ],
     providers: [{ provide: USE_CASE_DEPENDENCIES, useValue: deps }],
   })

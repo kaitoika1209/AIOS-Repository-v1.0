@@ -92,7 +92,21 @@ describe("role to permission mapping", () => {
     for (const permission of recovery) {
       expect(rolePermissions.Member).not.toContain(permission);
       expect(rolePermissions.Reviewer).not.toContain(permission);
-      expect(rolePermissions.OrganizationAdmin).toContain(permission);
+      expect(rolePermissions.OrganizationOwner).toContain(permission);
     }
+  });
+
+  it("denies an Admin domain-consumer replay by default", () => {
+    // The Consumer Recovery Permission Matrix reads "Deny unless explicit
+    // Organization policy grants it", and per-Organization policy does not
+    // exist in this release. Reprocessing with the current handler can repeat
+    // an authoritative or irreversible effect, which is why it is the one
+    // recovery operation the Admin does not get for free.
+    expect(rolePermissions.OrganizationAdmin).not.toContain(
+      "events.replay_domain_consumer",
+    );
+    expect(rolePermissions.OrganizationOwner).toContain(
+      "events.replay_domain_consumer",
+    );
   });
 });

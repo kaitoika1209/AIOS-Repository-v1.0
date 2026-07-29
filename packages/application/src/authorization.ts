@@ -83,7 +83,10 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     "events.inspect_failed",
     "events.retry",
     "events.skip",
-    "events.replay_domain_consumer",
+    // `events.replay_domain_consumer` is absent deliberately. The Consumer
+    // Recovery Permission Matrix gives it to the Owner and denies it to the
+    // Admin "unless explicit Organization policy grants it" — and per-Organization
+    // policy does not exist in this release, so the default is deny.
     "events.replay_projection",
   ],
   Member: [
