@@ -27,15 +27,25 @@ export default async function Home() {
     <>
       <h1>Work</h1>
 
-      {loadError && <p className="error">{loadError}</p>}
+      {loadError && (
+        <div className="card">
+          <p className="error">{loadError}</p>
+          <p className="hint">
+            If this says you are not authenticated, the identity you are acting
+            as has no Membership here yet. Only the Owner is seeded; everyone
+            else joins through <a href="/members">an invitation</a>. That is the
+            boundary working — authority begins at acceptance.
+          </p>
+        </div>
+      )}
 
       <div className="card">
         <h2>Create Work</h2>
-        {user.role === "Reviewer" ? (
+        {user.expectedRole === "Reviewer" ? (
           <p className="hint">
-            A Reviewer holds review authority only, so creating Work is denied.
-            Switch to Alice to create one — or press the button to see the API
-            refuse it.
+            Raj joins as a Reviewer, and a Reviewer holds review authority only —
+            creating Work is denied. Switch to Olivia or Alice to create one, or
+            press the button to see the API refuse it.
           </p>
         ) : null}
         <ActionForm action={createWork} submitLabel="Create">

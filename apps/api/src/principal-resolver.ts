@@ -28,6 +28,14 @@ export interface AuthenticatedSubject {
   readonly provider: string;
   readonly issuer: string;
   readonly subject: string;
+  /**
+   * Profile data, not an identity key.
+   *
+   * Used only to name a Human Identity that invitation acceptance has to
+   * create. Nothing matches on it, and the resolution chain below ignores it
+   * entirely — the tuple above is what identifies a subject.
+   */
+  readonly displayName?: string;
 }
 
 export type ResolutionFailure =

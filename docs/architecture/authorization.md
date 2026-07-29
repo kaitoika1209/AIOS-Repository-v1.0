@@ -1043,7 +1043,14 @@ Roles are mapped to named permissions.
 
 Application Services evaluate permissions rather than hard-coding role names wherever possible.
 
-Example permissions:
+---
+
+## Permission Catalogue
+
+This block is the authoritative catalogue. Per
+[ADR-0014](../adr/0014-adopt-rest-with-explicit-command-sub-resources.md) each entry has
+exactly one route and each command route has exactly one entry; `scripts/check_docs.py`
+reads this block and fails the build when the two drift apart.
 
 ```text
 work.create
@@ -1057,7 +1064,6 @@ work.cancel
 
 decision.create
 decision.edit_draft
-decision.record_secretary_contribution
 decision.submit
 decision.approve
 decision.reject
@@ -1065,14 +1071,48 @@ decision.withdraw
 decision.start_revision
 
 memory.edit_generated
-memory.record_secretary_contribution
 memory.submit
 memory.approve
 memory.reject
 memory.reopen
 
-organization.manage_members
-organization.manage_roles
+organization.read_members
+organization.invite_member
+organization.resend_invitation
+organization.revoke_invitation
+
+events.inspect_failed
+events.retry
+events.skip
+events.replay_domain_consumer
+events.replay_projection
+```
+
+Membership invitation is split into one permission per command rather than a single
+`organization.manage_members`, because the one-route-one-permission rule cannot hold
+otherwise: inviting, resending, and revoking are three routes. The split also makes the
+narrower grants expressible — reading the member list is not administration, and is held
+by every role.
+
+---
+
+## Reserved Permissions
+
+The names below are anticipated but **not** part of the catalogue above. They have no
+route and no role grant. Adding one is a scope change under
+[ADR-0010](../adr/0010-classify-blueprint-scope-and-implementation-authority.md), not an
+editing decision.
+
+```text
+decision.record_secretary_contribution
+memory.record_secretary_contribution
+
+organization.suspend_member
+organization.reactivate_member
+organization.revoke_member
+organization.assign_role
+organization.revoke_role
+
 authorization.read_audit
 ```
 
@@ -1085,6 +1125,8 @@ Recommended MVP mapping:
 | Permission Category | Owner | Admin | Member | Reviewer |
 |---|---:|---:|---:|---:|
 | Organization administration | Full | Limited | None | None |
+| Member list reading | Yes | Yes | Yes | Yes |
+| Membership invitation | Yes | Yes | No | No |
 | Work creation and editing | Yes | Yes | Yes | No by default |
 | Work assignment | Yes | Yes | Limited | No |
 | Work completion | Yes | Yes | Related Work only | No by default |

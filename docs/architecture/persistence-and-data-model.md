@@ -4238,12 +4238,6 @@ CREATE TABLE memberships (
             version > 0
         ),
 
-    CONSTRAINT ck_memberships_identity_presence
-        CHECK (
-            (status = 'Invited' AND identity_id IS NULL)
-            OR (status <> 'Invited' AND identity_id IS NOT NULL)
-        ),
-
     CONSTRAINT ck_memberships_revoked_at
         CHECK (
             (status = 'Revoked') = (revoked_at IS NOT NULL)
@@ -4251,9 +4245,12 @@ CREATE TABLE memberships (
 );
 ```
 
-`identity_id` is null only while the Membership is `Invited`, because an invitation may
-be addressed to someone who has no Human Identity yet. Activation is the point at which
-an Identity is bound, and the check constraint above makes the two states inseparable.
+`identity_id` may be null while the Membership is `Invited`, because an invitation may be
+addressed to someone who has no Human Identity yet. Which combinations of status and
+identity are legal is stated once, in
+[Membership Identity Constraint](#membership-identity-constraint) — not here. An earlier
+revision of this section carried a second inline check on the same column that
+contradicted it; two constraints governing one column is a defect even when they agree.
 
 An `Invited` Membership grants no business authority. Only an `Active` Membership can
 produce a `HumanMemberPrincipal`.
@@ -4306,11 +4303,18 @@ and:
 pending_invitee_email_normalized IS NOT NULL
 ```
 
-An Active, Suspended, or Revoked Membership must have:
+An Active or Suspended Membership must have:
 
 ```text
 identity_id IS NOT NULL
 ```
+
+A Revoked Membership may have either. It is reachable two ways: from `Active`, where an
+Identity is bound, and directly from `Invited` via `RevokeInvitation` or
+`ExpireInvitation`, where the invitation was never accepted and no Identity ever existed.
+Requiring an Identity for `Revoked` would make those two transitions — both mandatory in
+the Membership state machine in
+[Identity and Organization](identity-and-organization.md) — impossible to record.
 
 Recommended check:
 
@@ -4329,11 +4333,12 @@ CHECK (
     (
         status IN (
             'Active',
-            'Suspended',
-            'Revoked'
+            'Suspended'
         )
         AND identity_id IS NOT NULL
     )
+    OR
+    status = 'Revoked'
 );
 ```
 

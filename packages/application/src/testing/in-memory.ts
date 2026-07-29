@@ -9,23 +9,32 @@
 
 import type {
   DecisionId,
+  IdentityId,
+  InvitationId,
   MemoryId,
+  MembershipId,
   OrganizationId,
   WorkId,
 } from "@aios/types";
 import {
   VersionConflictError,
+  currentInvitation,
   type DecisionState,
   type DomainEvent,
   type MemoryState,
+  type MembershipState,
   type WorkState,
 } from "@aios/domain";
 
 import type {
   Clock,
   DecisionRepository,
+  IdentityRecord,
+  IdentityRepository,
   MemoryRepository,
+  MembershipRepository,
   IdGenerator,
+  OrganizationMemberSummary,
   OutboxPort,
   RepositoryBundle,
   UnitOfWork,
@@ -168,6 +177,139 @@ export class InMemoryMemoryRepository implements MemoryRepository {
   }
 }
 
+export class InMemoryMembershipRepository implements MembershipRepository {
+  private readonly rows = new Map<string, MembershipState>();
+
+  async findById(
+    organizationId: OrganizationId,
+    membershipId: MembershipId,
+  ): Promise<MembershipState | null> {
+    const row = this.rows.get(membershipId);
+    if (row === undefined || row.organizationId !== organizationId) return null;
+    return row;
+  }
+
+  async findByInvitationTokenHash(
+    tokenHash: string,
+  ): Promise<MembershipState | null> {
+    // Not Organization-scoped, matching the port: the token is what names the
+    // Organization. Only the current invitation is searched, so a superseded
+    // token finds nothing rather than finding a stale row.
+    return (
+      [...this.rows.values()].find(
+        (m) => currentInvitation(m)?.tokenHash === tokenHash,
+      ) ?? null
+    );
+  }
+
+  async findByEmail(
+    organizationId: OrganizationId,
+    normalizedEmail: string,
+  ): Promise<MembershipState | null> {
+    return (
+      [...this.rows.values()].find(
+        (m) =>
+          m.organizationId === organizationId &&
+          m.pendingInviteeEmail === normalizedEmail,
+      ) ?? null
+    );
+  }
+
+  async findByIdentity(
+    organizationId: OrganizationId,
+    identityId: IdentityId,
+  ): Promise<MembershipState | null> {
+    return (
+      [...this.rows.values()].find(
+        (m) => m.organizationId === organizationId && m.identityId === identityId,
+      ) ?? null
+    );
+  }
+
+  async insert(membership: MembershipState): Promise<void> {
+    this.rows.set(membership.membershipId, membership);
+  }
+
+  async update(membership: MembershipState, expectedVersion: number): Promise<void> {
+    const existing = this.rows.get(membership.membershipId);
+    if (existing === undefined) {
+      throw new Error(`Membership ${membership.membershipId} does not exist.`);
+    }
+    if (existing.version !== expectedVersion) {
+      throw new VersionConflictError(expectedVersion, existing.version);
+    }
+    this.rows.set(membership.membershipId, membership);
+  }
+
+  async listMembers(
+    organizationId: OrganizationId,
+  ): Promise<readonly OrganizationMemberSummary[]> {
+    return [...this.rows.values()]
+      .filter((m) => m.organizationId === organizationId)
+      .map((m) => ({
+        membershipId: m.membershipId,
+        status: m.status,
+        roles: m.roles,
+        identityId: m.identityId,
+        displayName: null,
+        email: m.pendingInviteeEmail,
+        invitedAt: m.invitedAt,
+        activatedAt: m.activatedAt,
+        invitationExpiresAt: currentInvitation(m)?.expiresAt ?? null,
+      }));
+  }
+}
+
+export class InMemoryIdentityRepository implements IdentityRepository {
+  private readonly rows = new Map<string, IdentityRecord & { subject: string }>();
+
+  private static key(subject: {
+    provider: string;
+    issuer: string;
+    subject: string;
+  }): string {
+    return `${subject.provider}|${subject.issuer}|${subject.subject}`;
+  }
+
+  async findBySubject(subject: {
+    provider: string;
+    issuer: string;
+    subject: string;
+  }): Promise<IdentityRecord | null> {
+    return this.rows.get(InMemoryIdentityRepository.key(subject)) ?? null;
+  }
+
+  async createWithSubject(input: {
+    identityId: IdentityId;
+    displayName: string;
+    primaryEmail: string;
+    provider: string;
+    issuer: string;
+    subject: string;
+  }): Promise<IdentityRecord> {
+    const record = {
+      identityId: input.identityId,
+      status: "Active" as const,
+      displayName: input.displayName,
+      primaryEmailNormalized: input.primaryEmail.trim().toLowerCase(),
+      subject: input.subject,
+    };
+    this.rows.set(InMemoryIdentityRepository.key(input), record);
+    return record;
+  }
+
+  /** Seed an Identity that already exists, for tests about the matching rule. */
+  seed(
+    record: IdentityRecord,
+    subject: { provider: string; issuer: string; subject: string },
+  ): void {
+    this.rows.set(InMemoryIdentityRepository.key(subject), {
+      ...record,
+      subject: subject.subject,
+    });
+  }
+}
+
 export class InMemoryOutbox implements OutboxPort {
   readonly events: DomainEvent[] = [];
 
@@ -190,34 +332,33 @@ export class InMemoryOutbox implements OutboxPort {
 export class InMemoryUnitOfWork implements UnitOfWork {
   constructor(private readonly bundle: RepositoryBundle & { outbox: InMemoryOutbox }) {}
 
+  /**
+   * Every repository in the bundle, seen as its backing map.
+   *
+   * Enumerated rather than listed by name so adding a repository to the bundle
+   * cannot silently escape rollback — an omitted one would make a test pass by
+   * leaving writes behind that a real transaction would have discarded.
+   */
+  private stores(): Map<string, unknown>[] {
+    return Object.values(this.bundle)
+      .map((repository) => (repository as { rows?: Map<string, unknown> }).rows)
+      .filter((rows): rows is Map<string, unknown> => rows instanceof Map);
+  }
+
   async transaction<T>(fn: (tx: RepositoryBundle) => Promise<T>): Promise<T> {
-    const snapshot = structuredClone({
-      work: (this.bundle.work as unknown as { rows: Map<string, WorkState> }).rows,
-      decisions: (this.bundle.decisions as unknown as { rows: Map<string, DecisionState> })
-        .rows,
-      memories: (this.bundle.memories as unknown as { rows: Map<string, MemoryState> })
-        .rows,
-      outbox: [...this.bundle.outbox.events],
-    });
+    const stores = this.stores();
+    const snapshot = stores.map((rows) => new Map(rows));
+    const events = [...this.bundle.outbox.events];
 
     try {
       return await fn(this.bundle);
     } catch (error) {
-      const work = this.bundle.work as unknown as { rows: Map<string, WorkState> };
-      const decisions = this.bundle.decisions as unknown as {
-        rows: Map<string, DecisionState>;
-      };
-      work.rows.clear();
-      for (const [k, v] of snapshot.work) work.rows.set(k, v);
-      decisions.rows.clear();
-      for (const [k, v] of snapshot.decisions) decisions.rows.set(k, v);
-      const memories = this.bundle.memories as unknown as {
-        rows: Map<string, MemoryState>;
-      };
-      memories.rows.clear();
-      for (const [k, v] of snapshot.memories) memories.rows.set(k, v);
+      stores.forEach((rows, index) => {
+        rows.clear();
+        for (const [key, value] of snapshot[index]!) rows.set(key, value);
+      });
       this.bundle.outbox.events.length = 0;
-      this.bundle.outbox.events.push(...snapshot.outbox);
+      this.bundle.outbox.events.push(...events);
       throw error;
     }
   }
@@ -241,6 +382,15 @@ export class SequentialIds implements IdGenerator {
   memoryId(): MemoryId {
     return `memory-${++this.n}` as MemoryId;
   }
+  membershipId(): MembershipId {
+    return `membership-${++this.n}` as MembershipId;
+  }
+  invitationId(): InvitationId {
+    return `invitation-${++this.n}` as InvitationId;
+  }
+  identityId(): IdentityId {
+    return `identity-${++this.n}` as IdentityId;
+  }
   revisionId(): string {
     return `revision-${++this.n}`;
   }
@@ -250,8 +400,10 @@ export const buildTestHarness = (now = new Date("2026-07-28T10:00:00Z")) => {
   const work = new InMemoryWorkRepository();
   const decisions = new InMemoryDecisionRepository();
   const memories = new InMemoryMemoryRepository();
+  const memberships = new InMemoryMembershipRepository();
+  const identities = new InMemoryIdentityRepository();
   const outbox = new InMemoryOutbox();
-  const bundle = { work, decisions, memories, outbox };
+  const bundle = { work, decisions, memories, memberships, identities, outbox };
 
   return {
     ...bundle,

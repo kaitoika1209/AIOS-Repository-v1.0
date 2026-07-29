@@ -17,6 +17,7 @@ import type {
   MembershipId,
   MemoryId,
   OrganizationId,
+  Role,
   WorkId,
 } from "@aios/types";
 
@@ -34,8 +35,12 @@ export interface DomainEventBase {
   /** The Identity whose authority produced this event. */
   readonly actorIdentityId: IdentityId;
   /**
-   * Null only when the actor is an AI or System Principal, neither of which
-   * holds a Membership. Memory generation is the case that requires it.
+   * Null when the actor holds no Membership in this Organization.
+   *
+   * Two cases produce it: an AI or System Principal, which never holds one
+   * (Memory generation); and a human accepting an invitation, who does not hold
+   * one *yet* — the Membership that acceptance activates is named in the event
+   * payload instead.
    */
   readonly actorMembershipId: MembershipId | null;
 }
@@ -157,6 +162,49 @@ export type MemoryEvent =
   | MemoryApproved
   | MemoryRejected;
 
+/**
+ * Membership events.
+ *
+ * The registered subset confirmed by `identity-and-organization.md`. There is no
+ * event for issuing or reissuing a token: a resend changes no Membership fact,
+ * and revoking an invitation reaches `Revoked` and so emits `MembershipRevoked`
+ * with a reason, exactly as revoking an active Membership does.
+ *
+ * `MembershipSuspended` and `MembershipReactivated` are registered but not yet
+ * emitted; their commands are not in this release.
+ */
+export interface MembershipInvited extends DomainEventBase {
+  readonly type: "MembershipInvited";
+  readonly membershipId: MembershipId;
+  /**
+   * The address the invitation was sent to. Delivery metadata, not identity —
+   * the Membership carries no `identityId` until acceptance binds one.
+   */
+  readonly inviteeEmail: string;
+  readonly initialRoles: readonly Role[];
+  readonly expiresAt: Date;
+}
+
+export interface MembershipActivated extends DomainEventBase {
+  readonly type: "MembershipActivated";
+  readonly membershipId: MembershipId;
+  readonly identityId: IdentityId;
+  readonly initialRoles: readonly Role[];
+}
+
+export interface MembershipRevoked extends DomainEventBase {
+  readonly type: "MembershipRevoked";
+  readonly membershipId: MembershipId;
+  /** Null when the invitation was revoked before anyone accepted it. */
+  readonly identityId: IdentityId | null;
+  readonly reason: string;
+}
+
+export type MembershipEvent =
+  | MembershipInvited
+  | MembershipActivated
+  | MembershipRevoked;
+
 export type WorkEvent =
   | WorkCreated
   | WorkStarted
@@ -172,7 +220,11 @@ export type DecisionEvent =
   | DecisionRejected
   | DecisionWithdrawn;
 
-export type DomainEvent = WorkEvent | DecisionEvent | MemoryEvent;
+export type DomainEvent =
+  | WorkEvent
+  | DecisionEvent
+  | MemoryEvent
+  | MembershipEvent;
 
 /**
  * Outcome-bearing Decision events, which the Application Layer projects onto
@@ -214,3 +266,10 @@ export const stampMemory = (
   aggregateVersion: number,
   events: readonly Unstamped<MemoryEvent>[],
 ): readonly MemoryEvent[] => withVersion<MemoryEvent>(aggregateVersion, events);
+
+/** Stamp a Membership command's events with the version the Aggregate reached. */
+export const stampMembership = (
+  aggregateVersion: number,
+  events: readonly Unstamped<MembershipEvent>[],
+): readonly MembershipEvent[] =>
+  withVersion<MembershipEvent>(aggregateVersion, events);

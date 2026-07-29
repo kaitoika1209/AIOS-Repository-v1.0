@@ -23,6 +23,24 @@ export const MEMBERSHIP_STATUSES = [
 ] as const;
 export type MembershipStatus = (typeof MEMBERSHIP_STATUSES)[number];
 
+/**
+ * `docs/architecture/persistence-and-data-model.md` — Invitation Status Values.
+ *
+ * Separate from {@link MembershipStatus}: one Membership may carry several
+ * invitations over time (a resend supersedes its predecessor), and the
+ * invitation's own lifecycle is what the token is checked against.
+ *
+ * `Expired` is derived. `expires_at` is the authority, so an invitation past its
+ * expiry is refused whether or not anything has materialized the status.
+ */
+export const INVITATION_STATUSES = [
+  "Pending",
+  "Consumed",
+  "Revoked",
+  "Expired",
+] as const;
+export type InvitationStatus = (typeof INVITATION_STATUSES)[number];
+
 /** `docs/architecture/state-machines/work.md` — State Summary. */
 export const WORK_STATUSES = [
   "Draft",

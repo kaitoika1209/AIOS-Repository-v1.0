@@ -20,6 +20,12 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             <span className="brand">
               <a href="/">AIOS</a>
             </span>
+            <a className="small" href="/members">
+              Members
+            </a>
+            <a className="small" href="/join">
+              Join
+            </a>
             <span className="spacer" />
 
             {/*
@@ -32,7 +38,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
               <select name="subject" defaultValue={user.subject} style={{ margin: 0, width: "auto" }}>
                 {DEV_USERS.map((u) => (
                   <option key={u.subject} value={u.subject}>
-                    {u.label} ({u.role})
+                    {u.label} ({u.seeded ? "seeded Owner" : u.expectedRole})
                   </option>
                 ))}
               </select>

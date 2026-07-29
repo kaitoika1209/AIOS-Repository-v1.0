@@ -12,12 +12,21 @@ import { Module, type INestApplication } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { Pool } from "pg";
 
-import { DecisionId, MemoryId, WorkId } from "@aios/types";
+import {
+  DecisionId,
+  IdentityId,
+  InvitationId,
+  MembershipId,
+  MemoryId,
+  WorkId,
+} from "@aios/types";
 import type { Clock, IdGenerator, UseCaseDependencies } from "@aios/application";
 import { PostgresUnitOfWork } from "@aios/persistence";
 
 import { DecisionController } from "./decision.controller.js";
+import { InvitationController } from "./invitation.controller.js";
 import { MemoryController } from "./memory.controller.js";
+import { OrganizationMemberController } from "./organization.controller.js";
 import { StubMemoryGenerator } from "./stub-memory-generator.js";
 import { DevAuthAdapter } from "./dev-auth.js";
 import { DomainExceptionFilter } from "./http-errors.js";
@@ -57,6 +66,15 @@ class UuidGenerator implements IdGenerator {
   memoryId(): MemoryId {
     return MemoryId(randomUUID());
   }
+  membershipId(): MembershipId {
+    return MembershipId(randomUUID());
+  }
+  invitationId(): InvitationId {
+    return InvitationId(randomUUID());
+  }
+  identityId(): IdentityId {
+    return IdentityId(randomUUID());
+  }
   revisionId(): string {
     return randomUUID();
   }
@@ -79,7 +97,13 @@ export const createApp = async (options: AppOptions): Promise<INestApplication> 
   const resolver = new PrincipalResolver(options.pool);
 
   @Module({
-    controllers: [WorkController, DecisionController, MemoryController],
+    controllers: [
+      WorkController,
+      DecisionController,
+      MemoryController,
+      OrganizationMemberController,
+      InvitationController,
+    ],
     providers: [{ provide: USE_CASE_DEPENDENCIES, useValue: deps }],
   })
   class AppModule {}

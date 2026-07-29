@@ -244,3 +244,124 @@ export const reopenMemory = async (
   if (result.error === undefined) revalidatePath(`/works/${workId}`);
   return result;
 };
+
+/**
+ * Invitation actions.
+ *
+ * The issued token is put in a cookie rather than returned through
+ * `ActionResult`, because `revalidatePath` re-renders the page and the value has
+ * to survive that. It is short-lived and read once by the members page, which is
+ * as close as this gets to "the invitee received an email" — the
+ * `MembershipInvited` delivery consumer is not in this release.
+ */
+const ISSUED_TOKEN_COOKIE = "aios_dev_last_invitation";
+
+export const inviteMember = async (
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> => {
+  const user = await currentUser();
+  const email = String(formData.get("email") ?? "").trim();
+  const role = String(formData.get("role") ?? "Member");
+
+  if (email.length === 0) {
+    return { error: { code: "VALIDATION_FAILED", message: "An email address is required." } };
+  }
+
+  try {
+    const invitation = await api.inviteMember(user.subject, { email, roles: [role] });
+    const store = await cookies();
+    store.set(ISSUED_TOKEN_COOKIE, JSON.stringify(invitation), {
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 600,
+    });
+    revalidatePath("/members");
+    return {};
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return { error: { code: error.code, message: error.message } };
+    }
+    throw error;
+  }
+};
+
+export const resendInvitation = async (
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> => {
+  const user = await currentUser();
+  const membershipId = String(formData.get("membershipId"));
+
+  try {
+    const invitation = await api.resendInvitation(user.subject, membershipId);
+    const store = await cookies();
+    store.set(ISSUED_TOKEN_COOKIE, JSON.stringify(invitation), {
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 600,
+    });
+    revalidatePath("/members");
+    return {};
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return { error: { code: error.code, message: error.message } };
+    }
+    throw error;
+  }
+};
+
+export const revokeInvitation = async (
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> => {
+  const user = await currentUser();
+  const membershipId = String(formData.get("membershipId"));
+  const reason = String(formData.get("reason") ?? "").trim();
+
+  if (reason.length === 0) {
+    return { error: { code: "VALIDATION_FAILED", message: "A reason is required." } };
+  }
+
+  const result = await run(() =>
+    api.revokeInvitation(user.subject, membershipId, reason),
+  );
+  if (result.error === undefined) revalidatePath("/members");
+  return result;
+};
+
+export const acceptInvitation = async (
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> => {
+  const user = await currentUser();
+  const token = String(formData.get("token") ?? "").trim();
+
+  if (token.length === 0) {
+    return { error: { code: "VALIDATION_FAILED", message: "A token is required." } };
+  }
+
+  const result = await run(() => api.acceptInvitation(user.subject, token));
+  if (result.error === undefined) {
+    const store = await cookies();
+    store.delete(ISSUED_TOKEN_COOKIE);
+    revalidatePath("/", "layout");
+  }
+  return result;
+};
+
+/** The token issued by the most recent invitation, if it is still in the cookie. */
+export const lastIssuedInvitation = async (): Promise<{
+  membershipId: string;
+  email: string | null;
+  token: string;
+} | null> => {
+  const store = await cookies();
+  const raw = store.get(ISSUED_TOKEN_COOKIE)?.value;
+  if (raw === undefined) return null;
+  try {
+    return JSON.parse(raw) as { membershipId: string; email: string | null; token: string };
+  } catch {
+    return null;
+  }
+};

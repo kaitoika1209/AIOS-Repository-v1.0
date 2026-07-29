@@ -26,7 +26,7 @@ import type { OutboxPort } from "@aios/application";
  */
 const aggregateOf = (
   event: DomainEvent,
-): { type: "Work" | "Decision" | "Memory"; id: string } => {
+): { type: "Work" | "Decision" | "Memory" | "Membership"; id: string } => {
   switch (event.type) {
     case "WorkCreated":
     case "WorkStarted":
@@ -48,6 +48,11 @@ const aggregateOf = (
     case "MemoryApproved":
     case "MemoryRejected":
       return { type: "Memory", id: event.memoryId };
+
+    case "MembershipInvited":
+    case "MembershipActivated":
+    case "MembershipRevoked":
+      return { type: "Membership", id: event.membershipId };
   }
 };
 

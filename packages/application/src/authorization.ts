@@ -24,9 +24,17 @@ import {
  *
  * `Member` receives the ordinary work permissions; approval permissions are not
  * granted automatically. `Reviewer` receives review authority only.
+ *
+ * Every role can read the member list — knowing who is in your Organization is
+ * not administration. Inviting, resending, and revoking are Owner and Admin
+ * only, which is the "Full / Limited / None / None" row in the document.
  */
 const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
   OrganizationOwner: [
+    "organization.read_members",
+    "organization.invite_member",
+    "organization.resend_invitation",
+    "organization.revoke_invitation",
     "work.create",
     "work.edit",
     "work.start",
@@ -54,6 +62,10 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     "events.replay_projection",
   ],
   OrganizationAdmin: [
+    "organization.read_members",
+    "organization.invite_member",
+    "organization.resend_invitation",
+    "organization.revoke_invitation",
     "work.create",
     "work.edit",
     "work.start",
@@ -75,6 +87,7 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     "events.replay_projection",
   ],
   Member: [
+    "organization.read_members",
     "work.create",
     "work.edit",
     "work.start",
@@ -89,6 +102,7 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     "memory.submit",
   ],
   Reviewer: [
+    "organization.read_members",
     "decision.approve",
     "decision.reject",
     "decision.withdraw",

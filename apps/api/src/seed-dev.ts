@@ -1,14 +1,16 @@
 /**
- * Development seed.
+ * Development bootstrap.
  *
- * Creates one Organization with two Members and their development
- * authentication subjects, so the API and UI can be exercised before the
- * invitation flow exists.
+ * Creates the minimum that cannot be created through a use case: one
+ * Organization, its first Owner, and the Secretary identity.
  *
- * This writes identity, Organization, and Membership rows directly. That is
- * deliberate and temporary: those aggregates have no use cases yet, and
- * inventing ad-hoc ones here would create a second, untested path into the
- * tenant boundary. The invitation flow replaces this.
+ * It used to create every Member the same way. It no longer does — everyone
+ * else joins through the invitation flow, which is now implemented and tested,
+ * so the seed no longer duplicates it as a second untested path into the tenant
+ * boundary. What remains is genuinely unavoidable: Organization creation and
+ * first-Owner assignment have no commands yet, and an Organization's first Owner
+ * cannot be invited (an invitation grants no Owner role, and there would be
+ * nobody to send it).
  *
  *     pnpm --filter @aios/api seed
  *
@@ -29,24 +31,19 @@ export const SEED = {
       membershipId: "0a105eed-0000-4000-8000-00000000b10b",
       role: "OrganizationOwner",
     },
-    {
-      subject: "alice",
-      displayName: "Alice (Member)",
-      email: "alice@example.test",
-      identityId: "0a105eed-0000-4000-8000-00000000a11c",
-      membershipId: "0a105eed-0000-4000-8000-00000000b11c",
-      role: "Member",
-    },
-    {
-      subject: "raj",
-      displayName: "Raj (Reviewer)",
-      email: "raj@example.test",
-      identityId: "0a105eed-0000-4000-8000-00000000a12d",
-      membershipId: "0a105eed-0000-4000-8000-00000000b12d",
-      role: "Reviewer",
-    },
   ],
 } as const;
+
+/**
+ * Who the Owner invites once the API is up.
+ *
+ * Not seeded — these are printed as a suggestion, because creating them here
+ * would bypass the flow the UI is there to demonstrate.
+ */
+export const SUGGESTED_INVITATIONS = [
+  { email: "alice@example.test", roles: ["Member"], subject: "alice" },
+  { email: "raj@example.test", roles: ["Reviewer"], subject: "raj" },
+] as const;
 
 /** Matches SECRETARY_IDENTITY_ID in app.ts. */
 const SECRETARY = {
@@ -149,7 +146,16 @@ const main = async (): Promise<void> => {
     await seed(pool);
     console.log(`Seeded Organization ${SEED.organizationId} (${SEED.organizationName})`);
     for (const member of SEED.members) {
-      console.log(`  ${member.role.padEnd(9)} ${member.displayName}  X-Dev-Subject: ${member.subject}`);
+      console.log(
+        `  ${member.role.padEnd(17)} ${member.displayName}  X-Dev-Subject: ${member.subject}`,
+      );
+    }
+    console.log("\nEveryone else joins by invitation. Sign in as the Owner and invite:");
+    for (const invitation of SUGGESTED_INVITATIONS) {
+      console.log(
+        `  ${invitation.email.padEnd(22)} as ${invitation.roles.join(", ").padEnd(9)}` +
+          `  then accept as X-Dev-Subject: ${invitation.subject}`,
+      );
     }
   } finally {
     await pool.end();

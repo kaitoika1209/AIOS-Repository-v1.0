@@ -17,6 +17,8 @@ export type DomainErrorCode =
   | "DECISION_IMMUTABLE"
   | "MEMORY_INVALID_TRANSITION"
   | "MEMORY_IMMUTABLE"
+  | "MEMBERSHIP_INVALID_TRANSITION"
+  | "INVITATION_NOT_ACCEPTABLE"
   | "CROSS_ORGANIZATION_REFERENCE"
   | "HUMAN_AUTHORITY_REQUIRED"
   | "VERSION_CONFLICT"
@@ -45,23 +47,47 @@ export class DomainError extends Error {
  * invariant is intact, the Aggregate is simply not in a state that permits the
  * command.
  */
+const TRANSITION_CODES = {
+  Work: "WORK_INVALID_TRANSITION",
+  Decision: "DECISION_INVALID_TRANSITION",
+  Memory: "MEMORY_INVALID_TRANSITION",
+  Membership: "MEMBERSHIP_INVALID_TRANSITION",
+} as const satisfies Record<string, DomainErrorCode>;
+
 export class InvalidTransitionError extends DomainError {
   constructor(
-    aggregate: "Work" | "Decision" | "Memory",
+    aggregate: keyof typeof TRANSITION_CODES,
     from: string,
     command: string,
     allowed: readonly string[],
   ) {
     super(
-      aggregate === "Work"
-        ? "WORK_INVALID_TRANSITION"
-        : aggregate === "Decision"
-          ? "DECISION_INVALID_TRANSITION"
-          : "MEMORY_INVALID_TRANSITION",
+      TRANSITION_CODES[aggregate],
       `${aggregate} cannot accept ${command} from state ${from}.`,
       { aggregate, from, command, allowedFrom: allowed },
     );
     this.name = "InvalidTransitionError";
+  }
+}
+
+/**
+ * An invitation that cannot be accepted.
+ *
+ * Every reason — wrong token, expired, already consumed, revoked, superseded by
+ * a resend — produces this one error with the same message. Distinguishing them
+ * would let a caller probe a token's existence and lifetime, and the caller has
+ * no legitimate use for the difference.
+ */
+export class InvitationNotAcceptableError extends DomainError {
+  constructor(reason: string) {
+    super(
+      "INVITATION_NOT_ACCEPTABLE",
+      "This invitation cannot be accepted.",
+      // Kept for the server log; the HTTP layer does not echo `details` for
+      // this code.
+      { reason },
+    );
+    this.name = "InvitationNotAcceptableError";
   }
 }
 

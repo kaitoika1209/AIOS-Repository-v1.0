@@ -40,12 +40,33 @@ const DOMAIN_STATUS: Readonly<Record<string, number>> = {
   DECISION_IMMUTABLE: 409,
   MEMORY_INVALID_TRANSITION: 409,
   MEMORY_IMMUTABLE: 409,
+  MEMBERSHIP_INVALID_TRANSITION: 409,
   VERSION_CONFLICT: 409,
   VALIDATION_FAILED: 422,
   HUMAN_AUTHORITY_REQUIRED: 403,
   // Cross-Organization references are reported as absent, not forbidden.
   CROSS_ORGANIZATION_REFERENCE: 404,
+  // An unacceptable invitation is reported as absent for the same reason a
+  // cross-tenant resource is. A `409` here would separate "this token exists
+  // but is expired" from "this token is not real", which is precisely the
+  // distinction a caller guessing tokens wants.
+  INVITATION_NOT_ACCEPTABLE: 404,
 };
+
+/** Codes for framework exceptions that carry none of their own. */
+const STATUS_CODES: Readonly<Record<number, string>> = {
+  401: "NOT_AUTHENTICATED",
+  403: "PERMISSION_DENIED",
+  404: "NOT_FOUND",
+  409: "CONFLICT",
+  422: "VALIDATION_FAILED",
+};
+
+/** Codes whose responses are flattened to an indistinguishable `NOT_FOUND`. */
+const OPAQUE_CODES = new Set([
+  "CROSS_ORGANIZATION_REFERENCE",
+  "INVITATION_NOT_ACCEPTABLE",
+]);
 
 export const statusFor = (error: unknown): number => {
   if (error instanceof AuthorizationError) return 403;
@@ -71,27 +92,34 @@ export const bodyFor = (error: unknown): ErrorBody => {
   }
 
   if (error instanceof DomainError) {
+    if (OPAQUE_CODES.has(error.code)) {
+      // Code, message, and details are all replaced. Leaving any of the three
+      // in place would reintroduce the distinction the status code hides. The
+      // original reason stays on the error object for the server log.
+      return { code: "NOT_FOUND", message: "Not found.", details: {} };
+    }
     return {
-      code:
-        error.code === "CROSS_ORGANIZATION_REFERENCE" ? "NOT_FOUND" : error.code,
-      message:
-        error.code === "CROSS_ORGANIZATION_REFERENCE"
-          ? "Not found."
-          : error.message,
-      details:
-        error.code === "CROSS_ORGANIZATION_REFERENCE"
-          ? {}
-          : (error.details as Record<string, unknown>),
+      code: error.code,
+      message: error.message,
+      details: error.details as Record<string, unknown>,
     };
   }
 
   if (error instanceof HttpException) {
     const response = error.getResponse();
+    if (typeof response === "object" && response !== null && "code" in response) {
+      return {
+        code: String((response as { code: unknown }).code),
+        message: error.message,
+        details: {},
+      };
+    }
     return {
-      code:
-        typeof response === "object" && response !== null && "code" in response
-          ? String((response as { code: unknown }).code)
-          : "REQUEST_INVALID",
+      // Derived from the status rather than defaulting everything to
+      // `REQUEST_INVALID`. ADR-0014 makes the code the stable, machine-readable
+      // part of the contract, and reporting a failed sign-in as a malformed
+      // request tells a client to fix the wrong thing.
+      code: STATUS_CODES[error.getStatus()] ?? "REQUEST_INVALID",
       message: error.message,
       details: {},
     };

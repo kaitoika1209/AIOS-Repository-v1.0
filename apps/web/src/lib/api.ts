@@ -16,10 +16,22 @@ const API_URL = process.env["API_URL"] ?? "http://localhost:3001";
 const ORGANIZATION_ID =
   process.env["DEV_ORGANIZATION_ID"] ?? "0a105eed-0000-4000-8000-000000000001";
 
+/**
+ * Development identities.
+ *
+ * Only Olivia is seeded. Alice and Raj have no Membership — and no Identity —
+ * until Olivia invites them and they accept, which is why acting as them before
+ * that produces "not authenticated" rather than a working session. That is the
+ * invitation flow being real, not a gap.
+ *
+ * `expectedRole` is what each will hold *after* joining, and it drives demo copy
+ * only. It confers nothing: real roles come from the Membership, and every form
+ * below submits to the API whether or not the label says it will succeed.
+ */
 export const DEV_USERS = [
-  { subject: "alice", label: "Alice", role: "Member" },
-  { subject: "raj", label: "Raj", role: "Reviewer" },
-  { subject: "olivia", label: "Olivia", role: "OrganizationOwner" },
+  { subject: "olivia", label: "Olivia", seeded: true, expectedRole: "OrganizationOwner" },
+  { subject: "alice", label: "Alice", seeded: false, expectedRole: "Member" },
+  { subject: "raj", label: "Raj", seeded: false, expectedRole: "Reviewer" },
 ] as const;
 
 export type DevUser = (typeof DEV_USERS)[number];
@@ -97,16 +109,22 @@ export class ApiError extends Error {
 
 const call = async <T>(
   path: string,
-  init: RequestInit & { subject: string },
+  init: RequestInit & { subject: string; withoutOrganization?: boolean },
 ): Promise<T> => {
-  const { subject, ...rest } = init;
+  const { subject, withoutOrganization = false, ...rest } = init;
 
   const response = await fetch(`${API_URL}${path}`, {
     ...rest,
     headers: {
       "content-type": "application/json",
       "x-dev-subject": subject,
-      "x-organization-id": ORGANIZATION_ID,
+      // Only read when acceptance has to create an Identity, so the member list
+      // shows a name rather than a provider subject.
+      "x-dev-display-name":
+        DEV_USERS.find((u) => u.subject === subject)?.label ?? subject,
+      // Omitted only for invitation acceptance, the one route ADR-0014 exempts
+      // from Organization resolution — the caller is not yet a Member.
+      ...(withoutOrganization ? {} : { "x-organization-id": ORGANIZATION_ID }),
       ...(rest.headers ?? {}),
     },
     cache: "no-store",
@@ -127,7 +145,65 @@ const call = async <T>(
   return (await response.json()) as T;
 };
 
+export const ORGANIZATION = ORGANIZATION_ID;
+
+export interface Member {
+  membershipId: string;
+  status: string;
+  roles: string[];
+  displayName: string | null;
+  email: string | null;
+  invitedAt: string | null;
+  activatedAt: string | null;
+  invitationExpiresAt: string | null;
+}
+
+export interface Invitation {
+  membershipId: string;
+  status: string;
+  email: string | null;
+  expiresAt: string | null;
+  /** Shown once, here, because no mail delivery exists yet. */
+  token: string;
+}
+
 export const api = {
+  listMembers: (subject: string) =>
+    call<{ items: Member[] }>(`/organizations/${ORGANIZATION_ID}/members`, {
+      method: "GET",
+      subject,
+    }),
+
+  inviteMember: (subject: string, body: { email: string; roles: string[] }) =>
+    call<Invitation>(`/organizations/${ORGANIZATION_ID}/members`, {
+      method: "POST",
+      subject,
+      body: JSON.stringify(body),
+    }),
+
+  resendInvitation: (subject: string, membershipId: string) =>
+    call<Invitation>(
+      `/organizations/${ORGANIZATION_ID}/members/${membershipId}/resend-invitation`,
+      { method: "POST", subject },
+    ),
+
+  revokeInvitation: (subject: string, membershipId: string, reason: string) =>
+    call<{ membershipId: string; status: string }>(
+      `/organizations/${ORGANIZATION_ID}/members/${membershipId}/revoke-invitation`,
+      { method: "POST", subject, body: JSON.stringify({ reason }) },
+    ),
+
+  acceptInvitation: (subject: string, token: string) =>
+    call<{ organizationId: string; membershipId: string; roles: string[] }>(
+      "/invitations/accept",
+      {
+        method: "POST",
+        subject,
+        withoutOrganization: true,
+        body: JSON.stringify({ token }),
+      },
+    ),
+
   listWork: (subject: string) =>
     call<{ items: Work[] }>("/works", { method: "GET", subject }),
 

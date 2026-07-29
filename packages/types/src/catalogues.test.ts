@@ -35,22 +35,33 @@ const statesFromSummary = (markdown: string): string[] => {
 describe("permission catalogue", () => {
   const authorization = read("docs/architecture/authorization.md");
 
-  it("matches docs/architecture/authorization.md", () => {
-    const documented = new Set(
-      [...authorization.matchAll(/`((?:work|decision|memory|events)\.[a-z_]+)`/g)].map(
-        (m) => m[1]!,
-      ),
-    );
-    expect([...documented].sort()).toEqual([...PERMISSIONS].sort());
+  /** The first fenced block under a heading, as trimmed non-empty lines. */
+  const blockUnder = (markdown: string, heading: string): string[] => {
+    const section = markdown.slice(markdown.indexOf(heading));
+    const block = section.match(/```text\n([\s\S]*?)```/);
+    expect(block, `no fenced block under ${heading}`).not.toBeNull();
+    return block![1]!.split("\n").map((l) => l.trim()).filter(Boolean);
+  };
+
+  it("matches the catalogue in docs/architecture/authorization.md", () => {
+    const documented = blockUnder(authorization, "## Permission Catalogue");
+    expect(documented.sort()).toEqual([...PERMISSIONS].sort());
+  });
+
+  it("grants no permission the document reserves", () => {
+    const reserved = new Set(blockUnder(authorization, "## Reserved Permissions"));
+    for (const permission of PERMISSIONS) {
+      expect(reserved.has(permission), `${permission} is reserved`).toBe(false);
+    }
   });
 
   it("matches the ADR-0014 route table one-to-one", () => {
     const adr = read(
       "docs/adr/0014-adopt-rest-with-explicit-command-sub-resources.md",
     );
-    const routed = [
-      ...adr.matchAll(/\|\s*`((?:work|decision|memory|events)\.[a-z_]+)`\s*\|/g),
-    ].map((m) => m[1]!);
+    const routed = [...adr.matchAll(/^\|\s*`([a-z_]+\.[a-z_]+)`\s*\|/gm)].map(
+      (m) => m[1]!,
+    );
     expect(routed.sort()).toEqual([...PERMISSIONS].sort());
   });
 

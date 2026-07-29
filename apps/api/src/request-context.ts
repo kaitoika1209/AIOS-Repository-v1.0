@@ -13,8 +13,10 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  SetMetadata,
   UnauthorizedException,
 } from "@nestjs/common";
+import { Reflector } from "@nestjs/core";
 import type { Request } from "express";
 
 import { OrganizationId, type HumanMemberPrincipal } from "@aios/types";
@@ -40,11 +42,40 @@ export interface RequestContext {
   readonly expectedVersion: number | null;
 }
 
+/**
+ * An authenticated caller with no Organization context.
+ *
+ * There is exactly one route in this shape — invitation acceptance — and it has
+ * no principal because the caller is not yet a Member of anything.
+ */
+export interface AnonymousOrganizationContext {
+  readonly subject: AuthenticatedSubject;
+  readonly now: Date;
+}
+
 declare module "express" {
   interface Request {
     aios?: RequestContext;
+    aiosSubject?: AuthenticatedSubject;
   }
 }
+
+export const WITHOUT_ORGANIZATION = "aios:withoutOrganization";
+
+/**
+ * Exempt a route from Organization resolution — and only from that.
+ *
+ * ADR-0014 permits this for invitation acceptance alone: the caller holds no
+ * Membership in the target Organization, so the resolution chain cannot succeed
+ * and `X-Organization-Id` has nothing to select among. Authentication is still
+ * required, and the route names no Organization of its own.
+ *
+ * Marking any other route with this is a defect. It does not weaken
+ * authentication, but it does remove the tenant check that every other handler
+ * relies on having already run.
+ */
+export const WithoutOrganizationContext = () =>
+  SetMetadata(WITHOUT_ORGANIZATION, true);
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -70,6 +101,8 @@ const failureResponse = (reason: ResolutionFailure): Error => {
 
 @Injectable()
 export class RequestContextGuard implements CanActivate {
+  private readonly reflector = new Reflector();
+
   constructor(
     private readonly auth: AuthAdapter,
     private readonly resolver: PrincipalResolver,
@@ -81,6 +114,18 @@ export class RequestContextGuard implements CanActivate {
     const subject = await this.auth.authenticate(request);
     if (subject === null) {
       throw new UnauthorizedException("Not authenticated.");
+    }
+
+    if (
+      this.reflector.getAllAndOverride<boolean>(WITHOUT_ORGANIZATION, [
+        context.getHandler(),
+        context.getClass(),
+      ]) === true
+    ) {
+      // Authenticated, but deliberately without a principal: `contextOf` throws
+      // for these requests, so a handler cannot accidentally read one.
+      request.aiosSubject = subject;
+      return true;
     }
 
     const header = request.header("x-organization-id");
@@ -120,4 +165,12 @@ export const contextOf = (request: Request): RequestContext => {
     throw new UnauthorizedException("Not authenticated.");
   }
   return request.aios;
+};
+
+/** The authenticated subject for a route exempt from Organization resolution. */
+export const subjectOf = (request: Request): AnonymousOrganizationContext => {
+  if (request.aiosSubject === undefined) {
+    throw new UnauthorizedException("Not authenticated.");
+  }
+  return { subject: request.aiosSubject, now: new Date() };
 };

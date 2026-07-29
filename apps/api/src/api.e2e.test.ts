@@ -663,4 +663,218 @@ suite("AIOS API", () => {
         .expect(404);
     });
   });
+
+  describe("membership invitation", () => {
+    const invite = (
+      who = OWNER,
+      body: Record<string, unknown> = {
+        email: "newcomer@example.test",
+        roles: ["Reviewer"],
+      },
+    ) =>
+      request(server())
+        .post(`/organizations/${ORG}/members`)
+        .set(as(who))
+        .send(body);
+
+    it("issues a token that is not stored in the database", async () => {
+      const response = await invite().expect(201);
+      expect(response.body.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(response.body.status).toBe("Invited");
+
+      const client = await pool.connect();
+      try {
+        const rows = await client.query(
+          `SELECT token_hash FROM organization_invitations`,
+        );
+        expect(rows.rowCount).toBe(1);
+        expect(rows.rows[0].token_hash).not.toBe(response.body.token);
+      } finally {
+        client.release();
+      }
+    });
+
+    it("refuses a Member without administration authority", async () => {
+      await invite(MEMBER).expect(403);
+    });
+
+    it("does not name the permission it denied", async () => {
+      const response = await invite(MEMBER).expect(403);
+      expect(JSON.stringify(response.body)).not.toContain("organization.");
+    });
+
+    it("lists the invitation with no Identity attached", async () => {
+      await invite().expect(201);
+      const response = await request(server())
+        .get(`/organizations/${ORG}/members`)
+        .set(as(MEMBER))
+        .expect(200);
+
+      const invited = response.body.items.find(
+        (m: { status: string }) => m.status === "Invited",
+      );
+      expect(invited).toMatchObject({
+        email: "newcomer@example.test",
+        roles: ["Reviewer"],
+        displayName: null,
+      });
+      expect(invited.invitationExpiresAt).not.toBeNull();
+    });
+
+    it("treats a path Organization the caller is not acting in as absent", async () => {
+      await request(server())
+        .get(`/organizations/${OTHER_ORG}/members`)
+        .set(as(MEMBER))
+        .expect(404);
+    });
+
+    it("grants no authority until the invitation is accepted", async () => {
+      await invite().expect(201);
+      // The invitee authenticates, but their Membership is Invited, so the
+      // resolution chain yields no principal at all.
+      await request(server())
+        .get("/works")
+        .set({ "x-dev-subject": "newcomer", "x-organization-id": ORG })
+        .expect(401);
+    });
+
+    it("activates the Membership on acceptance", async () => {
+      const invitation = await invite().expect(201);
+
+      const accepted = await request(server())
+        .post("/invitations/accept")
+        .set({ "x-dev-subject": "newcomer", "x-dev-display-name": "Newcomer" })
+        .send({ token: invitation.body.token })
+        .expect(201);
+
+      expect(accepted.body).toMatchObject({
+        organizationId: ORG,
+        membershipId: invitation.body.membershipId,
+        roles: ["Reviewer"],
+      });
+    });
+
+    it("carries exactly the authority the invitation granted", async () => {
+      const invitation = await invite().expect(201);
+      await request(server())
+        .post("/invitations/accept")
+        .set({ "x-dev-subject": "newcomer", "x-dev-display-name": "Newcomer" })
+        .send({ token: invitation.body.token })
+        .expect(201);
+
+      const headers = { "x-dev-subject": "newcomer", "x-organization-id": ORG };
+      // A Reviewer can read, but cannot create Work.
+      await request(server()).get("/works").set(headers).expect(200);
+      await request(server())
+        .post("/works")
+        .set(headers)
+        .send({ title: "Not mine to create" })
+        .expect(403);
+    });
+
+    it("accepts without an X-Organization-Id header", async () => {
+      // The exemption ADR-0014 records. Supplying the header would be
+      // impossible here: the caller is not yet a Member of anything.
+      const invitation = await invite().expect(201);
+      await request(server())
+        .post("/invitations/accept")
+        .set({ "x-dev-subject": "newcomer" })
+        .send({ token: invitation.body.token })
+        .expect(201);
+    });
+
+    it("still requires authentication to accept", async () => {
+      const invitation = await invite().expect(201);
+      await request(server())
+        .post("/invitations/accept")
+        .send({ token: invitation.body.token })
+        .expect(401);
+    });
+
+    it("reports an unknown token exactly as it reports a revoked one", async () => {
+      const invitation = await invite().expect(201);
+      await request(server())
+        .post(`/organizations/${ORG}/members/${invitation.body.membershipId}/revoke-invitation`)
+        .set(as(OWNER))
+        .send({ reason: "Sent in error" })
+        .expect(201);
+
+      const revoked = await request(server())
+        .post("/invitations/accept")
+        .set({ "x-dev-subject": "newcomer" })
+        .send({ token: invitation.body.token })
+        .expect(404);
+
+      const unknown = await request(server())
+        .post("/invitations/accept")
+        .set({ "x-dev-subject": "newcomer" })
+        .send({ token: "definitely-not-a-real-token" })
+        .expect(404);
+
+      // Identical bodies: a caller guessing tokens learns nothing about which
+      // ones exist.
+      expect(revoked.body).toEqual(unknown.body);
+    });
+
+    it("invalidates the previous token when an invitation is resent", async () => {
+      const first = await invite().expect(201);
+      const second = await request(server())
+        .post(`/organizations/${ORG}/members/${first.body.membershipId}/resend-invitation`)
+        .set(as(OWNER))
+        .expect(201);
+
+      expect(second.body.token).not.toBe(first.body.token);
+
+      await request(server())
+        .post("/invitations/accept")
+        .set({ "x-dev-subject": "newcomer" })
+        .send({ token: first.body.token })
+        .expect(404);
+
+      await request(server())
+        .post("/invitations/accept")
+        .set({ "x-dev-subject": "newcomer" })
+        .send({ token: second.body.token })
+        .expect(201);
+    });
+
+    it("cannot be accepted twice", async () => {
+      const invitation = await invite().expect(201);
+      const accept = (subject: string) =>
+        request(server())
+          .post("/invitations/accept")
+          .set({ "x-dev-subject": subject })
+          .send({ token: invitation.body.token });
+
+      await accept("newcomer").expect(201);
+      await accept("someone-else").expect(404);
+    });
+
+    it("refuses to grant OrganizationOwner by invitation", async () => {
+      await invite(OWNER, {
+        email: "newcomer@example.test",
+        roles: ["OrganizationOwner"],
+      }).expect(422);
+    });
+
+    it("refuses a second invitation to the same address", async () => {
+      await invite().expect(201);
+      await invite().expect(422);
+    });
+
+    it("emits MembershipInvited through the Outbox", async () => {
+      await invite().expect(201);
+      const client = await pool.connect();
+      try {
+        const rows = await client.query<{ event_type: string; aggregate_type: string }>(
+          `SELECT event_type, aggregate_type FROM outbox_messages`,
+        );
+        expect(rows.rows).toEqual([
+          { event_type: "MembershipInvited", aggregate_type: "Membership" },
+        ]);
+      } finally {
+        client.release();
+      }
+    });
+  });
 });

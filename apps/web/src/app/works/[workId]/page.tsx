@@ -125,7 +125,7 @@ export default async function WorkPage({
           <h2>Decision under review</h2>
           <p style={{ marginTop: 0 }}>{openDecision.question}</p>
 
-          {user.role === "Reviewer" ? (
+          {user.expectedRole === "Reviewer" ? (
             <>
               <h3>Approve</h3>
               <ActionForm action={approveDecision} submitLabel="Approve">
@@ -239,7 +239,7 @@ export default async function WorkPage({
 
           {memory.status === "InReview" && (
             <>
-              {user.role === "Member" ? (
+              {user.expectedRole === "Member" ? (
                 <p className="hint">
                   Only a Reviewer or the Owner may approve. Switch to Raj.
                 </p>

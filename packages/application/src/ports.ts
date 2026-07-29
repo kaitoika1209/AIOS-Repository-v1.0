@@ -13,15 +13,22 @@
 
 import type {
   DecisionId,
+  IdentityId,
+  IdentityStatus,
+  InvitationId,
   MemoryId,
+  MembershipId,
+  MembershipStatus,
   OrganizationId,
   Permission,
+  Role,
   WorkId,
 } from "@aios/types";
 import type {
   DecisionState,
   DomainEvent,
   MemoryState,
+  MembershipState,
   WorkState,
 } from "@aios/domain";
 
@@ -33,6 +40,9 @@ export interface IdGenerator {
   workId(): WorkId;
   decisionId(): DecisionId;
   memoryId(): MemoryId;
+  membershipId(): MembershipId;
+  invitationId(): InvitationId;
+  identityId(): IdentityId;
   /**
    * Identifies one Decision revision.
    *
@@ -94,6 +104,100 @@ export interface MemoryRepository {
   listByOrganization(organizationId: OrganizationId): Promise<readonly MemoryState[]>;
 }
 
+/**
+ * A Human Identity as the Membership flow needs to see it.
+ *
+ * Not an Aggregate: Identity has no commands in this release, and Membership
+ * references it by `identityId` only. Provider subjects never appear here — the
+ * lookup that consumes them is the one method that takes them as arguments.
+ */
+export interface IdentityRecord {
+  readonly identityId: IdentityId;
+  readonly status: IdentityStatus;
+  readonly displayName: string;
+  /** Already lowercased, matching `primary_email_normalized`. */
+  readonly primaryEmailNormalized: string | null;
+}
+
+export interface IdentityRepository {
+  findBySubject(subject: {
+    readonly provider: string;
+    readonly issuer: string;
+    readonly subject: string;
+  }): Promise<IdentityRecord | null>;
+
+  /**
+   * Create an Identity and link the authenticating subject in one step.
+   *
+   * Inseparable on purpose: an Identity with no linked subject could never be
+   * signed into, and a subject linked to no Identity resolves to no principal.
+   */
+  createWithSubject(input: {
+    readonly identityId: IdentityId;
+    readonly displayName: string;
+    readonly primaryEmail: string;
+    readonly provider: string;
+    readonly issuer: string;
+    readonly subject: string;
+  }): Promise<IdentityRecord>;
+}
+
+/** One row of the member list. A query projection, not an Aggregate. */
+export interface OrganizationMemberSummary {
+  readonly membershipId: MembershipId;
+  readonly status: MembershipStatus;
+  readonly roles: readonly Role[];
+  readonly identityId: IdentityId | null;
+  readonly displayName: string | null;
+  /** The identity's address once Active, the invitee's while Invited. */
+  readonly email: string | null;
+  readonly invitedAt: Date | null;
+  readonly activatedAt: Date | null;
+  readonly invitationExpiresAt: Date | null;
+}
+
+export interface MembershipRepository {
+  findById(
+    organizationId: OrganizationId,
+    membershipId: MembershipId,
+  ): Promise<MembershipState | null>;
+
+  /**
+   * Find the Membership an invitation token belongs to.
+   *
+   * The only repository method that is not Organization-scoped, and the
+   * exception is structural rather than convenient: the caller is not yet a
+   * Member of anything, so no Organization context exists to scope by. The
+   * token itself names the Organization — the returned state carries it, and
+   * the caller never supplies one.
+   */
+  findByInvitationTokenHash(tokenHash: string): Promise<MembershipState | null>;
+
+  /**
+   * Any Membership already addressed to this normalized email, whether it is
+   * still `Invited` or already bound to an Identity.
+   *
+   * Used to refuse a duplicate invitation. `uq_memberships_pending_invitation`
+   * and `uq_memberships_organization_identity` are the backstops.
+   */
+  findByEmail(
+    organizationId: OrganizationId,
+    normalizedEmail: string,
+  ): Promise<MembershipState | null>;
+
+  findByIdentity(
+    organizationId: OrganizationId,
+    identityId: IdentityId,
+  ): Promise<MembershipState | null>;
+
+  insert(membership: MembershipState): Promise<void>;
+  update(membership: MembershipState, expectedVersion: number): Promise<void>;
+
+  listMembers(
+    organizationId: OrganizationId,
+  ): Promise<readonly OrganizationMemberSummary[]>;
+}
+
 export interface OutboxPort {
   append(events: readonly DomainEvent[]): Promise<void>;
 }
@@ -115,6 +219,8 @@ export interface RepositoryBundle {
   readonly work: WorkRepository;
   readonly decisions: DecisionRepository;
   readonly memories: MemoryRepository;
+  readonly memberships: MembershipRepository;
+  readonly identities: IdentityRepository;
   readonly outbox: OutboxPort;
 }
 

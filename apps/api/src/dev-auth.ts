@@ -24,6 +24,13 @@ export class DevAuthAdapter implements AuthAdapter {
     if (subject === undefined || subject.trim().length === 0) {
       return null;
     }
-    return { provider: DEV_PROVIDER, issuer: DEV_ISSUER, subject };
+    return {
+      provider: DEV_PROVIDER,
+      issuer: DEV_ISSUER,
+      subject,
+      // Clerk supplies a name with the session; here it comes from a header so
+      // an invitation accepted by a new subject gets a readable Identity.
+      displayName: request.header("x-dev-display-name") ?? subject,
+    };
   }
 }

@@ -2340,6 +2340,35 @@ Unverified email alone must not grant Membership.
 
 ---
 
+## MVP Invitation Matching Policy
+
+The MVP uses the **explicit invitation claim**: possession of an unexpired, unconsumed
+invitation token, presented by an authenticated caller.
+
+The token is a bearer credential and is treated as one:
+
+- it is generated with a cryptographic random source;
+- it is shown to the sender once and never persisted — only `token_hash` is stored;
+- it is single-use, and consuming it is what activates the Membership; and
+- it has a bounded validity period, enforced against `expires_at` at acceptance time
+  rather than relying on a sweeper having run.
+
+One additional check narrows it. If the authenticating subject already resolves to a
+Human Identity that has a primary email, that email must equal the invitation's
+normalized invitee address. Without this, a forwarded token would silently attach an
+unrelated existing account to the Organization. If the subject resolves to no Identity,
+one is created and bound to the invitation's address.
+
+This is a matching rule, not an identity key: the Membership references `identityId`, and
+a later email change does not affect it.
+
+What the policy accepts, stated plainly: anyone holding an unexpired token who has no
+Identity yet can join as the invitee. That is inherent to emailed invitations, and it is
+bounded by single use and expiry. Verified-email matching and pre-linked subjects remain
+available as later strengthenings.
+
+---
+
 ## Invitation Acceptance Transaction
 
 ```text
@@ -2420,14 +2449,25 @@ The Membership must be Invited.
 
 ## Invitation Revoked Event
 
+Revoking an invitation moves the Membership to `Revoked`, which is the same terminal
+state `RevokeMembership` reaches. It therefore emits the same registered event, carrying
+the reason that distinguishes the two paths:
+
 ```text
-MembershipInvitationRevoked
+MembershipRevoked
 - membershipId
 - organizationId
+- identityId          (null when the invitation was never accepted)
 - revokedByIdentityId
 - reason
 - revokedAt
 ```
+
+An earlier draft of this document named a separate `MembershipInvitationRevoked` event.
+That name is not in the registered catalogue in
+[Events and Outbox](events-and-outbox.md), which owns event registration, and the
+transition it described has no distinct target state. Invitation expiry is modeled the
+same way: `Revoked` with an expiry reason.
 
 ---
 
@@ -3121,16 +3161,21 @@ MembershipInvited
 
 MembershipActivated
 
-MembershipInvitationRevoked
-
 MembershipSuspended
 
 MembershipReactivated
 
 MembershipRevoked
-
-MemberLeftOrganization
 ```
+
+This is the emitted subset [Events and Outbox](events-and-outbox.md) asks each
+supporting-domain document to confirm. Two names that appeared in an earlier draft are
+deliberately absent:
+
+- `MembershipInvitationRevoked` — invitation revocation reaches `Revoked` and emits
+  `MembershipRevoked` with a reason, as described above.
+- `MemberLeftOrganization` — no command in the Membership state machine produces it. A
+  Member leaving is `RevokeMembership`, recorded with the acting identity.
 
 ---
 

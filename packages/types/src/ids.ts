@@ -7,7 +7,7 @@
  *
  * External identity provider subjects are deliberately absent: per ADR-0013 and
  * `docs/architecture/identity-and-organization.md`, they live only in
- * `authentication_subject_references` and never reach the domain.
+ * `authentication_subjects` and never reach the domain.
  */
 
 declare const brand: unique symbol;
@@ -18,6 +18,7 @@ export type OrganizationId = Brand<string, "OrganizationId">;
 export type IdentityId = Brand<string, "IdentityId">;
 export type MembershipId = Brand<string, "MembershipId">;
 export type RoleAssignmentId = Brand<string, "RoleAssignmentId">;
+export type InvitationId = Brand<string, "InvitationId">;
 
 export type WorkId = Brand<string, "WorkId">;
 export type DecisionId = Brand<string, "DecisionId">;
@@ -38,6 +39,8 @@ export const OrganizationId = (value: string): OrganizationId =>
 export const IdentityId = (value: string): IdentityId => asBrand<"IdentityId">(value);
 export const MembershipId = (value: string): MembershipId =>
   asBrand<"MembershipId">(value);
+export const InvitationId = (value: string): InvitationId =>
+  asBrand<"InvitationId">(value);
 export const WorkId = (value: string): WorkId => asBrand<"WorkId">(value);
 export const DecisionId = (value: string): DecisionId => asBrand<"DecisionId">(value);
 export const MemoryId = (value: string): MemoryId => asBrand<"MemoryId">(value);

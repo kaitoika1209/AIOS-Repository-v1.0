@@ -94,6 +94,26 @@ GET    /organizations/{organizationId}/members
 POST   /organizations/{organizationId}/members
 ```
 
+### Invitation acceptance is the one route without an Organization context
+
+```text
+POST /invitations/accept
+```
+
+Accepting an invitation is the act of *becoming* a Member. The caller is authenticated
+but has no Membership in the target Organization, so the resolution chain in step 2 above
+cannot succeed and `X-Organization-Id` has nothing to select among. Requiring the header
+here would make the flow unreachable.
+
+The route is therefore exempt from Organization resolution, and **only** from that. It
+still requires authentication, and it is not permission-gated at all: authority comes
+from the invitation token, which names the Organization. The route accepts no
+`organizationId` parameter of any kind — a caller cannot choose which Organization to
+join.
+
+This is the only exemption. Any future route that claims one is a defect until this ADR
+is amended.
+
 ### State transitions are explicit command sub-resources
 
 Every command in the authorization catalog maps to exactly one `POST` route, named for
@@ -137,6 +157,10 @@ target state as a parameter.
 | `memory.approve` | `POST /memories/{memoryId}/approve` |
 | `memory.reject` | `POST /memories/{memoryId}/reject` |
 | `memory.reopen` | `POST /memories/{memoryId}/reopen` |
+| `organization.read_members` | `GET /organizations/{organizationId}/members` |
+| `organization.invite_member` | `POST /organizations/{organizationId}/members` |
+| `organization.resend_invitation` | `POST /organizations/{organizationId}/members/{membershipId}/resend-invitation` |
+| `organization.revoke_invitation` | `POST /organizations/{organizationId}/members/{membershipId}/revoke-invitation` |
 | `events.inspect_failed` | `GET /admin/events/failed` |
 | `events.retry` | `POST /admin/events/{eventId}/retry` |
 | `events.skip` | `POST /admin/events/{eventId}/skip` |

@@ -55,11 +55,15 @@ record a blocking Decision, complete the Work, and have a human review and
 approve the resulting organizational Memory — browser to HTTP API to PostgreSQL,
 with the Outbox carrying the asynchronous steps.
 
+Members join through the real invitation flow: an Owner or Admin invites an
+address, a single-use token is issued, and accepting it is what creates the
+Membership that carries authority. Only the Organization and its first Owner are
+seeded, because Organization creation has no command yet.
+
 Two things are deliberately stubbed. Authentication is a development header
 rather than Clerk, and Memory drafts are produced by a deterministic generator
 rather than a language model — it repeats what the Work recorded and invents
-nothing. Organizations and Members come from a seed script; the invitation flow
-is not built yet.
+nothing.
 
 Current progress:
 
@@ -131,17 +135,30 @@ To run the whole slice against a local PostgreSQL database:
 ```bash
 python3 scripts/extract_schema.py          # documented DDL → build/schema.sql
 psql "$DATABASE_URL" -f build/schema.sql
-pnpm --filter @aios/api seed               # one Organization, two Members
+pnpm --filter @aios/api seed               # one Organization and its Owner
 pnpm --filter @aios/api dev                # API on :3001
 pnpm --filter @aios/web dev                # UI on :3000
 ```
 
-The UI has an identity switcher because authority differs by role. Alice is a
-Member and can create Work, complete it, and correct a generated Memory draft.
-Raj is a Reviewer and is the only one who can approve a Decision or a Memory.
-Olivia is the Owner. Switching between them is how the human-authority boundary
-becomes visible — including that the Secretary drafts a Memory but can never
-approve its own draft.
+The seed creates only what has no command yet: one Organization, its first
+Owner (Olivia), and the Secretary. **Everyone else joins by invitation.** Sign in
+as Olivia, open **Members**, invite Alice as a `Member` and Raj as a `Reviewer`,
+then switch identity and accept each invitation.
+
+That detour is the point. Before accepting, Alice authenticates but resolves to
+no principal at all, so every route refuses her — an invitation grants no
+authority until someone accepts it. After accepting, she holds exactly the roles
+the invitation named.
+
+The UI has an identity switcher because authority differs by role. Alice can
+create Work, complete it, and correct a generated Memory draft. Raj is the only
+one who can approve a Decision or a Memory. Switching between them is how the
+human-authority boundary becomes visible — including that the Secretary drafts a
+Memory but can never approve its own draft.
+
+The invitation token is shown once in the UI because nothing delivers it yet:
+the `MembershipInvited` consumer that would send an email is not in this
+release. Only its hash is ever stored.
 
 Database-backed tests are skipped unless `DATABASE_URL` is set, so
 `pnpm run test` stays runnable without a database.

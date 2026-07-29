@@ -50,6 +50,7 @@ describe("role to permission mapping", () => {
     // "A Reviewer is authorized to perform Human review actions."
     expect([...rolePermissions.Reviewer].sort()).toEqual(
       [
+        "organization.read_members",
         "decision.approve",
         "decision.reject",
         "decision.withdraw",
@@ -57,6 +58,26 @@ describe("role to permission mapping", () => {
         "memory.reject",
       ].sort(),
     );
+  });
+
+  it("lets every role read the member list", () => {
+    for (const role of ROLES) {
+      expect(rolePermissions[role]).toContain("organization.read_members");
+    }
+  });
+
+  it("restricts membership administration to Owner and Admin", () => {
+    // "Organization administration | Full | Limited | None | None".
+    const administration = PERMISSIONS.filter(
+      (p) => p.startsWith("organization.") && p !== "organization.read_members",
+    );
+    expect(administration.length).toBeGreaterThan(0);
+    for (const permission of administration) {
+      expect(rolePermissions.OrganizationOwner).toContain(permission);
+      expect(rolePermissions.OrganizationAdmin).toContain(permission);
+      expect(rolePermissions.Member).not.toContain(permission);
+      expect(rolePermissions.Reviewer).not.toContain(permission);
+    }
   });
 
   it("does not let an Admin approve Decisions or Memory by default", () => {

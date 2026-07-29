@@ -11,3 +11,4 @@ export * from "./ports.js";
 export * from "./work-use-cases.js";
 export * from "./decision-use-cases.js";
 export * from "./memory-use-cases.js";
+export * from "./membership-use-cases.js";

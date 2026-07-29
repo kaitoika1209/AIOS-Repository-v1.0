@@ -178,11 +178,35 @@ def check_paired_headings(path: Path, text: str) -> None:
             return
 
 
-PERMISSION = re.compile(r"`((?:work|decision|memory|events)\.[a-z_]+)`")
-ROUTE_ROW = re.compile(r"\| `((?:work|decision|memory|events)\.[a-z_]+)` \|")
+PERMISSION_NAME = re.compile(r"^[a-z_]+\.[a-z_]+$")
+ROUTE_ROW = re.compile(r"^\| `([a-z_]+\.[a-z_]+)` \| `([^`]+)` \|", re.MULTILINE)
 
 AUTHZ_DOC = "docs/architecture/authorization.md"
 ROUTE_ADR = "docs/adr/0014-adopt-rest-with-explicit-command-sub-resources.md"
+
+CATALOGUE_HEADING = "## Permission Catalogue"
+RESERVED_HEADING = "## Reserved Permissions"
+
+
+def fenced_block_after(text: str, heading: str) -> set[str] | None:
+    """The first fenced block following a heading, as a set of non-empty lines.
+
+    Reading a delimited block rather than scanning for inline code spans is what
+    makes the catalogue a *declaration*. Under the old rule, mentioning a
+    permission anywhere in prose silently enrolled it, and omitting the backticks
+    silently excluded it — so the check could be satisfied by formatting.
+    """
+    start = text.find(heading)
+    if start < 0:
+        return None
+    fence = text.find("```", start)
+    if fence < 0:
+        return None
+    body_start = text.find("\n", fence) + 1
+    end = text.find("```", body_start)
+    if end < 0:
+        return None
+    return {line.strip() for line in text[body_start:end].splitlines() if line.strip()}
 
 
 def check_route_catalogue() -> None:
@@ -191,14 +215,46 @@ def check_route_catalogue() -> None:
     adr = ROOT / ROUTE_ADR
     if not (authz.exists() and adr.exists()):
         return
-    permissions = set(PERMISSION.findall(authz.read_text(encoding="utf-8")))
-    routed = set(ROUTE_ROW.findall(adr.read_text(encoding="utf-8")))
+
+    authz_text = authz.read_text(encoding="utf-8")
+    permissions = fenced_block_after(authz_text, CATALOGUE_HEADING)
+    if permissions is None:
+        failures.append(f"{AUTHZ_DOC}: no fenced block under {CATALOGUE_HEADING!r}")
+        return
+
+    malformed = sorted(p for p in permissions if not PERMISSION_NAME.match(p))
+    for name in malformed:
+        failures.append(f"{AUTHZ_DOC}: {name!r} is not a permission identifier")
+    permissions -= set(malformed)
+
+    # A reserved name must stay reserved. Listing it in both places would leave
+    # the reader unable to tell whether it is grantable.
+    reserved = fenced_block_after(authz_text, RESERVED_HEADING) or set()
+    for name in sorted(permissions & reserved):
+        failures.append(f"{AUTHZ_DOC}: {name!r} is both catalogued and reserved")
+
+    rows = ROUTE_ROW.findall(adr.read_text(encoding="utf-8"))
+    routed = {permission for permission, _ in rows}
+
     for missing in sorted(permissions - routed):
         failures.append(f"{ROUTE_ADR}: permission {missing!r} has no route (ADR-0014)")
     for extra in sorted(routed - permissions):
         failures.append(
             f"{ROUTE_ADR}: route for {extra!r} has no permission in {AUTHZ_DOC} (ADR-0014)"
         )
+    for name in sorted(routed & reserved):
+        failures.append(f"{ROUTE_ADR}: {name!r} is reserved and must not be routed")
+
+    # Two permissions sharing a route would defeat the one-to-one rule from the
+    # other direction, which the set comparison above cannot see.
+    seen: dict[str, str] = {}
+    for permission, route in rows:
+        if route in seen:
+            failures.append(
+                f"{ROUTE_ADR}: route {route!r} is claimed by both "
+                f"{seen[route]!r} and {permission!r} (ADR-0014)"
+            )
+        seen[route] = permission
 
 
 def main() -> int:

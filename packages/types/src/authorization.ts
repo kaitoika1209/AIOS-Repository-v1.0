@@ -49,6 +49,21 @@ export const MEMORY_PERMISSIONS = [
   "memory.reopen",
 ] as const;
 
+/**
+ * Organization administration.
+ *
+ * One permission per command rather than a single `organization.manage_members`,
+ * because ADR-0014's one-route-one-permission rule cannot hold otherwise.
+ * Reading the member list is separated from administering it: every role holds
+ * the former.
+ */
+export const ORGANIZATION_PERMISSIONS = [
+  "organization.read_members",
+  "organization.invite_member",
+  "organization.resend_invitation",
+  "organization.revoke_invitation",
+] as const;
+
 /** Operational recovery permissions, restricted to Owner and Admin. */
 export const EVENT_PERMISSIONS = [
   "events.inspect_failed",
@@ -62,6 +77,7 @@ export const PERMISSIONS = [
   ...WORK_PERMISSIONS,
   ...DECISION_PERMISSIONS,
   ...MEMORY_PERMISSIONS,
+  ...ORGANIZATION_PERMISSIONS,
   ...EVENT_PERMISSIONS,
 ] as const;
 
