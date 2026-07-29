@@ -17,8 +17,11 @@ import {
   grantsAuthority,
   inviteToOrganization,
   normalizeEmail,
+  reactivateMembership,
   resendInvitation,
   revokeInvitation,
+  revokeMembership,
+  suspendMembership,
   type MembershipState,
 } from "./membership.js";
 import { DomainError } from "./errors.js";
@@ -336,6 +339,139 @@ describe("revoking an invitation", () => {
     });
     expect(codeOf(() => revokeInvitation(state, ctx(), "Too late"))).toBe(
       "MEMBERSHIP_INVALID_TRANSITION",
+    );
+  });
+});
+
+/** An Active Membership, reached the only way there is: by accepting. */
+const active = (): MembershipState =>
+  acceptInvitation(invite(), NOW, {
+    identityId: IdentityId("identity-alice"),
+    tokenHash: "hash-1",
+    existingIdentityEmail: null,
+  }).state;
+
+const suspended = (): MembershipState =>
+  suspendMembership(active(), ctx(), "On leave").state;
+
+describe("suspending a Member", () => {
+  it("removes authority without losing the Identity or the roles", () => {
+    const { state, events } = suspendMembership(active(), ctx(), "On leave");
+
+    expect(state.status).toBe("Suspended");
+    // "role assignments remain stored but inactive for authorization".
+    expect(state.roles).toEqual(["Member"]);
+    expect(state.identityId).toBe(IdentityId("identity-alice"));
+    expect(grantsAuthority(state)).toBe(false);
+    expect(events.map((e) => e.type)).toEqual(["MembershipSuspended"]);
+  });
+
+  it("records the reason on the event", () => {
+    const { events } = suspendMembership(active(), ctx(), "Security review");
+    expect(events[0]).toMatchObject({
+      reason: "Security review",
+      identityId: IdentityId("identity-alice"),
+      actorIdentityId: IdentityId("identity-admin"),
+    });
+  });
+
+  it("refuses a blank reason", () => {
+    expect(() => suspendMembership(active(), ctx(), "  ")).toThrowError(
+      /suspension reason is required/,
+    );
+  });
+
+  it("refuses a Membership that is not Active", () => {
+    expect(codeOf(() => suspendMembership(invite(), ctx(), "Early"))).toBe(
+      "MEMBERSHIP_INVALID_TRANSITION",
+    );
+    expect(codeOf(() => suspendMembership(suspended(), ctx(), "Again"))).toBe(
+      "MEMBERSHIP_INVALID_TRANSITION",
+    );
+  });
+
+  it("refuses a non-Human principal", () => {
+    expect(() => suspendMembership(active(), ctx(secretary), "By the AI")).toThrowError(
+      /Only a Human Member/,
+    );
+  });
+});
+
+describe("reactivating a Member", () => {
+  it("restores authority with the roles that were retained", () => {
+    const { state, events } = reactivateMembership(suspended(), ctx(), "Returned");
+
+    expect(state.status).toBe("Active");
+    expect(state.roles).toEqual(["Member"]);
+    expect(grantsAuthority(state)).toBe(true);
+    expect(events.map((e) => e.type)).toEqual(["MembershipReactivated"]);
+  });
+
+  it("refuses a Membership that is not Suspended", () => {
+    expect(codeOf(() => reactivateMembership(active(), ctx(), "Already"))).toBe(
+      "MEMBERSHIP_INVALID_TRANSITION",
+    );
+  });
+});
+
+describe("revoking a Member", () => {
+  it("is terminal and records who revoked it and why", () => {
+    const { state, events } = revokeMembership(active(), ctx(), "Left the company");
+
+    expect(state.status).toBe("Revoked");
+    expect(state.revokedByIdentityId).toBe(IdentityId("identity-admin"));
+    expect(state.revocationReason).toBe("Left the company");
+    // "Revocation does not delete the Human Identity."
+    expect(state.identityId).toBe(IdentityId("identity-alice"));
+    expect(events.map((e) => e.type)).toEqual(["MembershipRevoked"]);
+  });
+
+  it("reaches Revoked from Suspended as well as Active", () => {
+    expect(revokeMembership(suspended(), ctx(), "Did not return").state.status).toBe(
+      "Revoked",
+    );
+  });
+
+  it("leaves no usable invitation behind when revoked while still Invited", () => {
+    // The invitation row survives as history; its status is what stops the token
+    // being accepted. `currentInvitation` reports the latest regardless of
+    // status, so the assertion is on the status rather than on its absence.
+    const { state } = revokeMembership(invite(), ctx(), "Sent in error");
+    expect(currentInvitation(state)?.status).toBe("Revoked");
+    expect(
+      codeOf(() =>
+        acceptInvitation(state, NOW, {
+          identityId: IdentityId("identity-bob"),
+          tokenHash: "hash-1",
+          existingIdentityEmail: null,
+        }),
+      ),
+    ).toBe("INVITATION_NOT_ACCEPTABLE");
+  });
+
+  it("cannot be reinstated", () => {
+    // "The MVP should not silently change Revoked back to Active."
+    const revoked = revokeMembership(active(), ctx(), "Left").state;
+    expect(codeOf(() => reactivateMembership(revoked, ctx(), "Back"))).toBe(
+      "MEMBERSHIP_INVALID_TRANSITION",
+    );
+    expect(codeOf(() => revokeMembership(revoked, ctx(), "Again"))).toBe(
+      "MEMBERSHIP_INVALID_TRANSITION",
+    );
+  });
+
+  it("refuses self-removal", () => {
+    // An administrator revoking their own Membership mid-request would spend the
+    // authority that authorized the request.
+    const own = { ...active(), membershipId: MembershipId("membership-admin") };
+    expect(() => revokeMembership(own, ctx(), "Leaving")).toThrowError(
+      /cannot revoke their own Membership/,
+    );
+  });
+
+  it("refuses a blank reason", () => {
+    expect(() => revokeMembership(active(), ctx(), "")).toThrowError(
+      /revocation reason is required/,
     );
   });
 });

@@ -63,6 +63,10 @@ const DOMAIN_STATUS: Readonly<Record<string, number>> = {
  */
 const APPLICATION_STATUS: Readonly<Record<string, number>> = {
   RECOVERY_NOT_PERMITTED: 422,
+  // `409`, not `422`: the request is well formed and the Membership is in a
+  // state that accepts the command. What refuses it is the Organization's
+  // current shape, which the caller can change by appointing another Owner.
+  LAST_OWNER_REQUIRED: 409,
 };
 
 const codeOf = (error: unknown): string | null =>

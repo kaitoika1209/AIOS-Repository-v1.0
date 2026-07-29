@@ -62,6 +62,9 @@ export const ORGANIZATION_PERMISSIONS = [
   "organization.invite_member",
   "organization.resend_invitation",
   "organization.revoke_invitation",
+  "organization.suspend_member",
+  "organization.reactivate_member",
+  "organization.revoke_member",
 ] as const;
 
 /** Operational recovery permissions, restricted to Owner and Admin. */

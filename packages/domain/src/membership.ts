@@ -342,6 +342,34 @@ export const revokeInvitation = (
   };
 };
 
+
+const requireReason = (reason: string, message: string): void => {
+  if (reason.trim().length === 0) {
+    throw new ValidationError(message);
+  }
+};
+
+/**
+ * The acting principal, as an administrative Membership command needs it.
+ *
+ * Every one of these commands is "authorized Human administrative action" in the
+ * document's words. The permission itself is checked in the Application Layer;
+ * what the Aggregate requires is an actor it can attribute the change to.
+ */
+const requireAdministrativeHuman = (
+  ctx: ActorContext,
+  action: string,
+): { identityId: IdentityId; membershipId: MembershipId } => {
+  const principal = ctx.principal;
+  if (principal.type !== "HumanMember") {
+    throw new ValidationError(`Only a Human Member may ${action}.`);
+  }
+  return {
+    identityId: principal.identityId,
+    membershipId: principal.membershipId,
+  };
+};
+
 export interface AcceptInput {
   /** The identity the authenticated subject resolved to, or was created as. */
   readonly identityId: IdentityId;
@@ -440,3 +468,159 @@ export const acceptInvitation = (
 /** Whether this Membership can currently produce a `HumanMemberPrincipal`. */
 export const grantsAuthority = (state: MembershipState): boolean =>
   state.status === "Active";
+
+/**
+ * Temporarily remove authority in one Organization.
+ *
+ * Reversible, unlike revocation, and that is the whole reason it exists:
+ * "role assignments remain stored but inactive for authorization". Nothing is
+ * unassigned and no history is rewritten — "assigned Work remains assigned
+ * unless separately reassigned".
+ *
+ * The Last Owner Invariant is *not* checked here. It spans every Membership in
+ * the Organization, and the Aggregate cannot see another Aggregate; the
+ * Application Layer enforces it.
+ */
+export const suspendMembership = (
+  state: MembershipState,
+  ctx: ActorContext,
+  reason: string,
+): MembershipResult => {
+  const principal = requireAdministrativeHuman(ctx, "suspend a Membership");
+  if (state.status !== "Active") {
+    throw new InvalidTransitionError("Membership", state.status, "SuspendMembership", [
+      "Active",
+    ]);
+  }
+  requireReason(reason, "A suspension reason is required.");
+
+  const version = nextVersion(state);
+  const next: MembershipState = { ...state, status: "Suspended", version };
+
+  return {
+    state: next,
+    events: stampMembership(version, [
+      {
+        type: "MembershipSuspended",
+        organizationId: state.organizationId,
+        occurredAt: ctx.now,
+        actorIdentityId: principal.identityId,
+        actorMembershipId: principal.membershipId,
+        membershipId: state.membershipId,
+        // Non-null by the status check: only an Active Membership reaches here,
+        // and an Active Membership always carries an Identity.
+        identityId: state.identityId!,
+        reason,
+      },
+    ]),
+  };
+};
+
+/** Restore a suspended Membership. Roles were retained, so none are reissued. */
+export const reactivateMembership = (
+  state: MembershipState,
+  ctx: ActorContext,
+  reason: string,
+): MembershipResult => {
+  const principal = requireAdministrativeHuman(ctx, "reactivate a Membership");
+  if (state.status !== "Suspended") {
+    throw new InvalidTransitionError("Membership", state.status, "ReactivateMembership", [
+      "Suspended",
+    ]);
+  }
+  requireReason(reason, "A reactivation reason is required.");
+
+  const version = nextVersion(state);
+  const next: MembershipState = { ...state, status: "Active", version };
+
+  return {
+    state: next,
+    events: stampMembership(version, [
+      {
+        type: "MembershipReactivated",
+        organizationId: state.organizationId,
+        occurredAt: ctx.now,
+        actorIdentityId: principal.identityId,
+        actorMembershipId: principal.membershipId,
+        membershipId: state.membershipId,
+        identityId: state.identityId!,
+        reason,
+      },
+    ]),
+  };
+};
+
+/**
+ * Permanently remove future authority.
+ *
+ * Terminal. "The MVP should not silently change Revoked back to Active" — a
+ * returning person needs a new Membership, so there is no reinstatement command
+ * and no path back from this state.
+ *
+ * Self-removal is refused here rather than in the Application Layer, because the
+ * Aggregate holds both facts it needs: who is acting, and whose Membership this
+ * is. An administrator who revokes their own Membership mid-request would spend
+ * the authority that authorized the request.
+ *
+ * Reachable from `Invited` as well as `Active` and `Suspended`, which is why
+ * `revokeInvitation` is a separate command rather than a different outcome: the
+ * invitation path also resolves the pending invitation.
+ */
+export const revokeMembership = (
+  state: MembershipState,
+  ctx: ActorContext,
+  reason: string,
+): MembershipResult => {
+  const principal = requireAdministrativeHuman(ctx, "revoke a Membership");
+  if (
+    state.status !== "Active" &&
+    state.status !== "Suspended" &&
+    state.status !== "Invited"
+  ) {
+    throw new InvalidTransitionError("Membership", state.status, "RevokeMembership", [
+      "Invited",
+      "Active",
+      "Suspended",
+    ]);
+  }
+  requireReason(reason, "A revocation reason is required.");
+
+  if (principal.membershipId === state.membershipId) {
+    throw new ValidationError(
+      "A Member cannot revoke their own Membership.",
+      { field: "membershipId" },
+    );
+  }
+
+  const version = nextVersion(state);
+  const next: MembershipState = {
+    ...state,
+    status: "Revoked",
+    revokedByIdentityId: principal.identityId,
+    revokedAt: ctx.now,
+    revocationReason: reason,
+    // A Membership revoked while still Invited leaves no usable token behind.
+    invitations: state.invitations.map((invitation) =>
+      invitation.status === "Pending"
+        ? { ...invitation, status: "Revoked" as InvitationStatus, revokedAt: ctx.now }
+        : invitation,
+    ),
+    version,
+  };
+
+  return {
+    state: next,
+    events: stampMembership(version, [
+      {
+        type: "MembershipRevoked",
+        organizationId: state.organizationId,
+        occurredAt: ctx.now,
+        actorIdentityId: principal.identityId,
+        actorMembershipId: principal.membershipId,
+        membershipId: state.membershipId,
+        identityId: state.identityId,
+        reason,
+      },
+    ]),
+  };
+};

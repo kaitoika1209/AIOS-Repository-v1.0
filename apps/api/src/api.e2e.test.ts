@@ -1404,6 +1404,166 @@ suite("AIOS API", () => {
     });
   });
 
+
+  describe("Member lifecycle", () => {
+    const members = `/organizations/${ORG}/members`;
+
+    it("suspends a Member, whose authority stops immediately", async () => {
+      const res = await request(server())
+        .post(`${members}/${MEMBER.membership}/suspend`)
+        .set(as(OWNER))
+        .send({ reason: "On leave" })
+        .expect(201);
+
+      expect(res.body.status).toBe("Suspended");
+
+      // "existing sessions must fail current Membership validation" — the
+      // principal resolver declines to issue one, so every route refuses.
+      await request(server()).get("/works").set(as(MEMBER)).expect(404);
+    });
+
+    it("reactivates a suspended Member with the roles that were retained", async () => {
+      await request(server())
+        .post(`${members}/${MEMBER.membership}/suspend`)
+        .set(as(OWNER))
+        .send({ reason: "On leave" })
+        .expect(201);
+
+      await request(server())
+        .post(`${members}/${MEMBER.membership}/reactivate`)
+        .set(as(OWNER))
+        .send({ reason: "Returned" })
+        .expect(201);
+
+      // Not reissued, restored: role assignments were never removed.
+      const work = await request(server())
+        .post("/works")
+        .set(as(MEMBER))
+        .send({ title: "Back at it" })
+        .expect(201);
+      expect(work.body.workId).toBeDefined();
+    });
+
+    it("revokes a Member permanently", async () => {
+      const res = await request(server())
+        .post(`${members}/${MEMBER.membership}/revoke`)
+        .set(as(OWNER))
+        .send({ reason: "Left the company" })
+        .expect(201);
+
+      expect(res.body.status).toBe("Revoked");
+      await request(server()).get("/works").set(as(MEMBER)).expect(404);
+
+      // Terminal: there is no reinstatement command.
+      await request(server())
+        .post(`${members}/${MEMBER.membership}/reactivate`)
+        .set(as(OWNER))
+        .send({ reason: "Changed our minds" })
+        .expect(409);
+    });
+
+    it("refuses to remove the only active Owner", async () => {
+      // The Last Owner Invariant. Reported as 409, not 422: the caller can
+      // change the outcome by appointing another Owner first.
+      await request(server())
+        .post(`${members}/${OWNER.membership}/revoke`)
+        .set(as(OWNER))
+        .send({ reason: "Leaving" })
+        .expect(409);
+
+      await request(server())
+        .post(`${members}/${OWNER.membership}/suspend`)
+        .set(as(OWNER))
+        .send({ reason: "On leave" })
+        .expect(409);
+    });
+
+    it("refuses self-removal even when another Owner remains", async () => {
+      const client = await pool.connect();
+      try {
+        await client.query(
+          `UPDATE membership_role_assignments SET role = 'OrganizationOwner'
+            WHERE membership_id = $1`,
+          [STRANGER.membership],
+        );
+      } finally {
+        client.release();
+      }
+
+      // The invariant is satisfied, so what refuses this is the self-removal
+      // rule: revoking your own Membership spends the authority that authorized
+      // the request.
+      await request(server())
+        .post(`${members}/${OWNER.membership}/revoke`)
+        .set(as(OWNER))
+        .send({ reason: "Leaving" })
+        .expect(422);
+    });
+
+    it("requires a reason for every lifecycle command", async () => {
+      for (const command of ["suspend", "reactivate", "revoke"]) {
+        await request(server())
+          .post(`${members}/${MEMBER.membership}/${command}`)
+          .set(as(OWNER))
+          .send({})
+          .expect(400);
+      }
+    });
+
+    it("denies a Member and a Reviewer every lifecycle command", async () => {
+      for (const who of [MEMBER, REVIEWER]) {
+        for (const command of ["suspend", "reactivate", "revoke"]) {
+          await request(server())
+            .post(`${members}/${STRANGER.membership}/${command}`)
+            .set(as(who))
+            .send({ reason: "Mine now" })
+            .expect(403);
+        }
+      }
+    });
+
+    it("reports another Organization's Membership as 404", async () => {
+      await request(server())
+        .post(`${members}/${OUTSIDER.membership}/suspend`)
+        .set(as(OWNER))
+        .send({ reason: "Not mine" })
+        .expect(404);
+    });
+
+    it("emits the registered lifecycle events", async () => {
+      await request(server())
+        .post(`${members}/${MEMBER.membership}/suspend`)
+        .set(as(OWNER))
+        .send({ reason: "On leave" })
+        .expect(201);
+      await request(server())
+        .post(`${members}/${MEMBER.membership}/reactivate`)
+        .set(as(OWNER))
+        .send({ reason: "Returned" })
+        .expect(201);
+      await request(server())
+        .post(`${members}/${MEMBER.membership}/revoke`)
+        .set(as(OWNER))
+        .send({ reason: "Left" })
+        .expect(201);
+
+      const client = await pool.connect();
+      try {
+        const rows = await client.query<{ event_type: string; aggregate_type: string }>(
+          `SELECT event_type, aggregate_type FROM outbox_messages
+            ORDER BY recorded_at, event_sequence`,
+        );
+        expect(rows.rows).toEqual([
+          { event_type: "MembershipSuspended", aggregate_type: "Membership" },
+          { event_type: "MembershipReactivated", aggregate_type: "Membership" },
+          { event_type: "MembershipRevoked", aggregate_type: "Membership" },
+        ]);
+      } finally {
+        client.release();
+      }
+    });
+  });
+
   describe("operational recovery (events.*)", () => {
     /**
      * A failed delivery, written directly.

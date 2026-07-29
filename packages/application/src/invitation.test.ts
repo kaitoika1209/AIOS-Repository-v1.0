@@ -24,7 +24,10 @@ import {
   inviteMemberUseCase,
   listMembersUseCase,
   resendInvitationUseCase,
+  reactivateMemberUseCase,
   revokeInvitationUseCase,
+  revokeMemberUseCase,
+  suspendMemberUseCase,
 } from "./membership-use-cases.js";
 import { buildTestHarness } from "./testing/in-memory.js";
 
@@ -317,5 +320,116 @@ describe("listing members", () => {
       roles: ["Member"],
     });
     expect(await listMembersUseCase(harness.deps, ctx())).toEqual([]);
+  });
+});
+
+/**
+ * The Last Owner Invariant, which spans Memberships and so lives in the
+ * Application Layer.
+ *
+ * "An operation must not remove, suspend, or revoke the final active Owner when
+ * the Organization remains Active."
+ */
+describe("the Last Owner Invariant", () => {
+  const ownerRoles: Role[] = ["OrganizationOwner"];
+
+  /** An Active Membership holding the given roles, seeded directly. */
+  const seedActive = async (
+    h: ReturnType<typeof buildTestHarness>,
+    membershipId: string,
+    roles: Role[],
+  ) => {
+    await h.memberships.insert({
+      membershipId: MembershipId(membershipId),
+      organizationId: ORG,
+      identityId: IdentityId(`identity-${membershipId}`),
+      status: "Active",
+      roles,
+      pendingInviteeEmail: null,
+      invitations: [],
+      invitedByIdentityId: null,
+      invitedByMembershipId: null,
+      invitedAt: NOW,
+      activatedAt: NOW,
+      revokedByIdentityId: null,
+      revokedAt: null,
+      revocationReason: null,
+      version: 1 as never,
+    });
+  };
+
+  it("refuses to revoke the only active Owner", async () => {
+    const h = buildTestHarness(NOW);
+    await seedActive(h, "owner-1", ownerRoles);
+
+    await expect(
+      revokeMemberUseCase(h.deps, ctx(), MembershipId("owner-1"), "Leaving"),
+    ).rejects.toMatchObject({ code: "LAST_OWNER_REQUIRED" });
+  });
+
+  it("refuses to suspend the only active Owner", async () => {
+    // The invariant names suspension too: a suspended Owner is not an active
+    // Owner, so suspending the last one leaves the Organization ownerless.
+    const h = buildTestHarness(NOW);
+    await seedActive(h, "owner-1", ownerRoles);
+
+    await expect(
+      suspendMemberUseCase(h.deps, ctx(), MembershipId("owner-1"), "On leave"),
+    ).rejects.toMatchObject({ code: "LAST_OWNER_REQUIRED" });
+  });
+
+  it("allows it once a second Owner is active", async () => {
+    const h = buildTestHarness(NOW);
+    await seedActive(h, "owner-1", ownerRoles);
+    await seedActive(h, "owner-2", ownerRoles);
+
+    const revoked = await revokeMemberUseCase(
+      h.deps,
+      ctx(),
+      MembershipId("owner-1"),
+      "Handed over",
+    );
+    expect(revoked.status).toBe("Revoked");
+  });
+
+  it("does not count a suspended Owner as remaining", async () => {
+    const h = buildTestHarness(NOW);
+    await seedActive(h, "owner-1", ownerRoles);
+    await seedActive(h, "owner-2", ownerRoles);
+    await suspendMemberUseCase(h.deps, ctx(), MembershipId("owner-2"), "On leave");
+
+    await expect(
+      revokeMemberUseCase(h.deps, ctx(), MembershipId("owner-1"), "Leaving"),
+    ).rejects.toMatchObject({ code: "LAST_OWNER_REQUIRED" });
+  });
+
+  it("does not apply to a Member who is not an Owner", async () => {
+    const h = buildTestHarness(NOW);
+    await seedActive(h, "member-1", ["Member"]);
+
+    // No Owner check runs at all: the invariant is about Owners, and requiring
+    // one here would make the last ordinary Member unremovable.
+    const revoked = await revokeMemberUseCase(
+      h.deps,
+      ctx(),
+      MembershipId("member-1"),
+      "Left",
+    );
+    expect(revoked.status).toBe("Revoked");
+  });
+
+  it("lets a suspended Owner be reactivated with no Owner check", async () => {
+    const h = buildTestHarness(NOW);
+    await seedActive(h, "owner-1", ownerRoles);
+    await seedActive(h, "owner-2", ownerRoles);
+    await suspendMemberUseCase(h.deps, ctx(), MembershipId("owner-2"), "On leave");
+
+    const back = await reactivateMemberUseCase(
+      h.deps,
+      ctx(),
+      MembershipId("owner-2"),
+      "Returned",
+    );
+    expect(back.status).toBe("Active");
   });
 });

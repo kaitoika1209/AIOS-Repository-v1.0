@@ -25,7 +25,10 @@ import {
   inviteMemberUseCase,
   listMembersUseCase,
   resendInvitationUseCase,
+  reactivateMemberUseCase,
   revokeInvitationUseCase,
+  revokeMemberUseCase,
+  suspendMemberUseCase,
   type UseCaseDependencies,
 } from "@aios/application";
 
@@ -152,6 +155,61 @@ export class OrganizationMemberController {
       MembershipId(membershipId),
     );
     return present(membership, token);
+  }
+
+  /**
+   * The three Member lifecycle commands.
+   *
+   * Separate routes rather than one taking a target status, because ADR-0014
+   * forbids a command route from accepting a target state: each has its own
+   * permission, its own preconditions, and its own audit record.
+   */
+  @Post(":membershipId/suspend")
+  async suspend(
+    @Req() request: Request,
+    @Param("organizationId") organizationId: string,
+    @Param("membershipId") membershipId: string,
+    @Body() body: { reason?: unknown },
+  ): Promise<{ membershipId: string; status: MembershipStatus }> {
+    const membership = await suspendMemberUseCase(
+      this.deps,
+      this.scoped(request, organizationId),
+      MembershipId(membershipId),
+      requireString(body.reason, "reason"),
+    );
+    return { membershipId: membership.membershipId, status: membership.status };
+  }
+
+  @Post(":membershipId/reactivate")
+  async reactivate(
+    @Req() request: Request,
+    @Param("organizationId") organizationId: string,
+    @Param("membershipId") membershipId: string,
+    @Body() body: { reason?: unknown },
+  ): Promise<{ membershipId: string; status: MembershipStatus }> {
+    const membership = await reactivateMemberUseCase(
+      this.deps,
+      this.scoped(request, organizationId),
+      MembershipId(membershipId),
+      requireString(body.reason, "reason"),
+    );
+    return { membershipId: membership.membershipId, status: membership.status };
+  }
+
+  @Post(":membershipId/revoke")
+  async revokeMember(
+    @Req() request: Request,
+    @Param("organizationId") organizationId: string,
+    @Param("membershipId") membershipId: string,
+    @Body() body: { reason?: unknown },
+  ): Promise<{ membershipId: string; status: MembershipStatus }> {
+    const membership = await revokeMemberUseCase(
+      this.deps,
+      this.scoped(request, organizationId),
+      MembershipId(membershipId),
+      requireString(body.reason, "reason"),
+    );
+    return { membershipId: membership.membershipId, status: membership.status };
   }
 
   @Post(":membershipId/revoke-invitation")

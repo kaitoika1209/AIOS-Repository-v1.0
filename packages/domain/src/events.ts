@@ -223,8 +223,10 @@ export type MemoryEvent =
  * and revoking an invitation reaches `Revoked` and so emits `MembershipRevoked`
  * with a reason, exactly as revoking an active Membership does.
  *
- * `MembershipSuspended` and `MembershipReactivated` are registered but not yet
- * emitted; their commands are not in this release.
+ * `MembershipSuspended` and `MembershipReactivated` carry a reason for the same
+ * purpose the revocation reason serves: a Member whose authority was removed is
+ * entitled to a record of why, and an administrator reviewing the history needs
+ * one that does not depend on remembering.
  */
 export interface MembershipInvited extends DomainEventBase {
   readonly type: "MembershipInvited";
@@ -245,6 +247,27 @@ export interface MembershipActivated extends DomainEventBase {
   readonly initialRoles: readonly Role[];
 }
 
+/**
+ * Authority in one Organization was temporarily removed.
+ *
+ * Carries `identityId` non-null: only an Active Membership can be suspended,
+ * and an Active Membership always has one. Suspension is the reversible half of
+ * removal — "role assignments remain stored but inactive for authorization".
+ */
+export interface MembershipSuspended extends DomainEventBase {
+  readonly type: "MembershipSuspended";
+  readonly membershipId: MembershipId;
+  readonly identityId: IdentityId;
+  readonly reason: string;
+}
+
+export interface MembershipReactivated extends DomainEventBase {
+  readonly type: "MembershipReactivated";
+  readonly membershipId: MembershipId;
+  readonly identityId: IdentityId;
+  readonly reason: string;
+}
+
 export interface MembershipRevoked extends DomainEventBase {
   readonly type: "MembershipRevoked";
   readonly membershipId: MembershipId;
@@ -256,6 +279,8 @@ export interface MembershipRevoked extends DomainEventBase {
 export type MembershipEvent =
   | MembershipInvited
   | MembershipActivated
+  | MembershipSuspended
+  | MembershipReactivated
   | MembershipRevoked;
 
 export type WorkEvent =

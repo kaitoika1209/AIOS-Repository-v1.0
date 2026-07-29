@@ -55,6 +55,8 @@ const aggregateOf = (
 
     case "MembershipInvited":
     case "MembershipActivated":
+    case "MembershipSuspended":
+    case "MembershipReactivated":
     case "MembershipRevoked":
       return { type: "Membership", id: event.membershipId };
   }

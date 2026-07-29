@@ -20,8 +20,11 @@ import {
   InvitationNotAcceptableError,
   inviteToOrganization,
   normalizeEmail,
+  reactivateMembership,
   resendInvitation,
   revokeInvitation,
+  revokeMembership,
+  suspendMembership,
   currentInvitation,
   ValidationError,
   type MembershipState,
@@ -180,6 +183,128 @@ export const revokeInvitationUseCase = async (
   return deps.uow.transaction(async (tx) => {
     const current = await loadMembership(tx, ctx.organizationId, membershipId);
     const { state, events } = revokeInvitation(current, ctx, reason);
+    await tx.memberships.update(state, current.version);
+    await tx.outbox.append(events);
+    return state;
+  });
+};
+
+/**
+ * The Last Owner Invariant.
+ *
+ * "An operation must not remove, suspend, or revoke the final active Owner when
+ * the Organization remains Active." It spans every Membership in the
+ * Organization, so the Aggregate cannot enforce it — it can see only itself.
+ *
+ * Checked against the member list inside the same transaction as the write, so a
+ * concurrent revocation cannot let two requests each believe another Owner
+ * remains.
+ */
+const requireAnotherActiveOwner = async (
+  tx: RepositoryBundle,
+  organizationId: OrganizationId,
+  losing: MembershipId,
+): Promise<void> => {
+  const members = await tx.memberships.listMembers(organizationId);
+  const remainingOwners = members.filter(
+    (m) =>
+      m.membershipId !== losing &&
+      m.status === "Active" &&
+      m.roles.includes("OrganizationOwner"),
+  );
+
+  if (remainingOwners.length === 0) {
+    throw new LastOwnerError();
+  }
+};
+
+/**
+ * Refused because the Organization would be left with no active Owner.
+ *
+ * `409`, not `422`: the request is well formed and the target Membership is in a
+ * state that accepts the command. What refuses it is the Organization's current
+ * shape, which the caller can change by appointing another Owner first —
+ * exactly what the document prescribes ("The Organization must first: assign
+ * another Owner").
+ */
+export class LastOwnerError extends Error {
+  readonly code = "LAST_OWNER_REQUIRED" as const;
+
+  constructor() {
+    super("The Organization must keep at least one active Owner.");
+    this.name = "LastOwnerError";
+  }
+}
+
+/**
+ * Temporarily remove a Member's authority.
+ *
+ * Suspension is checked against the Last Owner Invariant as well as revocation,
+ * because the invariant names all three operations: a suspended Owner is not an
+ * active Owner, so suspending the last one leaves the Organization ownerless
+ * just as surely as revoking them.
+ */
+export const suspendMemberUseCase = async (
+  deps: UseCaseDependencies,
+  ctx: WorkCommandContext,
+  membershipId: MembershipId,
+  reason: string,
+): Promise<MembershipState> => {
+  requirePermission(ctx.principal, "organization.suspend_member");
+
+  return deps.uow.transaction(async (tx) => {
+    const current = await loadMembership(tx, ctx.organizationId, membershipId);
+    if (current.roles.includes("OrganizationOwner")) {
+      await requireAnotherActiveOwner(tx, ctx.organizationId, membershipId);
+    }
+
+    const { state, events } = suspendMembership(current, ctx, reason);
+    await tx.memberships.update(state, current.version);
+    await tx.outbox.append(events);
+    return state;
+  });
+};
+
+export const reactivateMemberUseCase = async (
+  deps: UseCaseDependencies,
+  ctx: WorkCommandContext,
+  membershipId: MembershipId,
+  reason: string,
+): Promise<MembershipState> => {
+  requirePermission(ctx.principal, "organization.reactivate_member");
+
+  return deps.uow.transaction(async (tx) => {
+    const current = await loadMembership(tx, ctx.organizationId, membershipId);
+    // No invariant applies: reactivation only ever adds an active Member.
+    const { state, events } = reactivateMembership(current, ctx, reason);
+    await tx.memberships.update(state, current.version);
+    await tx.outbox.append(events);
+    return state;
+  });
+};
+
+/**
+ * Permanently remove a Member's future authority.
+ *
+ * Terminal, and there is no reinstatement command: a returning person needs a
+ * new Membership. Self-removal is refused by the Aggregate, which holds both the
+ * actor and the target.
+ */
+export const revokeMemberUseCase = async (
+  deps: UseCaseDependencies,
+  ctx: WorkCommandContext,
+  membershipId: MembershipId,
+  reason: string,
+): Promise<MembershipState> => {
+  requirePermission(ctx.principal, "organization.revoke_member");
+
+  return deps.uow.transaction(async (tx) => {
+    const current = await loadMembership(tx, ctx.organizationId, membershipId);
+    if (current.roles.includes("OrganizationOwner")) {
+      await requireAnotherActiveOwner(tx, ctx.organizationId, membershipId);
+    }
+
+    const { state, events } = revokeMembership(current, ctx, reason);
     await tx.memberships.update(state, current.version);
     await tx.outbox.append(events);
     return state;

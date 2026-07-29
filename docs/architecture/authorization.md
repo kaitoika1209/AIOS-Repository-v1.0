@@ -1080,6 +1080,9 @@ organization.read_members
 organization.invite_member
 organization.resend_invitation
 organization.revoke_invitation
+organization.suspend_member
+organization.reactivate_member
+organization.revoke_member
 
 events.inspect_failed
 events.retry
@@ -1094,6 +1097,15 @@ otherwise: inviting, resending, and revoking are three routes. The split also ma
 narrower grants expressible — reading the member list is not administration, and is held
 by every role.
 
+`organization.suspend_member`, `organization.reactivate_member`, and
+`organization.revoke_member` were previously listed as Reserved with no route. That was a
+defect: `docs/product/mvp.md` states the MVP "must support ... Member removal or
+deactivation", and the release-scope document outranks this one
+(`docs/document-governance.md`). A rank 3 document cannot withhold what rank 2 requires,
+so the three are catalogued here. Suspension and reactivation are separate permissions
+rather than one toggle for the same reason the invitation commands are separate: each is
+its own route with its own preconditions and its own audit record.
+
 ---
 
 ## Reserved Permissions
@@ -1107,9 +1119,6 @@ editing decision.
 decision.record_secretary_contribution
 memory.record_secretary_contribution
 
-organization.suspend_member
-organization.reactivate_member
-organization.revoke_member
 organization.assign_role
 organization.revoke_role
 

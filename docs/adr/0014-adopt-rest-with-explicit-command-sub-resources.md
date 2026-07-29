@@ -161,6 +161,9 @@ target state as a parameter.
 | `organization.invite_member` | `POST /organizations/{organizationId}/members` |
 | `organization.resend_invitation` | `POST /organizations/{organizationId}/members/{membershipId}/resend-invitation` |
 | `organization.revoke_invitation` | `POST /organizations/{organizationId}/members/{membershipId}/revoke-invitation` |
+| `organization.suspend_member` | `POST /organizations/{organizationId}/members/{membershipId}/suspend` |
+| `organization.reactivate_member` | `POST /organizations/{organizationId}/members/{membershipId}/reactivate` |
+| `organization.revoke_member` | `POST /organizations/{organizationId}/members/{membershipId}/revoke` |
 | `events.inspect_failed` | `GET /admin/events/failed` |
 | `events.retry` | `POST /admin/events/{eventId}/retry` |
 | `events.skip` | `POST /admin/events/dead-letters/{deadLetterId}/skip` |
