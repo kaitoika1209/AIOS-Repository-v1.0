@@ -22,7 +22,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { SECRETARY_IDENTITY_ID, createApp, dependenciesFor } from "./app.js";
 import { drainOutbox } from "./outbox-worker.js";
-import { StubMemoryGenerator } from "./stub-memory-generator.js";
+import { DeterministicMemoryGenerator } from "./deterministic-memory-generator.js";
 import { DEV_ISSUER, DEV_PROVIDER, DevAuthAdapter } from "./dev-auth.js";
 
 const url = process.env["DATABASE_URL"];
@@ -507,7 +507,7 @@ suite("AIOS API", () => {
   describe("Memory (ADR-0008)", () => {
     const memoryOptions = {
       memory: {
-        generator: new StubMemoryGenerator(),
+        generator: new DeterministicMemoryGenerator(),
         secretaryIdentityId: SECRETARY_IDENTITY_ID,
         systemPrincipalId: "memory-generator",
       },

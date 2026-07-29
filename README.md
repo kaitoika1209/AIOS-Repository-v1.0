@@ -60,10 +60,15 @@ address, a single-use token is issued, and accepting it is what creates the
 Membership that carries authority. Only the Organization and its first Owner are
 seeded, because Organization creation has no command yet.
 
-Two things are deliberately stubbed. Authentication is a development header
-rather than Clerk, and Memory drafts are produced by a deterministic generator
-rather than a language model — it repeats what the Work recorded and invents
-nothing.
+Memory generation calls Anthropic when `ANTHROPIC_API_KEY` is set, and a
+deterministic generator when it is not — so the whole loop runs on a laptop with
+no provider account. Either way the provider response is untrusted candidate
+content until it passes local validation (ADR-0004): a draft asserting a figure,
+date, identifier, or name the Work never recorded is discarded and never reaches
+a reviewer. See [Memory Generation Policy](docs/architecture/memory-generation-policy.md).
+
+One thing is still deliberately stubbed: authentication is a development header
+rather than Clerk.
 
 Current progress:
 
@@ -159,6 +164,13 @@ Memory but can never approve its own draft.
 The invitation token is shown once in the UI because nothing delivers it yet:
 the `MembershipInvited` consumer that would send an email is not in this
 release. Only its hash is ever stored.
+
+Generation quality is evaluated rather than proven. Fixture cases run in CI with
+no credential; the live half needs one:
+
+```bash
+ANTHROPIC_API_KEY=... pnpm --filter @aios/api evaluate
+```
 
 Database-backed tests are skipped unless `DATABASE_URL` is set, so
 `pnpm run test` stays runnable without a database.

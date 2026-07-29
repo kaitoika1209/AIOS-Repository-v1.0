@@ -32,6 +32,7 @@ scope. Accepted ADRs are the highest authority in this repository — see
 | [0013](0013-bind-clerk-as-authentication-provider.md) | Bind Clerk as an Authentication Provider Without Ceding Identity Ownership | Proposed | 2026-07-28 |
 | [0014](0014-adopt-rest-with-explicit-command-sub-resources.md) | Adopt REST with Explicit Command Sub-Resources and Header-Scoped Tenancy | Proposed | 2026-07-28 |
 | [0015](0015-use-documented-ddl-and-direct-sql-for-persistence.md) | Keep the Documented DDL Authoritative and Use Direct SQL for Persistence | Proposed | 2026-07-28 |
+| [0016](0016-bind-anthropic-as-the-model-provider.md) | Bind Anthropic as the Model Provider and Call It Directly | Proposed | 2026-07-29 |
 
 ---
 
@@ -46,6 +47,7 @@ New to the architecture? Read in this order:
 5. **0006**, **0004** — how events and external calls stay reliable.
 6. **0007**, **0008**, **0009**, **0011**, **0012** — specific mechanisms.
 7. **0013**, **0014** — how requests enter the system: authentication and the API surface.
+8. **0015**, **0016** — what the system talks to: the database, and the model provider.
 
 ---
 

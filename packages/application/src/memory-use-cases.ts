@@ -25,10 +25,16 @@ import {
   type ActorContext,
   type GeneratedContent,
   type MemoryState,
-  type WorkState,
 } from "@aios/domain";
 
 import { requirePermission } from "./authorization.js";
+import {
+  buildProviderInput,
+  canonicalize,
+  providerInputHash,
+  type ProviderInput,
+} from "./generation-policy.js";
+import { GenerationRejectedError, requireGrounded } from "./groundedness.js";
 import {
   NotFoundError,
   type RepositoryBundle,
@@ -46,10 +52,21 @@ import type { WorkCommandContext } from "./work-use-cases.js";
  */
 export interface MemoryGenerator {
   readonly policyVersion: number;
+  readonly promptTemplateVersion: number;
+  readonly outputSchemaVersion: number;
+  /** Recorded on the operation so a draft can be traced to what produced it. */
+  readonly modelReference: string;
+  /**
+   * Produce candidate content from the canonical provider input.
+   *
+   * Takes `ProviderInput` rather than `WorkState` deliberately. The generation
+   * policy limits what crosses this boundary — no identity references, no
+   * fields the model has no use for — and passing the Aggregate would make that
+   * limit a convention an adapter could quietly ignore.
+   */
   generate(input: {
-    readonly work: WorkState;
-    readonly sourceSnapshotId: string;
-    readonly sourceSnapshotHash: string;
+    readonly providerInput: ProviderInput;
+    readonly providerInputHash: string;
   }): Promise<GeneratedContent>;
 }
 
@@ -68,6 +85,8 @@ const loadMemory = async (
 export interface GenerateMemoryInput {
   readonly organizationId: OrganizationId;
   readonly workId: WorkId;
+  /** The Outbox row that carried `WorkCompleted`. */
+  readonly sourceEventId: string;
   readonly sourceSnapshotId: string;
   readonly sourceSnapshotHash: string;
   /** The Secretary credited as the author of the generated draft. */
@@ -75,45 +94,146 @@ export interface GenerateMemoryInput {
     typeof createGeneratedMemory
   >[0]["generatedBy"];
   readonly systemPrincipalId: string;
+  /** Identifies the worker holding the lease, for recovery diagnostics. */
+  readonly workerId: string;
 }
+
+/** How long a claimed operation is owned before another worker may reclaim it. */
+export const GENERATION_LEASE_MS = 5 * 60 * 1000;
+
+/** Backoff before a retryable failure is attempted again. */
+export const GENERATION_RETRY_DELAY_MS = 60 * 1000;
 
 /**
  * Generate the Memory for a completed Work.
  *
- * Idempotent by construction: at-least-once delivery means this runs more than
- * once for the same Work, and the second run finds the existing active Memory
- * and returns it. The database enforces the same rule through
- * `uq_memories_active_source_work`, so a race loses at the constraint rather
- * than producing a duplicate draft.
+ * The ordering is ADR-0004's, not a convenience: the durable operation — with
+ * its source snapshot and provider-input hash — **commits before the provider is
+ * called**. A process that dies mid-call therefore leaves a claimable record of
+ * what was attempted rather than nothing at all.
  *
- * The provider call happens outside the transaction; only the committed result
- * is persisted.
+ *     tx1: find existing Memory | build provider input | open and claim operation
+ *          ↓ commit
+ *     provider call, outside any transaction
+ *          ↓
+ *     tx2: create Memory and mark the operation Generated, together
+ *
+ * Idempotent at three levels, because at-least-once delivery means this runs
+ * more than once for the same Work: an already-`Generated` operation returns its
+ * linked Memory, an unclaimable operation means another worker owns the attempt,
+ * and `uq_memories_active_source_work` is the database's last word.
  */
 export const generateMemoryUseCase = async (
   deps: UseCaseDependencies,
   generator: MemoryGenerator,
   ctx: ActorContext,
   input: GenerateMemoryInput,
-): Promise<MemoryState> => {
-  const existing = await deps.uow.transaction((tx) =>
-    tx.memories.findActiveByWork(input.organizationId, input.workId),
-  );
-  if (existing !== null) {
-    return existing;
-  }
+): Promise<MemoryState | null> => {
+  const prepared = await deps.uow.transaction(async (tx) => {
+    const existing = await tx.memories.findActiveByWork(
+      input.organizationId,
+      input.workId,
+    );
+    if (existing !== null) {
+      return { kind: "done" as const, memory: existing };
+    }
 
-  const work = await deps.uow.transaction((tx) =>
-    tx.work.findById(input.organizationId, input.workId),
-  );
-  if (work === null) {
-    throw new NotFoundError("Work");
-  }
+    const work = await tx.work.findById(input.organizationId, input.workId);
+    if (work === null) {
+      throw new NotFoundError("Work");
+    }
 
-  const generated = await generator.generate({
-    work,
-    sourceSnapshotId: input.sourceSnapshotId,
-    sourceSnapshotHash: input.sourceSnapshotHash,
+    // Only the Decision the completion gate points at, and only when it was
+    // satisfied. Work never reads the Decision Aggregate itself, so the
+    // Application Layer performs the join the generation policy requires.
+    const decision =
+      work.completionGate.kind === "Satisfied"
+        ? await tx.decisions.findById(
+            input.organizationId,
+            work.completionGate.reference.decisionId,
+          )
+        : null;
+
+    const providerInput = buildProviderInput(work, decision);
+    const inputHash = providerInputHash(providerInput);
+
+    const operation = await tx.generationOperations.ensure({
+      generationOperationId: deps.ids.revisionId(),
+      organizationId: input.organizationId,
+      workId: input.workId,
+      generationPolicyVersion: generator.policyVersion,
+      sourceEventId: input.sourceEventId,
+      sourceSnapshotId: input.sourceSnapshotId,
+      sourceSnapshotHash: input.sourceSnapshotHash,
+      providerInputHash: inputHash,
+      promptTemplateVersion: generator.promptTemplateVersion,
+      outputSchemaVersion: generator.outputSchemaVersion,
+      now: ctx.now,
+    });
+
+    // A terminal operation is not retried here. `Failed` and `Abandoned` are
+    // reached deliberately — a refusal, or an ungrounded draft — and clearing
+    // them requires the typed retry command, not another redelivery.
+    if (operation.status === "Generated" && operation.memoryId !== null) {
+      const memory = await tx.memories.findById(
+        input.organizationId,
+        operation.memoryId,
+      );
+      if (memory !== null) {
+        return { kind: "done" as const, memory };
+      }
+    }
+
+    const claimed = await tx.generationOperations.claim({
+      generationOperationId: operation.generationOperationId,
+      lockedBy: input.workerId,
+      leaseUntil: new Date(ctx.now.getTime() + GENERATION_LEASE_MS),
+      now: ctx.now,
+    });
+    if (claimed === null) {
+      return { kind: "skip" as const };
+    }
+
+    return {
+      kind: "claimed" as const,
+      operationId: claimed.generationOperationId,
+      providerInput,
+      inputHash,
+    };
   });
+
+  if (prepared.kind === "done") return prepared.memory;
+  // Another worker owns this attempt, or the operation is terminal. Both mean
+  // there is nothing for this caller to do — not that anything went wrong.
+  if (prepared.kind === "skip") return null;
+
+  let generated: GeneratedContent;
+  try {
+    generated = await generator.generate({
+      providerInput: prepared.providerInput,
+      providerInputHash: prepared.inputHash,
+    });
+
+    // ADR-0004: the response is untrusted candidate content until this runs.
+    // It happens here rather than in the adapter so it applies to every
+    // generator, including one added later.
+    requireGrounded(generated, canonicalize(prepared.providerInput));
+  } catch (error) {
+    const rejected = error instanceof GenerationRejectedError;
+    await deps.uow.transaction((tx) =>
+      tx.generationOperations.fail({
+        generationOperationId: prepared.operationId,
+        errorCode: rejected ? error.code : "PROVIDER_ERROR",
+        terminal: rejected ? error.terminal : false,
+        nextAttemptAt:
+          rejected && error.terminal
+            ? null
+            : new Date(ctx.now.getTime() + GENERATION_RETRY_DELAY_MS),
+        now: ctx.now,
+      }),
+    );
+    throw error;
+  }
 
   return deps.uow.transaction(async (tx) => {
     // Re-check inside the transaction: another worker may have won the race.
@@ -146,6 +266,16 @@ export const generateMemoryUseCase = async (
 
     await tx.memories.insert(state);
     await tx.outbox.append(events);
+
+    // Same transaction as the Memory insert. "Generated requires a linked
+    // existing Memory" is a check constraint, so the two cannot diverge.
+    await tx.generationOperations.complete({
+      generationOperationId: prepared.operationId,
+      memoryId: state.memoryId,
+      modelReference: generator.modelReference,
+      now: ctx.now,
+    });
+
     return state;
   });
 };

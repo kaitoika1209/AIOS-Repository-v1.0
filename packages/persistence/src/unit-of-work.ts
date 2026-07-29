@@ -14,6 +14,7 @@ import type { Pool, PoolClient } from "pg";
 import type { RepositoryBundle, UnitOfWork } from "@aios/application";
 
 import { PostgresDecisionRepository } from "./decision-repository.js";
+import { PostgresGenerationOperationRepository } from "./generation-operation-repository.js";
 import {
   PostgresIdentityRepository,
   PostgresMembershipRepository,
@@ -35,6 +36,7 @@ export class PostgresUnitOfWork implements UnitOfWork {
         work: new PostgresWorkRepository(client),
         decisions: new PostgresDecisionRepository(client),
         memories: new PostgresMemoryRepository(client),
+        generationOperations: new PostgresGenerationOperationRepository(client),
         memberships: new PostgresMembershipRepository(client),
         identities: new PostgresIdentityRepository(client),
         outbox: new PostgresOutbox(client),

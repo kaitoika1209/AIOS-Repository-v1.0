@@ -120,23 +120,33 @@ which resolves this against the persistence architecture's SQL-first guidance.
 
 ### Runtime
 
-- LangGraph
+- None. The provider is called directly.
 
-#### Why
-
-- Stateful workflows
-- Multi-agent orchestration
-- Human-in-the-loop support
+Superseded by
+[ADR-0016](../adr/0016-bind-anthropic-as-the-model-provider.md). This section
+previously selected LangGraph for stateful workflows, multi-agent orchestration,
+and human-in-the-loop support. Memory generation — the only AI use case in the
+MVP — has none of those shapes: it is a single stateless call classified as
+`ExternalComputation`, its durable state lives in
+`memory_generation_operations`, and its human step is the Memory review state
+machine rather than a workflow interrupt.
 
 ---
 
 ### Model Provider
 
-- OpenAI
+- Anthropic (`claude-opus-5`)
 
-The model provider may change in the future.
+Superseded by
+[ADR-0016](../adr/0016-bind-anthropic-as-the-model-provider.md). This section
+previously selected OpenAI, without a stated reason and with the note that the
+provider may change.
 
-The application should remain provider-agnostic.
+The application remains provider-agnostic in the sense that matters: the
+`MemoryGenerator` port is declared without reference to a provider, and exactly
+one adapter names one. See
+[Memory Generation Policy](../architecture/memory-generation-policy.md) for the
+prompt, output schema, and validation the adapter is bound to.
 
 ---
 

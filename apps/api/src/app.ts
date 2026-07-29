@@ -23,11 +23,11 @@ import {
 import type { Clock, IdGenerator, UseCaseDependencies } from "@aios/application";
 import { PostgresUnitOfWork } from "@aios/persistence";
 
+import { chooseGenerator } from "./anthropic-memory-generator.js";
 import { DecisionController } from "./decision.controller.js";
 import { InvitationController } from "./invitation.controller.js";
 import { MemoryController } from "./memory.controller.js";
 import { OrganizationMemberController } from "./organization.controller.js";
-import { StubMemoryGenerator } from "./stub-memory-generator.js";
 import { DevAuthAdapter } from "./dev-auth.js";
 import { DomainExceptionFilter } from "./http-errors.js";
 import { PrincipalResolver } from "./principal-resolver.js";
@@ -125,9 +125,12 @@ export const buildDevApp = async (connectionString: string) => {
   // The asynchronous halves of ADR-0007 and ADR-0008. Production runs these as
   // a separate worker; in development they poll in-process so a blocked Work
   // unblocks and a completed Work produces its Memory draft.
+  const { generator, reason } = chooseGenerator(process.env);
+  console.log(`Memory generation: ${reason}`);
+
   const stop = startOutboxWorker(pool, dependenciesFor(pool), 500, {
     memory: {
-      generator: new StubMemoryGenerator(),
+      generator,
       secretaryIdentityId: SECRETARY_IDENTITY_ID,
       systemPrincipalId: "memory-generator",
     },

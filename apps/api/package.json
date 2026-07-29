@@ -8,13 +8,15 @@
     "dev": "tsx src/main.ts",
     "seed": "tsx src/seed-dev.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "evaluate": "tsx src/evaluate-generation.ts"
   },
   "dependencies": {
     "@aios/application": "workspace:*",
     "@aios/domain": "workspace:*",
     "@aios/persistence": "workspace:*",
     "@aios/types": "workspace:*",
+    "@anthropic-ai/sdk": "^0.115.0",
     "@nestjs/common": "^10.4.15",
     "@nestjs/core": "^10.4.15",
     "@nestjs/platform-express": "^10.4.15",
@@ -24,10 +26,10 @@
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
-    "@types/pg": "^8.11.10",
     "@types/node": "^22.10.2",
-    "supertest": "^7.0.0",
+    "@types/pg": "^8.11.10",
     "@types/supertest": "^6.0.2",
+    "supertest": "^7.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"

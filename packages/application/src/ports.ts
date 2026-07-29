@@ -14,6 +14,7 @@
 import type {
   DecisionId,
   IdentityId,
+  GenerationOperationStatus,
   IdentityStatus,
   InvitationId,
   MemoryId,
@@ -198,6 +199,94 @@ export interface MembershipRepository {
   ): Promise<readonly OrganizationMemberSummary[]>;
 }
 
+/**
+ * The durable evidence of one Memory generation attempt sequence.
+ *
+ * ADR-0004 requires this to exist and to commit its source snapshot and
+ * provider-input hash *before* the provider is called, so that a process that
+ * dies mid-call leaves a record of what was attempted rather than nothing.
+ *
+ * Not an Aggregate. The Memory state machine is explicit that generation
+ * attempts are "operational process state outside the Memory Aggregate until a
+ * valid draft is created" — a failed generation must not produce a Memory in
+ * any state.
+ */
+export interface GenerationOperation {
+  readonly generationOperationId: string;
+  readonly organizationId: OrganizationId;
+  readonly workId: WorkId;
+  readonly generationPolicyVersion: number;
+  readonly sourceSnapshotId: string;
+  readonly sourceSnapshotHash: string;
+  readonly providerInputHash: string;
+  readonly status: GenerationOperationStatus;
+  readonly attemptCount: number;
+  /** Set exactly when the status is `Generated`; the database enforces both. */
+  readonly memoryId: MemoryId | null;
+}
+
+export interface GenerationOperationRepository {
+  /**
+   * The stable operation for this Work under this policy version, creating it
+   * if it does not exist.
+   *
+   * Identity is `(organizationId, workId, generationPolicyVersion)` and a
+   * terminal `Failed` row does not free it — a redelivered `WorkCompleted`
+   * finds the existing row rather than starting a parallel attempt.
+   */
+  ensure(input: {
+    readonly generationOperationId: string;
+    readonly organizationId: OrganizationId;
+    readonly workId: WorkId;
+    readonly generationPolicyVersion: number;
+    readonly sourceEventId: string;
+    readonly sourceSnapshotId: string;
+    readonly sourceSnapshotHash: string;
+    readonly providerInputHash: string;
+    readonly promptTemplateVersion: number;
+    readonly outputSchemaVersion: number;
+    readonly now: Date;
+  }): Promise<GenerationOperation>;
+
+  /**
+   * Take the operation for one attempt.
+   *
+   * Returns null when another worker holds an unexpired lease, or when the
+   * operation is in a state that accepts no attempt. Both are ordinary
+   * outcomes, not errors: at-least-once delivery means two workers racing for
+   * the same `WorkCompleted` is expected.
+   */
+  claim(input: {
+    readonly generationOperationId: string;
+    readonly lockedBy: string;
+    readonly leaseUntil: Date;
+    readonly now: Date;
+  }): Promise<GenerationOperation | null>;
+
+  /** Generating -> Generated, linking the Memory the attempt produced. */
+  complete(input: {
+    readonly generationOperationId: string;
+    readonly memoryId: MemoryId;
+    readonly modelReference: string;
+    readonly now: Date;
+  }): Promise<void>;
+
+  /**
+   * Generating -> RetryPending, or -> Failed when the failure is terminal.
+   *
+   * A refusal and a schema violation are terminal: retrying identical input
+   * produces an identical answer, so a retry only spends money. A timeout is
+   * not, because the same input may well succeed.
+   */
+  fail(input: {
+    readonly generationOperationId: string;
+    readonly errorCode: string;
+    readonly terminal: boolean;
+    readonly nextAttemptAt: Date | null;
+    readonly now: Date;
+  }): Promise<void>;
+}
+
 export interface OutboxPort {
   append(events: readonly DomainEvent[]): Promise<void>;
 }
@@ -219,6 +308,7 @@ export interface RepositoryBundle {
   readonly work: WorkRepository;
   readonly decisions: DecisionRepository;
   readonly memories: MemoryRepository;
+  readonly generationOperations: GenerationOperationRepository;
   readonly memberships: MembershipRepository;
   readonly identities: IdentityRepository;
   readonly outbox: OutboxPort;

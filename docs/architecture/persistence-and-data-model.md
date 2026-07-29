@@ -6125,6 +6125,93 @@ memory_generation_operations
 - updated_at
 ```
 
+Conceptual DDL:
+
+```sql
+CREATE TABLE memory_generation_operations (
+    generation_operation_id     uuid PRIMARY KEY,
+    organization_id             uuid NOT NULL,
+    work_id                     uuid NOT NULL,
+
+    source_event_id             uuid NOT NULL,
+    source_snapshot_id          uuid NOT NULL,
+    source_snapshot_hash        text NOT NULL,
+    provider_input_hash         text NOT NULL,
+    generation_policy_version    integer NOT NULL,
+
+    status                      text NOT NULL,
+    attempt_count               integer NOT NULL,
+    next_attempt_at             timestamptz NULL,
+
+    locked_by                   text NULL,
+    locked_until                timestamptz NULL,
+    claim_version               integer NOT NULL,
+
+    first_started_at            timestamptz NULL,
+    last_attempt_at             timestamptz NULL,
+    completed_at                timestamptz NULL,
+
+    model_reference             text NULL,
+    prompt_template_version     integer NOT NULL,
+    output_schema_version       integer NOT NULL,
+
+    last_error_code             text NULL,
+    error_reference             text NULL,
+
+    memory_id                   uuid NULL,
+
+    version                     bigint NOT NULL,
+    created_at                  timestamptz NOT NULL,
+    updated_at                  timestamptz NOT NULL,
+
+    CONSTRAINT fk_memory_generation_operations_work
+        FOREIGN KEY (
+            organization_id,
+            work_id
+        )
+        REFERENCES work_items (
+            organization_id,
+            work_id
+        ),
+
+    CONSTRAINT fk_memory_generation_operations_memory
+        FOREIGN KEY (
+            organization_id,
+            memory_id
+        )
+        REFERENCES memories (
+            organization_id,
+            memory_id
+        ),
+
+    CONSTRAINT ck_memory_generation_operations_version
+        CHECK (
+            version > 0
+        ),
+
+    CONSTRAINT ck_memory_generation_operations_attempts
+        CHECK (
+            attempt_count >= 0
+            AND claim_version >= 0
+        ),
+
+    CONSTRAINT ck_memory_generation_operations_completed
+        CHECK (
+            (status = 'Generated') = (completed_at IS NOT NULL)
+        ),
+
+    CONSTRAINT ck_memory_generation_operations_memory_link
+        CHECK (
+            (status = 'Generated') = (memory_id IS NOT NULL)
+        )
+);
+```
+
+`memory_id` is the link the status rules below require: `Generated` means a Memory
+exists, and the last two check constraints make the two facts inseparable in both
+directions. Without it, "`Generated` requires a linked existing Memory" would be a
+sentence in this document with nothing enforcing it.
+
 Full logical uniqueness is required:
 
 ```sql

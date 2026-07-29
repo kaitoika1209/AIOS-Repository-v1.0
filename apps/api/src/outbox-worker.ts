@@ -27,6 +27,7 @@ import { DomainError } from "@aios/domain";
 
 interface OutboxRow {
   outbox_id: string;
+  event_id: string;
   event_type: string;
   aggregate_id: string;
   aggregate_version: number;
@@ -78,6 +79,15 @@ export interface ConsumerOptions {
     readonly generator: MemoryGenerator;
     readonly secretaryIdentityId: string;
     readonly systemPrincipalId: string;
+    /**
+     * Identifies this worker on the generation operation's lease.
+     *
+     * Defaulted rather than required: a single-process development run has one
+     * worker, and forcing every caller to invent a name would be noise. In a
+     * deployment with several workers it should be distinct per process, so a
+     * stuck lease names the process that took it.
+     */
+    readonly workerId?: string;
   };
 }
 
@@ -93,7 +103,7 @@ export const drainOutbox = async (
   try {
     await client.query("BEGIN");
     const claimed = await client.query<OutboxRow>(
-      `SELECT outbox_id, event_type, aggregate_id, aggregate_version, payload
+      `SELECT outbox_id, event_id, event_type, aggregate_id, aggregate_version, payload
          FROM outbox_messages
         WHERE status = 'Pending'
           AND next_attempt_at <= now()
@@ -138,12 +148,14 @@ export const drainOutbox = async (
           {
             organizationId: OrganizationId(row.payload.organizationId),
             workId: WorkId(row.aggregate_id),
+            sourceEventId: row.event_id,
             // The Work state at completion is the source snapshot; the Outbox
             // row's stream position identifies it uniquely (ADR-0012).
             sourceSnapshotId: row.outbox_id,
             sourceSnapshotHash: `work:${row.aggregate_id}@${row.aggregate_version}`,
             secretaryIdentityId: IdentityId(options.memory.secretaryIdentityId),
             systemPrincipalId: options.memory.systemPrincipalId,
+            workerId: options.memory.workerId ?? "outbox-worker",
           },
         );
         applied += 1;

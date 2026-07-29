@@ -9,6 +9,7 @@
 
 import type {
   DecisionId,
+  GenerationOperationStatus,
   IdentityId,
   InvitationId,
   MemoryId,
@@ -29,6 +30,8 @@ import {
 import type {
   Clock,
   DecisionRepository,
+  GenerationOperation,
+  GenerationOperationRepository,
   IdentityRecord,
   IdentityRepository,
   MemoryRepository,
@@ -310,6 +313,184 @@ export class InMemoryIdentityRepository implements IdentityRepository {
   }
 }
 
+/**
+ * Mirrors the PostgreSQL operation repository, including the parts that make it
+ * safe: identity is `(organization, work, policy)`, a claim is conditional on
+ * status and lease, and `complete` fences on still holding the claim.
+ *
+ * Modelled faithfully because these are the semantics the at-least-once story
+ * rests on — a permissive double would let a test pass that the real adapter
+ * would fail.
+ */
+export class InMemoryGenerationOperationRepository
+  implements GenerationOperationRepository
+{
+  private readonly rows = new Map<string, GenerationOperation & {
+    lockedBy: string | null;
+    lockedUntil: Date | null;
+  }>();
+
+  private static identity(
+    organizationId: OrganizationId,
+    workId: WorkId,
+    policyVersion: number,
+  ): string {
+    return `${organizationId}|${workId}|${policyVersion}`;
+  }
+
+  async ensure(input: {
+    generationOperationId: string;
+    organizationId: OrganizationId;
+    workId: WorkId;
+    generationPolicyVersion: number;
+    sourceEventId: string;
+    sourceSnapshotId: string;
+    sourceSnapshotHash: string;
+    providerInputHash: string;
+    promptTemplateVersion: number;
+    outputSchemaVersion: number;
+    now: Date;
+  }): Promise<GenerationOperation> {
+    const key = InMemoryGenerationOperationRepository.identity(
+      input.organizationId,
+      input.workId,
+      input.generationPolicyVersion,
+    );
+    const existing = this.rows.get(key);
+    if (existing !== undefined) {
+      return existing;
+    }
+
+    const created = {
+      generationOperationId: input.generationOperationId,
+      organizationId: input.organizationId,
+      workId: input.workId,
+      generationPolicyVersion: input.generationPolicyVersion,
+      sourceSnapshotId: input.sourceSnapshotId,
+      sourceSnapshotHash: input.sourceSnapshotHash,
+      providerInputHash: input.providerInputHash,
+      status: "Pending" as GenerationOperationStatus,
+      attemptCount: 0,
+      memoryId: null,
+      lockedBy: null,
+      lockedUntil: null,
+    };
+    this.rows.set(key, created);
+    return created;
+  }
+
+  private byId(id: string) {
+    for (const row of this.rows.values()) {
+      if (row.generationOperationId === id) return row;
+    }
+    return undefined;
+  }
+
+  async claim(input: {
+    generationOperationId: string;
+    lockedBy: string;
+    leaseUntil: Date;
+    now: Date;
+  }): Promise<GenerationOperation | null> {
+    const row = this.byId(input.generationOperationId);
+    if (row === undefined) return null;
+
+    const claimable =
+      row.status === "Pending" ||
+      row.status === "RetryPending" ||
+      (row.status === "Generating" &&
+        row.lockedUntil !== null &&
+        row.lockedUntil.getTime() < input.now.getTime());
+    if (!claimable) return null;
+
+    const next = {
+      ...row,
+      status: "Generating" as GenerationOperationStatus,
+      attemptCount: row.attemptCount + 1,
+      lockedBy: input.lockedBy,
+      lockedUntil: input.leaseUntil,
+    };
+    this.rows.set(
+      InMemoryGenerationOperationRepository.identity(
+        row.organizationId,
+        row.workId,
+        row.generationPolicyVersion,
+      ),
+      next,
+    );
+    return next;
+  }
+
+  async complete(input: {
+    generationOperationId: string;
+    memoryId: MemoryId;
+    modelReference: string;
+    now: Date;
+  }): Promise<void> {
+    const row = this.byId(input.generationOperationId);
+    if (row === undefined || row.status !== "Generating") {
+      throw new Error(
+        `Generation operation ${input.generationOperationId} was not claimed by this worker.`,
+      );
+    }
+    this.rows.set(
+      InMemoryGenerationOperationRepository.identity(
+        row.organizationId,
+        row.workId,
+        row.generationPolicyVersion,
+      ),
+      {
+        ...row,
+        status: "Generated",
+        memoryId: input.memoryId,
+        lockedBy: null,
+        lockedUntil: null,
+      },
+    );
+  }
+
+  async fail(input: {
+    generationOperationId: string;
+    errorCode: string;
+    terminal: boolean;
+    nextAttemptAt: Date | null;
+    now: Date;
+  }): Promise<void> {
+    const row = this.byId(input.generationOperationId);
+    if (row === undefined || row.status !== "Generating") return;
+    this.rows.set(
+      InMemoryGenerationOperationRepository.identity(
+        row.organizationId,
+        row.workId,
+        row.generationPolicyVersion,
+      ),
+      {
+        ...row,
+        status: input.terminal ? "Failed" : "RetryPending",
+        lockedBy: null,
+        lockedUntil: null,
+      },
+    );
+  }
+
+  /** Exposed so tests can assert what the operation recorded. */
+  find(
+    organizationId: OrganizationId,
+    workId: WorkId,
+    policyVersion: number,
+  ): GenerationOperation | null {
+    return (
+      this.rows.get(
+        InMemoryGenerationOperationRepository.identity(
+          organizationId,
+          workId,
+          policyVersion,
+        ),
+      ) ?? null
+    );
+  }
+}
+
 export class InMemoryOutbox implements OutboxPort {
   readonly events: DomainEvent[] = [];
 
@@ -400,10 +581,19 @@ export const buildTestHarness = (now = new Date("2026-07-28T10:00:00Z")) => {
   const work = new InMemoryWorkRepository();
   const decisions = new InMemoryDecisionRepository();
   const memories = new InMemoryMemoryRepository();
+  const generationOperations = new InMemoryGenerationOperationRepository();
   const memberships = new InMemoryMembershipRepository();
   const identities = new InMemoryIdentityRepository();
   const outbox = new InMemoryOutbox();
-  const bundle = { work, decisions, memories, memberships, identities, outbox };
+  const bundle = {
+    work,
+    decisions,
+    memories,
+    generationOperations,
+    memberships,
+    identities,
+    outbox,
+  };
 
   return {
     ...bundle,
