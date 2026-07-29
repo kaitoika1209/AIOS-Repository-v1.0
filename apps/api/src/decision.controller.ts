@@ -13,6 +13,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Req,
 } from "@nestjs/common";
@@ -22,6 +23,7 @@ import { DecisionId, WorkId, type DecisionStatus } from "@aios/types";
 import {
   approveDecisionUseCase,
   createDecisionUseCase,
+  editDecisionDraftUseCase,
   listDecisionsForWorkUseCase,
   rejectDecisionUseCase,
   startRevisionUseCase,
@@ -142,6 +144,48 @@ export class DecisionController {
           ? { isBlocking: body.isBlocking }
           : {}),
       }),
+    );
+  }
+
+  @Patch(":decisionId")
+  async edit(
+    @Req() request: Request,
+    @Param("decisionId") decisionId: string,
+    @Body()
+    body: {
+      title?: unknown;
+      question?: unknown;
+      context?: unknown;
+      options?: unknown;
+    },
+  ): Promise<DecisionResponse> {
+    const changes = {
+      ...(typeof body.title === "string" ? { title: body.title } : {}),
+      ...(typeof body.question === "string" ? { question: body.question } : {}),
+      ...(body.context === null
+        ? { context: null }
+        : typeof body.context === "string"
+          ? { context: body.context }
+          : {}),
+      ...(Array.isArray(body.options)
+        ? {
+            options: body.options.map(
+              (o: { optionId?: unknown; summary?: unknown }) => ({
+                optionId: requireString(o?.optionId, "options[].optionId"),
+                summary: requireString(o?.summary, "options[].summary"),
+              }),
+            ),
+          }
+        : {}),
+    };
+
+    return present(
+      await editDecisionDraftUseCase(
+        this.deps,
+        contextOf(request),
+        DecisionId(decisionId),
+        changes,
+      ),
     );
   }
 

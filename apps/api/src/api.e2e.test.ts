@@ -208,6 +208,132 @@ suite("AIOS API", () => {
     });
   });
 
+  describe("content edits (PATCH)", () => {
+    it("edits a Work's title and description", async () => {
+      const work = await createWork();
+      const edited = await request(server())
+        .patch(`/works/${work.workId}`)
+        .set(as(MEMBER))
+        .send({ title: "Ship the MVP, revised", description: "Now with detail." })
+        .expect(200);
+
+      expect(edited.body).toMatchObject({
+        title: "Ship the MVP, revised",
+        description: "Now with detail.",
+        // A content edit carries no lifecycle meaning (ADR-0014).
+        status: "Draft",
+      });
+      expect(edited.body.version).toBe(work.version + 1);
+    });
+
+    it("leaves an omitted field alone but clears an explicit null", async () => {
+      const work = await createWork();
+      await request(server())
+        .patch(`/works/${work.workId}`)
+        .set(as(MEMBER))
+        .send({ description: "Some detail." })
+        .expect(200);
+
+      const cleared = await request(server())
+        .patch(`/works/${work.workId}`)
+        .set(as(MEMBER))
+        .send({ description: null })
+        .expect(200);
+
+      // Collapsing "omitted" and "null" would make PATCH unable to remove a
+      // field at all.
+      expect(cleared.body.title).toBe("Ship the MVP");
+      expect(cleared.body.description).toBeNull();
+    });
+
+    it("refuses to edit a completed Work", async () => {
+      const work = await createWork();
+      await request(server()).post(`/works/${work.workId}/start`).set(as(MEMBER)).expect(201);
+      await request(server())
+        .post(`/works/${work.workId}/complete`)
+        .set(as(MEMBER))
+        .send({ completionSummary: "Shipped" })
+        .expect(201);
+
+      // Completed Work is the source snapshot a Memory was generated from.
+      await request(server())
+        .patch(`/works/${work.workId}`)
+        .set(as(MEMBER))
+        .send({ title: "Rewriting history" })
+        .expect(409);
+    });
+
+    it("refuses an empty title rather than accepting a blank one", async () => {
+      const work = await createWork();
+      await request(server())
+        .patch(`/works/${work.workId}`)
+        .set(as(MEMBER))
+        .send({ title: "   " })
+        .expect(422);
+    });
+
+    it("edits a Draft Decision's question", async () => {
+      const work = await createWork();
+      const decision = await request(server())
+        .post("/decisions")
+        .set(as(MEMBER))
+        .send({
+          relatedWorkId: work.workId,
+          title: "Which database?",
+          question: "Which database should we use?",
+          options: [{ optionId: "pg", summary: "PostgreSQL" }],
+          isBlocking: true,
+        })
+        .expect(201);
+
+      const edited = await request(server())
+        .patch(`/decisions/${decision.body.decisionId}`)
+        .set(as(MEMBER))
+        .send({ question: "Which database should we standardise on?" })
+        .expect(200);
+
+      expect(edited.body.question).toContain("standardise");
+      expect(edited.body.status).toBe("Draft");
+    });
+
+    it("refuses to edit a Decision that is already in review", async () => {
+      const work = await createWork();
+      await request(server()).post(`/works/${work.workId}/start`).set(as(MEMBER)).expect(201);
+      const decision = await request(server())
+        .post("/decisions")
+        .set(as(MEMBER))
+        .send({
+          relatedWorkId: work.workId,
+          title: "Which database?",
+          question: "Which database should we use?",
+          options: [{ optionId: "pg", summary: "PostgreSQL" }],
+          isBlocking: true,
+        })
+        .expect(201);
+      await request(server())
+        .post(`/decisions/${decision.body.decisionId}/submit`)
+        .set(as(MEMBER))
+        .expect(201);
+
+      // A submitted revision is what the reviewer evaluates and what Work's
+      // completion gate points at; editing it would rewrite the evidence.
+      await request(server())
+        .patch(`/decisions/${decision.body.decisionId}`)
+        .set(as(MEMBER))
+        .send({ question: "Something else entirely?" })
+        .expect(409);
+    });
+
+    it("refuses a Reviewer editing Work they may not edit", async () => {
+      const work = await createWork();
+      await request(server())
+        .patch(`/works/${work.workId}`)
+        .set(as(REVIEWER))
+        .send({ title: "Not mine to edit" })
+        .expect(403);
+    });
+  });
+
   describe("Work routes", () => {
     it("creates and lists Work scoped to the Organization", async () => {
       const work = await createWork();

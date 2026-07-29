@@ -13,7 +13,8 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "check:docs": "python3 scripts/check_docs.py"
+    "check:docs": "python3 scripts/check_docs.py",
+    "check:routes": "python3 scripts/check_routes.py"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

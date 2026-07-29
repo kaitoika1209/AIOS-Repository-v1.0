@@ -51,6 +51,19 @@ export interface WorkCreated extends DomainEventBase {
   readonly title: string;
 }
 
+/**
+ * The Work's own details changed.
+ *
+ * Carries the title but not the description: consumers use this to keep a
+ * listing readable, and the description can be long. A consumer that needs the
+ * full content reads the Aggregate.
+ */
+export interface WorkDetailsUpdated extends DomainEventBase {
+  readonly type: "WorkDetailsUpdated";
+  readonly workId: WorkId;
+  readonly title: string;
+}
+
 export interface WorkStarted extends DomainEventBase {
   readonly type: "WorkStarted";
   readonly workId: WorkId;
@@ -207,6 +220,7 @@ export type MembershipEvent =
 
 export type WorkEvent =
   | WorkCreated
+  | WorkDetailsUpdated
   | WorkStarted
   | WorkDecisionRequested
   | WorkDecisionOutcomeRecorded

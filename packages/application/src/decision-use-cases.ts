@@ -26,6 +26,7 @@ import {
   type DecisionOption,
   type DecisionState,
   type WorkState,
+  updateDraft,
 } from "@aios/domain";
 
 import { requirePermission } from "./authorization.js";
@@ -107,6 +108,31 @@ export const createDecisionUseCase = async (
  * invalid committed states: Work waiting on a revision that does not exist, or
  * a submitted blocking revision the Work does not know about.
  */
+/**
+ * Edit the Draft revision's content.
+ *
+ * Only a Draft revision is editable. A submitted revision is what a reviewer
+ * evaluated and what Work's completion gate points at, so changing it would
+ * rewrite the evidence rather than the proposal.
+ */
+export const editDecisionDraftUseCase = async (
+  deps: UseCaseDependencies,
+  ctx: WorkCommandContext,
+  decisionId: DecisionId,
+  changes: Parameters<typeof updateDraft>[1],
+): Promise<DecisionState> => {
+  requirePermission(ctx.principal, "decision.edit_draft");
+
+  return deps.uow.transaction(async (tx) => {
+    const current = await loadDecision(tx, ctx.organizationId, decisionId);
+    const { state, events } = updateDraft(current, changes, ctx);
+
+    await tx.decisions.update(state, current.version);
+    await tx.outbox.append(events);
+    return state;
+  });
+};
+
 export const submitBlockingDecisionUseCase = async (
   deps: UseCaseDependencies,
   ctx: WorkCommandContext,

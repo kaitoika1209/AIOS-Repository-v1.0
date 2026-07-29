@@ -15,6 +15,7 @@ import {
   completeWork,
   createWork,
   startWork,
+  updateWorkDetails,
   type ActorContext,
   type WorkState,
 } from "@aios/domain";
@@ -57,6 +58,30 @@ export const createWorkUseCase = async (
     );
 
     await tx.work.insert(state);
+    await tx.outbox.append(events);
+    return state;
+  });
+};
+
+/**
+ * Edit the Work's own details.
+ *
+ * `PATCH`, not a command sub-resource: this changes what the Work says it is,
+ * never what state it is in (ADR-0014).
+ */
+export const editWorkUseCase = async (
+  deps: UseCaseDependencies,
+  ctx: WorkCommandContext,
+  workId: WorkId,
+  changes: { readonly title?: string; readonly description?: string | null },
+): Promise<WorkState> => {
+  requirePermission(ctx.principal, "work.edit");
+
+  return deps.uow.transaction(async (tx) => {
+    const current = await loadWork(tx, ctx.organizationId, workId);
+    const { state, events } = updateWorkDetails(current, changes, ctx);
+
+    await tx.work.update(state, current.version);
     await tx.outbox.append(events);
     return state;
   });

@@ -29,6 +29,7 @@ const aggregateOf = (
 ): { type: "Work" | "Decision" | "Memory" | "Membership"; id: string } => {
   switch (event.type) {
     case "WorkCreated":
+    case "WorkDetailsUpdated":
     case "WorkStarted":
     case "WorkDecisionRequested":
     case "WorkDecisionOutcomeRecorded":

@@ -195,6 +195,56 @@ export const createWork = (
   };
 };
 
+/**
+ * Edit the Work's own details.
+ *
+ * A content edit with no lifecycle meaning, which is why ADR-0014 gives it
+ * `PATCH` rather than a command sub-resource. It changes what the Work says it
+ * is, never what state it is in.
+ *
+ * Refused once the Work is terminal. `Completed` Work is the source snapshot a
+ * Memory was generated from, and a `Cancelled` Work records why it stopped;
+ * editing either would rewrite the past rather than describe the present.
+ */
+export const updateWorkDetails = (
+  work: WorkState,
+  changes: {
+    readonly title?: string;
+    readonly description?: string | null;
+  },
+  ctx: ActorContext,
+): CommandResult<WorkState, WorkEvent> => {
+  const actor = requireHuman(ctx, "work.edit");
+  requireSameOrganization(work, ctx, "Work");
+  requireStatus(work, "work.edit", ["Draft", "InProgress", "WaitingForDecision"]);
+
+  const title =
+    changes.title === undefined ? work.title : validateTitle(changes.title);
+  const description =
+    changes.description === undefined ? work.description : changes.description;
+
+  // An edit that changes nothing still advances the version, and that is
+  // deliberate: a caller holding a stale `If-Match` must not have it silently
+  // accepted because their no-op happened to match.
+  const version = nextVersion(work.version);
+  const state: WorkState = { ...work, title, description, version };
+
+  return {
+    state,
+    events: stampWork(version, [
+      {
+        type: "WorkDetailsUpdated",
+        workId: state.workId,
+        title: state.title,
+        organizationId: state.organizationId,
+        occurredAt: ctx.now,
+        actorIdentityId: actor.identityId,
+        actorMembershipId: actor.membershipId,
+      },
+    ]),
+  };
+};
+
 /** Start Work. `startedAt` is set once and can never change afterwards. */
 export const startWork = (
   work: WorkState,

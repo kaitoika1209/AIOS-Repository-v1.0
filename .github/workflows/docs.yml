@@ -18,3 +18,6 @@ jobs:
 
       - name: Check documentation structure
         run: python3 scripts/check_docs.py
+
+      - name: Check routed permissions are enforced
+        run: python3 scripts/check_routes.py

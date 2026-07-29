@@ -13,6 +13,7 @@ import {
 
 import {
   cancelWork,
+  updateWorkDetails,
   completeWork,
   createWork,
   recordDecisionOutcome,
@@ -291,5 +292,67 @@ describe("validation", () => {
     expect(() =>
       createWork({ workId: WorkId("w"), organizationId: ORG, title: "  " }, ctx()),
     ).toThrowError(/title is required/);
+  });
+});
+
+describe("editing Work details", () => {
+  const completed = (): WorkState =>
+    completeWork(inProgress(), "Shipped", ctx()).state;
+
+  it("changes the title and emits WorkDetailsUpdated", () => {
+    const { state, events } = updateWorkDetails(
+      draft(),
+      { title: "Ship it, revised" },
+      ctx(),
+    );
+    expect(state.title).toBe("Ship it, revised");
+    expect(state.status).toBe("Draft");
+    expect(events.map((e) => e.type)).toEqual(["WorkDetailsUpdated"]);
+  });
+
+  it("leaves an omitted field untouched", () => {
+    const before = updateWorkDetails(draft(), { description: "Detail." }, ctx()).state;
+    const after = updateWorkDetails(before, { title: "New title" }, ctx()).state;
+    expect(after.description).toBe("Detail.");
+  });
+
+  it("clears the description when explicitly given null", () => {
+    const before = updateWorkDetails(draft(), { description: "Detail." }, ctx()).state;
+    expect(updateWorkDetails(before, { description: null }, ctx()).state.description)
+      .toBeNull();
+  });
+
+  it("advances the version even when nothing changed", () => {
+    // A stale If-Match must not be silently accepted because the caller's
+    // no-op happened to match the current content.
+    const work = draft();
+    expect(updateWorkDetails(work, {}, ctx()).state.version).toBe(work.version + 1);
+  });
+
+  it("edits Work that is waiting on a Decision", () => {
+    expect(updateWorkDetails(waiting(), { title: "Still editable" }, ctx()).state.title)
+      .toBe("Still editable");
+  });
+
+  it("refuses to edit Completed Work", () => {
+    // Completed Work is the source snapshot a Memory was generated from.
+    expect(() => updateWorkDetails(completed(), { title: "Rewrite" }, ctx()))
+      .toThrowError(/cannot accept work.edit/);
+  });
+
+  it("refuses to edit Cancelled Work", () => {
+    const cancelled = cancelWork(draft(), "Not needed", ctx()).state;
+    expect(() => updateWorkDetails(cancelled, { title: "Rewrite" }, ctx()))
+      .toThrowError(/cannot accept work.edit/);
+  });
+
+  it("refuses a blank title", () => {
+    expect(() => updateWorkDetails(draft(), { title: "   " }, ctx()))
+      .toThrowError(/title is required/);
+  });
+
+  it("refuses a non-Human principal", () => {
+    expect(() => updateWorkDetails(draft(), { title: "By the Secretary" }, ctx(secretary)))
+      .toThrowError(/requires a Human Member/);
   });
 });

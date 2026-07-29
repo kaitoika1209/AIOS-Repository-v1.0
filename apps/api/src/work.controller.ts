@@ -25,6 +25,7 @@ import {
   cancelWorkUseCase,
   completeWorkUseCase,
   createWorkUseCase,
+  editWorkUseCase,
   getWorkUseCase,
   listWorkUseCase,
   startWorkUseCase,
@@ -108,10 +109,25 @@ export class WorkController {
   }
 
   @Patch(":workId")
-  async edit(): Promise<never> {
-    // work.edit has a route in the catalogue but no use case yet; returning a
-    // stub response would misreport it as implemented.
-    throw new BadRequestException("Editing Work is not implemented yet.");
+  async edit(
+    @Req() request: Request,
+    @Param("workId") workId: string,
+    @Body() body: { title?: unknown; description?: unknown },
+  ): Promise<WorkResponse> {
+    // An omitted field means "leave it alone"; an explicit null clears the
+    // description. Collapsing the two would make a PATCH unable to remove one.
+    const changes = {
+      ...(typeof body.title === "string" ? { title: body.title } : {}),
+      ...(body.description === null
+        ? { description: null }
+        : typeof body.description === "string"
+          ? { description: body.description }
+          : {}),
+    };
+
+    return present(
+      await editWorkUseCase(this.deps, contextOf(request), WorkId(workId), changes),
+    );
   }
 
   @Post(":workId/start")

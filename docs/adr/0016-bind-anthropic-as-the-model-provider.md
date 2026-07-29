@@ -41,9 +41,14 @@ adversarial-by-default.
 Messages API directly through the official SDK.**
 
 The provider is reached through one adapter implementing the `MemoryGenerator`
-port. That port is declared in the Application Layer, takes a `WorkState` and a
-source snapshot, and returns candidate content. Nothing above it names a
+port. That port is declared in the Application Layer, takes the canonicalized
+provider input, and returns candidate content. Nothing above it names a
 provider, a model, or a prompt.
+
+The port takes the canonical input rather than the `WorkState` it derives from,
+so the policy's limit on what crosses the boundary — no identity references, no
+fields the model has no use for — is structural rather than a convention an
+adapter could quietly ignore.
 
 `claude-opus-5` is the model. The generation policy — prompt, output schema,
 model identifier, and validation rules — is versioned as a unit and recorded with
