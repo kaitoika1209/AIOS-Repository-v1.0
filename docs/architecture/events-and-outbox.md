@@ -1810,7 +1810,7 @@ Published
 Failed
 ```
 
-An implementation may represent Claimed through lock fields instead of a durable status.
+The MVP persists `Claimed`. This removes ambiguity between an eligible `Pending` row and an owned publication attempt. Claim ownership is additionally fenced by `lockedBy`, `lockedUntil`, and `claimVersion`.
 
 ---
 
@@ -1911,10 +1911,13 @@ CREATE TABLE outbox_messages (
     first_attempt_at       timestamptz NULL,
     last_attempt_at        timestamptz NULL,
     published_at           timestamptz NULL,
+    failed_at              timestamptz NULL,
     locked_by              text NULL,
     locked_until           timestamptz NULL,
+    claim_version          bigint NOT NULL DEFAULT 0,
     last_error_code        text NULL,
-    last_error_message     text NULL
+    last_error_message     text NULL,
+    updated_at             timestamptz NOT NULL
 );
 ```
 
@@ -1954,6 +1957,42 @@ ALTER TABLE outbox_messages
 ADD CONSTRAINT ck_outbox_attempt_count
 CHECK (
     attempt_count >= 0
+);
+```
+
+```sql
+ALTER TABLE outbox_messages
+ADD CONSTRAINT ck_outbox_claim_version
+CHECK (
+    claim_version >= 0
+);
+```
+
+```sql
+ALTER TABLE outbox_messages
+ADD CONSTRAINT ck_outbox_lifecycle_fields
+CHECK (
+    (status = 'Pending'
+        AND locked_by IS NULL
+        AND locked_until IS NULL
+        AND published_at IS NULL
+        AND failed_at IS NULL)
+ OR (status = 'Claimed'
+        AND locked_by IS NOT NULL
+        AND locked_until IS NOT NULL
+        AND claim_version > 0
+        AND published_at IS NULL
+        AND failed_at IS NULL)
+ OR (status = 'Published'
+        AND locked_by IS NULL
+        AND locked_until IS NULL
+        AND published_at IS NOT NULL
+        AND failed_at IS NULL)
+ OR (status = 'Failed'
+        AND locked_by IS NULL
+        AND locked_until IS NULL
+        AND published_at IS NULL
+        AND failed_at IS NOT NULL)
 );
 ```
 
@@ -3058,6 +3097,10 @@ Set status = Pending
 
 ↓
 
+Increment claimVersion to fence the expired owner
+
+↓
+
 Clear lock fields
 
 ↓
@@ -3068,6 +3111,10 @@ Preserve attempt count
 
 Set nextAttemptAt
 ```
+
+Recovery compare-and-sets Outbox id, `Claimed`, expired `lockedUntil`, `lockedBy`, and `claimVersion`. It cannot release a newer claim.
+
+The concrete batch, lease, backoff, shutdown, and alert defaults are governed by [MVP Worker Runtime Profile](worker-runtime-profile.md) and [ADR-0015](../adr/0015-fix-mvp-worker-runtime-profile.md).
 
 ---
 
@@ -7112,23 +7159,23 @@ outbox_claim_expired_total
 Recommended consumer metrics:
 
 ```text
-event_consumer_received_total
+consumer_received_total
 
-event_consumer_processed_total
+consumer_processed_total
 
-event_consumer_duplicate_total
+consumer_duplicate_total
 
-event_consumer_retry_total
+consumer_retry_total
 
-event_consumer_failed_total
+consumer_failed_transition_total
 
-event_consumer_processing_duration_seconds
+consumer_processing_duration_seconds
 
-event_consumer_oldest_retry_age_seconds
+consumer_oldest_retry_age_seconds
 
-event_consumer_noop_total
+consumer_noop_total
 
-event_consumer_stale_total
+consumer_stale_total
 ```
 
 Metrics should be labeled by bounded values such as:
