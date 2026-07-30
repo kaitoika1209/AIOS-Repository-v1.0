@@ -18,7 +18,7 @@ export interface Membership {
   readonly membershipId: string;
   readonly organizationId: string;
   readonly identityId?: string;
-  readonly pendingInviteeEmailNormalized?: string;
+  readonly pendingInviteeEmailNormalized?: string | undefined;
   readonly status: MembershipStatus;
   readonly roles: readonly OrganizationRole[];
   readonly version: number;
