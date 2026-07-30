@@ -17,7 +17,6 @@ aios/
 │
 ├── apps/
 ├── packages/
-├── services/
 ├── infra/
 ├── docs/
 ├── scripts/
@@ -37,7 +36,8 @@ Applications that are directly deployed.
 ```text
 apps/
 ├── web/
-└── api/
+├── api/
+└── worker/                 # optional separate process entrypoint
 ```
 
 ### web
@@ -48,6 +48,24 @@ Next.js frontend application.
 
 NestJS backend application.
 
+Its implementation is organized by owning module:
+
+```text
+src/modules/
+├── identity-organization/
+├── work/
+├── decision/
+├── memory/
+├── secretary/
+└── operations/
+```
+
+Each module owns its Domain, Application, Infrastructure adapters, contracts, and tests. Internal Domain types and ORM entities are not exported across module boundaries.
+
+### worker
+
+Optional runtime entrypoint for the Outbox, local consumer, Memory generation, recovery, and replay roles. It composes the same module-owned Application Services; it is not a separate Bounded Context or microservice.
+
 ---
 
 # packages/
@@ -56,44 +74,27 @@ Reusable libraries shared across applications.
 
 ```text
 packages/
-├── domain/
 ├── ui/
-├── shared/
 ├── config/
-└── types/
+├── testing/
+└── contracts/              # explicitly published transport contracts only
 ```
-
-### domain
-
-Business rules and domain models.
 
 ### ui
 
 Reusable UI components.
 
-### shared
-
-Common utilities.
-
 ### config
 
 Shared configuration.
 
-### types
+### testing
 
-Shared TypeScript types.
+Test builders and infrastructure harnesses that do not contain business rules.
 
----
+### contracts
 
-# services/
-
-Standalone services.
-
-Examples:
-
-- AI Worker
-- Notification Worker
-- Scheduler
+Only stable transport schemas deliberately published between deployable entrypoints. Commands, Aggregates, repositories, ORM entities, and generic internal event types do not belong here.
 
 ---
 
