@@ -12,6 +12,8 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://aios_test:test_only@localhost:5432/aios_test
     services:
       postgres:
         image: postgres:17
@@ -30,11 +32,14 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: pnpm install --no-frozen-lockfile
+      - name: Apply M1 database baseline
+        run: for migration in db/migrations/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"; done
+      - name: Verify M1 database invariants
+        run: psql "$DATABASE_URL" -f db/tests/m1_invariants.sql
       - run: pnpm verify
         env:
           NODE_ENV: test
           AIOS_API_PORT: '3001'
           AIOS_WORKER_ROLES: outbox-publisher,local-consumer,memory-generation,lease-recovery
-          DATABASE_URL: postgresql://aios_test:test_only@localhost:5432/aios_test
           CLERK_ISSUER_URL: https://test.clerk.accounts.dev
           OPENAI_API_KEY_REF: test-reference
