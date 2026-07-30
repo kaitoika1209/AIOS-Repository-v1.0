@@ -8,6 +8,8 @@
 **Background Processing:** PostgreSQL-Backed Workers  
 **Operational Model:** Observable, Recoverable, Human-Controlled
 
+The normative cross-domain production approval criteria are defined in `docs/architecture/security-and-production-readiness.md` and ADR-0016. This document supplies operational controls and evidence; an alert, dashboard, or operator action cannot waive a Domain, Human-authority, tenant-isolation, audit, or recovery invariant.
+
 ---
 
 # Purpose
