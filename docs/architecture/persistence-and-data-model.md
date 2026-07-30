@@ -59,7 +59,7 @@ The persistence architecture must ensure that:
 - asynchronous processing is idempotent
 - submitted Decision revisions remain immutable
 - Approved Memory remains immutable
-- one active Memory exists per completed Work
+- at most one Memory exists per completed Work
 - historical actor attribution remains stable
 - schema changes are controlled and reversible
 - operational queries remain efficient
@@ -1702,42 +1702,39 @@ Memory should reference its source Work:
 source_work_id
 ```
 
-The system guarantees one active Memory per Work.
+The system guarantees at most one Memory per Work for the lifetime of the MVP data model.
 
 The database must reinforce this with a uniqueness strategy.
 
 ---
 
-# One Active Memory Constraint
+# One Memory per Work Constraint
 
 Recommended partial unique index:
 
 ```sql
-CREATE UNIQUE INDEX uq_memories_active_source_work
+CREATE UNIQUE INDEX uq_memories_source_work
 ON memories (
     organization_id,
     source_work_id
-)
-WHERE is_active = true;
+);
 ```
 
 An equivalent lifecycle-based condition is acceptable.
 
 ---
 
-# Active Memory Meaning
+# Future Supersession
 
-The MVP normally has only one Memory Aggregate per Work.
+The MVP has only one Memory Aggregate per Work.
 
 If future supersession is introduced:
 
 ```text
-old Memory = inactive or superseded
-
-new Memory = active
+an explicit revision or supersession model with separate invariants
 ```
 
-The MVP should avoid adding supersession complexity unless required.
+The MVP does not reserve an `is_active` flag or permit a second Memory. A future supersession design requires a migration and architecture decision rather than weakening the current invariant in advance.
 
 ---
 
@@ -1973,7 +1970,7 @@ Unique constraints should protect:
 - eventId
 - processed-event consumer key
 - command idempotency key
-- active Memory per Work
+- Memory per Work
 - event stream position
 
 ---
@@ -2030,7 +2027,7 @@ The persistence model must preserve the following invariants:
 7. Decision approval never updates Work to Completed directly.
 8. Work completion requires Human actor attribution.
 9. Memory generation starts only after committed WorkCompleted processing.
-10. Only one active Memory exists per Work.
+10. At most one Memory exists per Work.
 11. Approved Memory content is immutable.
 12. Approved Memory is not Knowledge.
 13. Membership and roles remain Organization-scoped.
@@ -3262,7 +3259,6 @@ memories
 - organization_id
 - source_work_id
 - status
-- is_active
 - current_revision_id
 - current_revision_number
 - generation_policy_version
@@ -3315,27 +3311,16 @@ CHECK (
 
 ---
 
-# Memory Active Flag
+# Memory Uniqueness
 
-The MVP normally keeps one active Memory per Work.
-
-Recommended:
-
-```text
-is_active = true
-```
-
-for the current Memory.
-
-A partial unique index protects the invariant:
+A non-partial unique index protects the lifetime invariant:
 
 ```sql
-CREATE UNIQUE INDEX uq_memories_active_work
+CREATE UNIQUE INDEX uq_memories_work
 ON memories (
     organization_id,
     source_work_id
-)
-WHERE is_active = true;
+);
 ```
 
 ---
@@ -3678,7 +3663,6 @@ CREATE TABLE memories (
     source_snapshot_id                uuid NOT NULL,
     source_snapshot_hash              text NOT NULL,
     status                            text NOT NULL,
-    is_active                         boolean NOT NULL,
 
     current_revision_id               uuid NOT NULL,
     current_revision_number           integer NOT NULL,
@@ -5847,12 +5831,11 @@ Full logical uniqueness is required:
 CREATE UNIQUE INDEX uq_memory_generation_operation_identity
 ON memory_generation_operations (
     organization_id,
-    work_id,
-    generation_policy_version
+    work_id
 );
 ```
 
-A terminal `Failed` or `Abandoned` row does not free the identity for a second operation. Typed retry reuses the same row.
+`generation_policy_version` remains a required immutable fingerprint column. A terminal `Failed` or `Abandoned` row does not free the identity for a second operation. Typed retry reuses the same row and policy. A differing event, snapshot, input hash, or policy for the same Work is an integrity conflict.
 
 ---
 
@@ -5889,7 +5872,7 @@ A real generation claim increments `attempt_count` and `claim_version`, sets lea
 
 Finalization verifies the generation claim and processed-event consumer claim before creating Memory.
 
-Expired `Generating` changes to `RetryPending` through a fenced recovery transaction, preserves `attempt_count`, sets `next_attempt_at`, records `LeaseExpired`, and clears claim fields. Recovery is not a provider attempt.
+Expired `Generating` changes to `RetryPending` through compare-and-set on operation id, status, `claim_version`, `locked_by`, and the database-evaluated expired lease. Recovery increments `claim_version`, preserves `attempt_count`, sets `next_attempt_at`, records `LeaseExpired`, and clears claim fields. Recovery is not a provider attempt.
 
 A provider timeout with no usable candidate follows the same `RetryPending` path while budget remains. Because this is computation-only, no external business outcome is inferred.
 
@@ -6234,7 +6217,7 @@ Immutable submitted Decision revisions
 
 Memory status and review consistency
 
-One active Memory per Work
+At most one Memory per Work
 
 One editable Memory revision
 
@@ -6372,7 +6355,7 @@ The concrete data model must preserve:
 5. Decision outcomes reference the reviewed revision.
 6. Decision approval does not update Work directly.
 7. Memory references one source Work.
-8. Only one active Memory exists per Work.
+8. At most one Memory exists per Work.
 9. Approved Memory references immutable approved content.
 10. Secretary Contributions remain separate from authoritative content.
 11. Human Identity remains stable across provider changes.
@@ -7464,8 +7447,7 @@ ON memories (
     submitted_at,
     memory_id
 )
-WHERE status = 'InReview'
-  AND is_active = true;
+WHERE status = 'InReview';
 ```
 
 ---
@@ -7601,7 +7583,7 @@ Every unique constraint adds write cost.
 Unique indexes should protect actual invariants such as:
 
 - one Draft revision
-- one active Memory
+- one Memory per Work
 - one active role assignment
 - one Membership per Organization and Identity
 - one consumer result per event
@@ -7907,7 +7889,7 @@ The following should use the primary authoritative database:
 - Aggregate loading
 - expected-version checks
 - Last Owner checks
-- active Memory uniqueness
+- Memory-per-Work uniqueness
 - event-processing deduplication
 
 ---
@@ -8701,7 +8683,7 @@ Decision outcome references reviewed revision
 
 No duplicate active role assignments
 
-No duplicate active Memory
+No duplicate Memory for one Work
 
 No orphaned revision rows
 
@@ -10001,7 +9983,7 @@ Before authoritative writes resume, post-restore validation MUST verify at least
 - Work and Decision relationships match Organization
 - Memory and source Work relationships match Organization
 - Approved Memory references its immutable reviewed revision and content hash
-- active Memory uniqueness and other required constraints hold
+- Memory-per-Work uniqueness and other required constraints hold
 - event identifiers and event stream positions are unique
 - required audit records are present for authoritative mutations in the restored window
 - Outbox and Aggregate commits preserve their atomic relationship
@@ -10156,7 +10138,7 @@ Verify:
 Verify:
 
 - valid Memory statuses
-- one active Memory per Work
+- at most one Memory per Work
 - one editable revision per Memory
 - Approved requires Human review attribution
 - Rejected requires Human review attribution
@@ -10532,8 +10514,8 @@ For every Completed Work:
 ```
 
 ```text
-For every active Memory source Work:
-    activeMemoryCount <= 1
+For every Memory source Work:
+    memoryCount <= 1
 ```
 
 ```text
@@ -11196,7 +11178,7 @@ Before persistence implementation is considered complete, verify:
 - Work Completion Gate constraints exist
 - Decision revision immutability exists
 - one Draft Decision revision is enforced
-- one active Memory per Work is enforced
+- at most one Memory per Work is enforced
 - Approved Memory content is immutable
 - Human completion and approval attribution is structurally represented
 - Membership uniqueness is enforced
@@ -11267,7 +11249,7 @@ The persistence architecture guarantees:
 - atomic domain state and event persistence
 - immutable submitted Decision revisions
 - immutable Approved Memory content
-- one active Memory per Work
+- at most one Memory per Work
 - Human attribution for authoritative actions
 - durable Membership and role history
 - reliable command and event idempotency
