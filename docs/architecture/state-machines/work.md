@@ -393,12 +393,12 @@ The Work Aggregate guarantees only that:
 - the event contains the identifiers required for downstream processing.
 The Memory module is responsible for:
 - idempotent generation requests;
-- preventing duplicate active Memory for one Work;
+- preventing duplicate Memory for one Work;
 - generation status;
 - retry behavior;
 - Memory lifecycle; and
 - human review.
-The rule “one active Memory per completed Work” is not a Work Aggregate invariant.
+The rule “at most one Memory per completed Work” is not a Work Aggregate invariant.
 Memory generation failure:
 - does not reverse Work completion;
 - does not change Work back to `InProgress`;
@@ -618,7 +618,7 @@ And completing the Work is rejected
 ```text
 Given Work has already become Completed
 When WorkCompleted is delivered again
-Then no duplicate active Memory is created
+Then no duplicate Memory is created
 And Work state remains Completed
 ```
 ## Memory Generation Failure
