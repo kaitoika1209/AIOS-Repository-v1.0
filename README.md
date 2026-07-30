@@ -72,7 +72,6 @@ Current objective:
 .
 ├── apps/
 ├── packages/
-├── services/
 ├── infra/
 ├── docs/
 │   ├── product/
@@ -105,8 +104,8 @@ Current objective:
 | Backend | NestJS |
 | Database | PostgreSQL |
 | ORM | Prisma |
-| AI Runtime | LangGraph |
-| Authentication | Clerk *(planned)* |
+| AI Runtime | Context-owned Secretary ports with a provider adapter |
+| Authentication | Clerk as Identity Provider; AIOS Membership remains authoritative |
 | Infrastructure | AWS |
 | Monorepo | Turborepo |
 
