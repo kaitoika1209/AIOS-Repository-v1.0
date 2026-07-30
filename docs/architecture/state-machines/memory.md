@@ -530,7 +530,7 @@ These rules are enforced through:
 - Transactional Outbox processing; and
 - idempotent handlers.
 They must not be mislabeled as local Memory Aggregate invariants.
-A database-level unique constraint on `workId` should reinforce one Memory per Work.
+An unconditional database-level unique constraint on `(organizationId, workId)` reinforces one Memory per Work. Retry, policy deployment, rejection, and reopening do not release this identity.
 ---
 # Domain Events
 The Memory Aggregate may emit:
