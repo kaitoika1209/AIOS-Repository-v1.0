@@ -301,6 +301,8 @@ Required evidence includes destination, consumer-set version, target count, cont
 
 The MVP uses PostgreSQL Outbox, bounded polling and claims, durable local fan-out into processed_events, Consumer Workers, at-least-once delivery, idempotent effects, dead letters, narrow replay, and reconciliation.
 
+The concrete MVP batch, polling, persisted `Claimed` status, fencing, lease, retry, shutdown, fairness, and alert defaults are governed by [ADR-0015](0015-fix-mvp-worker-runtime-profile.md) and the [MVP Worker Runtime Profile](../architecture/worker-runtime-profile.md).
+
 It does not require an external broker, distributed transactions, Event Sourcing, global ordering, generic Sagas, broad replay, exactly-once claims, or a second consumer queue table.
 
 Using processed_events as both durable delivery and execution state is the practical tradeoff for a one-to-three-person team.
@@ -388,3 +390,4 @@ Tests must cover:
 - `docs/product/mvp.md`
 - `docs/adr/0004-separate-external-computation-and-business-effects.md`
 - `docs/adr/0005-adopt-boundary-enforced-modular-monolith.md`
+- `docs/adr/0015-fix-mvp-worker-runtime-profile.md`
