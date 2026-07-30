@@ -74,10 +74,9 @@ Memory generation uses one durable `memory_generation_operation` identified by:
 ```text
 organizationId
 workId
-generationPolicyVersion
 ```
 
-The operation commits its immutable source snapshot and provider-input hash before the provider call.
+The operation commits its immutable source snapshot, generation-policy version, and provider-input hash before the provider call. Those values are immutable fingerprints; policy version is not an identity component and cannot create a second operation for the Work.
 
 Canonical operation statuses are:
 
