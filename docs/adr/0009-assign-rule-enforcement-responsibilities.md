@@ -100,12 +100,16 @@ Required examples include:
 
 - unique Organization-scoped identities;
 - composite foreign keys that preserve tenant ownership;
+- composite child-reference keys that prove a Decision or Memory revision belongs to both the same Organization and the same Aggregate Root;
+- database-bound Work-to-Decision and Memory-to-source-snapshot provenance references, including identifier-and-revision-number agreement;
 - one Memory for `(organizationId, sourceWorkId)`;
 - one unresolved submitted blocking Decision per Organization and Work;
 - optimistic version updates; and
 - valid combinations of status, terminal attribution, Completion Gate, and outcome fields.
 
 Database constraints reinforce domain and application decisions. SQL, triggers, or repositories must not independently decide whether a Human should approve, complete, reject, or publish a domain object.
+
+A globally unique UUID does not waive tenant-aware foreign keys. Repository checks provide typed failures and authorization context; PostgreSQL remains the final structural guard against cross-Organization or cross-Aggregate reference substitution.
 
 ### Durable processes own temporal and delivery rules
 
