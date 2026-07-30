@@ -16,7 +16,7 @@ export class AuthorizationDenied extends Error {
 
 export function authorize(principal: HumanMemberPrincipal, organizationId: string, permission: AccessPermission): void {
   if (principal.organizationId !== organizationId) throw new AuthorizationDenied('ORGANIZATION_SCOPE_MISMATCH');
-  if (!principal.roles.some((role) => grants[role as OrganizationRole]?.includes(permission))) {
+  if (!principal.roles.some((role) => grants[role as OrganizationRole].includes(permission))) {
     throw new AuthorizationDenied('PERMISSION_DENIED');
   }
 }
