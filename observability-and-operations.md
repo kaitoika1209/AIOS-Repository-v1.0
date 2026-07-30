@@ -4046,6 +4046,8 @@ worker_claim_expired_total
 worker_duration_seconds
 ```
 
+The initial polling, lease, retry, concurrency, shutdown, and alert values are governed by [MVP Worker Runtime Profile](docs/architecture/worker-runtime-profile.md) and [ADR-0015](docs/adr/0015-fix-mvp-worker-runtime-profile.md). Operational overrides remain versioned and bounded.
+
 ---
 
 # Queue Metrics
@@ -4068,6 +4070,14 @@ consumer_oldest_retry_age_seconds
 consumer_oldest_blocked_age_seconds
 consumer_claim_expired_total
 consumer_processing_rate
+consumer_received_total
+consumer_processed_total
+consumer_duplicate_total
+consumer_retry_total
+consumer_failed_transition_total
+consumer_processing_duration_seconds
+consumer_noop_total
+consumer_stale_total
 
 dead_letter_open_total
 dead_letter_skipped_total
