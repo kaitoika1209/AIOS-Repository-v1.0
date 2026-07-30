@@ -167,7 +167,7 @@ The Secretary may not:
 - Durable generation request after Work completion
 - Asynchronous generation
 - Idempotent retry
-- One active Memory per completed Work
+- At most one Memory per completed Work
 - Editable generated draft
 - Human submission for review
 - Human approval or rejection
