@@ -18,4 +18,8 @@ describe('resolveOrganizationContext', () => {
   it('does not restore authority for a disabled identity', () => {
     expect(() => resolveOrganizationContext({ identityId: 'human-1', status: 'Disabled' }, 'org-alpha', [membership])).toThrow(OrganizationContextDenied);
   });
+  it('does not retain Organization authority when an execution context is reused', () => {
+    expect(resolveOrganizationContext({ identityId: 'human-1', status: 'Active' }, 'org-alpha', [membership])).toMatchObject({ organizationId: 'org-alpha' });
+    expect(() => resolveOrganizationContext({ identityId: 'human-1', status: 'Active' }, 'org-beta', [membership])).toThrow(OrganizationContextDenied);
+  });
 });
