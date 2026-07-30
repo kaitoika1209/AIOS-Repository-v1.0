@@ -284,6 +284,8 @@ A normal Application Service may load and save only Aggregates owned by its modu
 
 The exceptional `RequestBlockingDecision` coordinator may use both Work and Decision Repository ports because those Bounded Contexts are intentionally co-located in the `Work and Decision` MVP module and the initial relationship must commit atomically. This exception must not be generalized.
 
+The complete MVP coordinated-transaction registry, including same-context Organization and Access workflows, is defined by [ADR-0013](../adr/0013-govern-coordinated-aggregate-transactions.md). A coordinator receives only the Repository ports named by that registry. Physical database co-location alone never authorizes cross-Aggregate mutation.
+
 For asynchronous interaction:
 
 ```text
@@ -458,6 +460,8 @@ COMMIT
 ```
 
 Every state-changing transaction has exactly one explicit Application Service owner and one commit or rollback. A larger use case may require multiple short transactions separated by durable operation state, asynchronous processing, or an external call. Such a use case must not hold a database transaction open across the separation and must define retry, idempotency, and recovery semantics.
+
+For a registered coordinated transaction, the Application Service also owns the canonical lock sequence, timeout policy, and retry classification. It must check the processed-command result before repeating an operation after an ambiguous response. Repositories do not acquire higher-level locks opportunistically because hidden lock acquisition would make the documented global order unenforceable.
 
 ---
 
@@ -1700,6 +1704,8 @@ The Application Service owns the transaction boundary.
 Repositories participate in the current explicit transaction context but cannot commit independently. A generic Unit of Work must not expose all module Repositories as a service locator.
 
 The coordinated `RequestBlockingDecision` use case uses one transaction context for Work state, Decision state, both event sets, and command idempotency. All other cross-context propagation is asynchronous unless another exception is documented by ADR.
+
+Within Organization and Access, `CreateOrganization`, `AcceptInvitation` when identity creation or subject linkage is required, and `TransferOrganizationOwnership` are the only additional MVP multi-Aggregate coordinators. Their invariants and lock orders are closed by ADR-0013; they are not precedent for an unrestricted cross-module Unit of Work.
 
 ---
 
