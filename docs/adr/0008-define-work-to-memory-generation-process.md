@@ -70,11 +70,13 @@ The consumer event is not marked successfully processed during initialization or
 
 ### Generation identity and source binding
 
-One logical operation is identified by:
+The MVP permits exactly one logical generation process for one completed Work. Its identity is:
 
 ```text
-organizationId + sourceWorkId + generationPolicyVersion
+organizationId + sourceWorkId
 ```
+
+`generationPolicyVersion` is immutable input provenance, not part of the operation identity. A policy deployment must not create a second operation or Memory for an already completed Work. Human-authorized retry reuses the same operation, source snapshot, provider input, and policy version. Regeneration with different source or policy is outside the MVP and requires a new explicit architecture decision.
 
 The operation also stores or references:
 
@@ -88,6 +90,20 @@ The operation also stores or references:
 - bounded result or failure metadata.
 
 Retries reuse the same operation and exact committed source snapshot. They never rebuild input from mutable current projections.
+
+The operation identifier and its source binding are assigned during initialization and never change. A second `WorkCompleted` event identifier, source snapshot, provider-input hash, or policy version for the same Organization and Work is an integrity conflict; it is not another generation request.
+
+### Claim and result acceptance contract
+
+A claim is identified by the tuple:
+
+```text
+generationOperationId + claimVersion + lockedBy
+```
+
+The claim transaction increments `claimVersion` and sets `lockedUntil` using PostgreSQL time. Lease renewal is a compare-and-set on the complete claim tuple and may only extend the current claim. The final transaction accepts a candidate only when the same tuple is still current, status is `Generating`, and `lockedUntil > transaction_timestamp()`. Lease expiry recovery also uses compare-and-set and increments `claimVersion` before making the operation runnable again. Consequently, an old provider response cannot become valid again.
+
+Candidate validation occurs before Aggregate creation and is repeated for safety inside finalization where it affects persisted invariants. It must enforce the versioned output schema, bounded field and collection sizes, permitted references, Organization/source binding, required provenance, and canonical output hash. Provider text is never interpreted as authority, executable instructions, credentials, authorization evidence, or a Human action.
 
 ### Process states are not Memory states
 
@@ -159,10 +175,12 @@ Knowledge candidate identification, Evidence creation, Knowledge publication, Ca
 
 - technical delivery idempotency uses consumer registration plus source event identifier;
 - logical generation idempotency uses the stable operation key;
-- PostgreSQL uniqueness on `(organizationId, sourceWorkId)` is the final duplicate-Memory guard;
+- PostgreSQL unconditional uniqueness on `(organizationId, sourceWorkId)` is the final duplicate-Memory guard;
 - claims use `claimVersion`, `lockedBy`, and `lockedUntil` fencing;
 - a uniqueness conflict is accepted only after proving that the existing Memory has the same Organization, source Work, source snapshot, and generation identity; and
 - conflicting fingerprints are permanent integrity failures, not last-write-wins updates.
+
+The processed-event row and operation have distinct responsibilities: the former deduplicates one delivered event for one consumer registration; the latter owns multi-transaction process recovery. Initialization leaves the processed event non-terminal. `Generated` finalization marks it `Processed`. Authorized operation abandonment marks the delivery `Skipped` with the operation id and reason; it never masquerades as success. `RetryPending`, `Generating`, and `Failed` do not claim successful processing. A duplicate delivery attaches to the existing operation; a duplicate after `Generated` returns the existing `MemoryId` only after matching all fingerprints.
 
 ### Multi-tenant isolation
 
