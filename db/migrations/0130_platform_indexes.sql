@@ -1,0 +1,11 @@
+BEGIN;
+CREATE INDEX ix_human_identities_status ON human_identities(status);
+CREATE INDEX ix_human_identities_email ON human_identities(primary_email_normalized);
+CREATE INDEX ix_authentication_subjects_identity ON authentication_subjects(identity_id) WHERE unlinked_at IS NULL;
+CREATE INDEX ix_organizations_status ON organizations(status);
+CREATE INDEX ix_memberships_organization_status ON memberships(organization_id,status);
+CREATE INDEX ix_memberships_identity ON memberships(identity_id);
+CREATE INDEX ix_outbox_pending ON outbox_messages(status,next_attempt_at,recorded_at,outbox_id) WHERE status IN ('Pending','Claimed');
+CREATE INDEX ix_authorization_audit_organization_time ON authorization_audit_records(organization_id,evaluated_at DESC);
+CREATE INDEX ix_authorization_audit_denials ON authorization_audit_records(organization_id,reason_code,evaluated_at DESC) WHERE outcome='Deny';
+COMMIT;
