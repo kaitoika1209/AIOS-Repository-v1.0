@@ -1305,7 +1305,7 @@ Verify source hash, policy version, and provider-input hash
 COMMIT
 ```
 
-The operation is globally stable for `organizationId + workId + generationPolicyVersion`. A conflicting fingerprint is terminal for automatic processing.
+The operation is globally stable for `organizationId + workId`. `generationPolicyVersion` is immutable provenance on that operation, not an identity component. A different source event, snapshot, provider-input hash, or policy version for the same Work is terminal for automatic processing. The MVP does not regenerate a completed Work under a newly deployed policy.
 
 ---
 
@@ -1332,7 +1332,9 @@ The provider receives only the committed source snapshot. No PostgreSQL transact
 
 The provider response is untrusted candidate data. It has no domain authority and does not mean generation succeeded until the final local transaction validates the candidate and creates Memory.
 
-A stale response whose `lockedBy`, `claimVersion`, or `lockedUntil` no longer matches is discarded. It cannot create or overwrite Memory.
+A stale response whose `generationOperationId`, `lockedBy`, `claimVersion`, or unexpired `lockedUntil` no longer matches is discarded. Finalization requires `lockedUntil > transaction_timestamp()` in PostgreSQL; application-clock comparisons are insufficient. It cannot create or overwrite Memory.
+
+Candidate validation enforces the versioned output schema, bounded content and collection sizes, allowlisted references, Organization/source binding, complete provenance, and a canonical output hash. Provider content is data only: it cannot supply authorization, Human attribution, commands, credentials, or executable instructions.
 
 Human review resolves and displays the exact committed source snapshot bound to the Memory; it must not substitute current Work, Decision, search, or Secretary projections. If governance policy has restricted or erased required source content, generation, submission, or review fails with a typed error rather than silently rebuilding input.
 
@@ -1380,7 +1382,7 @@ Provider duplicate-call cost and latency are recorded operationally. They never 
 
 ## Generation Lease Recovery
 
-Expired `Generating` claims are fenced by `claimVersion`. Recovery changes them to `RetryPending`, preserves `attemptCount`, schedules `nextAttemptAt`, records `LeaseExpired`, and clears claim fields.
+Expired `Generating` claims are fenced by `claimVersion`. Recovery uses compare-and-set on the operation, current claim version, owner, and expired lease; it increments `claimVersion`, changes the operation to `RetryPending`, preserves `attemptCount`, schedules `nextAttemptAt`, records `LeaseExpired`, and clears claim fields.
 
 Recovery itself is not a provider attempt and cannot mark the processed event successful.
 
@@ -1391,6 +1393,8 @@ Recovery itself is not a provider attempt and cannot mark the processed event su
 Generation failure creates no partial Memory Aggregate and does not reopen Work. The committed source snapshot and generation operation remain as durable recovery evidence.
 
 Failure is represented by the same operation becoming `RetryPending`, `Failed`, or explicitly `Abandoned`. `MemoryGenerationFailed` is not an MVP Domain or Integration Event. Operational logs, metrics, alerts, and typed administrative queries expose the failure.
+
+`Failed` means automatic retry is exhausted but the process remains non-terminal for consumer-success purposes. An authorized Human may request retry of the same operation. `Abandoned` is the only explicit terminal non-success operation state; it requires a reason, command idempotency, audit evidence, and transition of the processed event to canonical `Skipped` with the operation id and reason.
 
 ---
 
@@ -2735,7 +2739,7 @@ Abandoned
 
 The one-Memory-per-Work guarantee is reinforced by:
 
-- the full unique generation-operation identity;
+- unique generation-operation identity on `organizationId + sourceWorkId`;
 - processed-event identity;
 - Memory uniqueness on `organizationId + sourceWorkId`;
 - source and provider-input hashes; and
