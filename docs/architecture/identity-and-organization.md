@@ -2840,6 +2840,8 @@ COMMIT
 
 This is an exceptional multi-Aggregate coordination workflow.
 
+It uses the Organization-owner advisory transaction lock and deterministic Membership order defined by [ADR-0013](../adr/0013-govern-coordinated-aggregate-transactions.md). Every other command that can reduce the active-Owner set uses the same lock namespace; otherwise individually correct commands could still race to produce zero active Owners.
+
 ---
 
 # Ownership Transferred Event
@@ -4624,6 +4626,8 @@ COMMIT
 
 This pattern remains exceptional.
 
+The exact participating Aggregates, canonical lock order, retry classification, and prohibition on external calls are governed by [ADR-0013](../adr/0013-govern-coordinated-aggregate-transactions.md). Coordinated creation does not authorize a generic cross-module Unit of Work.
+
 ---
 
 # Multi-Membership Coordination Transaction
@@ -4649,6 +4653,8 @@ Write Outbox events
 
 COMMIT
 ```
+
+The coordinator acquires the Organization-owner advisory transaction lock first, then locks source and target Memberships in ascending `membershipId` order. A stale Human command is not silently retried after an optimistic conflict.
 
 ---
 
