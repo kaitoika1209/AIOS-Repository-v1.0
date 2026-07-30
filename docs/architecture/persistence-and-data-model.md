@@ -6659,6 +6659,10 @@ TransferOrganizationOwnership
 
 These workflows remain exceptional.
 
+[ADR-0013](../adr/0013-govern-coordinated-aggregate-transactions.md) is the normative closed registry for these transactions. Each entry identifies the one atomic invariant, participating Aggregate Roots, read or locked preconditions, technical records, canonical lock order, timeout policy, and retry classification. A generic Unit of Work MUST NOT make additional Repository combinations available merely because all tables share PostgreSQL.
+
+Every registered transaction includes the same `commandId` in processed-command state. After an ambiguous client or connection result, the service resolves that record before executing again. Automatic retry of a deadlock or serialization abort reloads authorization and Aggregate state and is allowed only by the coordinator's registered policy; an optimistic conflict never silently reinterprets Human intent.
+
 ---
 
 # Create Organization Transaction
@@ -6680,6 +6684,32 @@ Authorization Audit
 ```
 
 The transaction must not expose an Active Organization without an active Human Owner.
+
+Canonical acquisition order is processed-command identity, active creator Human Identity, then insertion of the new Organization, Membership, and Owner assignment. No Identity Provider call, welcome email, or notification occurs inside the transaction.
+
+---
+
+# Accept Invitation With Identity Creation Transaction
+
+Atomic participants:
+
+```text
+Invitation consumption record
+
+Human Identity and authentication-subject mapping when newly created or linked
+
+Invited Membership Aggregate
+
+Membership activation and initial role state
+
+Outbox Events
+
+Processed Command
+
+Required Audit
+```
+
+Canonical acquisition order is processed-command identity, hashed invitation-identity advisory lock, invitation row, Organization row, existing Human Identity or authentication-subject mapping when present, then invited Membership. Token consumption commits with Membership activation. Email delivery and Identity Provider mutation remain outside the transaction.
 
 ---
 
@@ -6710,6 +6740,8 @@ The transaction establishes:
 - Work Pending gate and Decision submitted revision have the same Decision, revision, and submitted-snapshot identifiers
 - both resources belong to the same Organization
 
+Canonical acquisition order is processed-command identity, Work row, then an existing Decision row when a rejected or withdrawn Decision is reused. New Decision and immutable revision rows are inserted only after Work and Decision Aggregate validation. The transaction does not load Decision during outcome propagation and does not call any external service.
+
 ---
 
 # Ownership Transfer Transaction
@@ -6731,6 +6763,8 @@ Processed Command
 ```
 
 The transaction must preserve at least one active Owner throughout the committed result.
+
+Canonical acquisition order is processed-command identity, Organization-owner advisory transaction lock, Organization row, source and target Membership rows sorted by `membership_id`, then their active Owner role rows in the same order. Every command that can reduce the active-Owner set uses the same advisory-lock namespace.
 
 ---
 
@@ -7189,6 +7223,8 @@ The Application Layer may retry when:
 - all state and authorization are reloaded
 
 Repeated deadlocks require operational investigation.
+
+An automatic retry reuses the same command identifier and byte-equivalent input, first proves that the prior transaction did not commit or returns its stored result, reloads authentication and authorization, and reacquires locks from the beginning. Human-authoritative optimistic conflicts return `ConcurrencyConflict`; they are not converted into a fresh command by the retry loop.
 
 ---
 
