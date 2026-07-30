@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main, architecture/implementation-readiness]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: aios_test
+          POSTGRES_USER: aios_test
+          POSTGRES_PASSWORD: test_only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U aios_test -d aios_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.14.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm verify
+        env:
+          NODE_ENV: test
+          AIOS_API_PORT: '3001'
+          AIOS_WORKER_ROLES: outbox-publisher,local-consumer,memory-generation,lease-recovery
+          DATABASE_URL: postgresql://aios_test:test_only@localhost:5432/aios_test
+          CLERK_ISSUER_URL: https://test.clerk.accounts.dev
+          OPENAI_API_KEY_REF: test-reference
