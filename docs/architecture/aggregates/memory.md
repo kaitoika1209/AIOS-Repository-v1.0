@@ -71,8 +71,8 @@ Memory
 ```
 `MemoryId`, `OrganizationId`, and `WorkId` never change.
 One Memory Aggregate represents one Work only.
-The MVP permits at most one Memory per completed Work.
-A database-level unique constraint on `workId` should reinforce this rule.
+The MVP permits at most one Memory per completed Work for the lifetime of the model.
+An unconditional database-level unique constraint on `(organizationId, workId)` reinforces this rule. Policy upgrades, retries, rejection, and reopening do not create another Memory.
 ---
 # Responsibilities
 The Memory Aggregate is responsible for:
@@ -319,7 +319,7 @@ Rules:
 - the stored hash is calculated from the canonical serialized source snapshot;
 - provider input transformation records its own input hash and prompt or policy version;
 - a retry for the same generation operation reuses the same source snapshot;
-- a replacement source snapshot requires a new explicit generation operation before a Memory exists;
+- the single operation source binding is immutable once initialization commits; a replacement requires an explicit future regeneration design and does not occur in the MVP;
 - the snapshot is retained at least as long as the generated or Approved Memory; and
 - Organization isolation, encryption, retention, deletion, and legal-hold rules apply because the snapshot is domain provenance, not telemetry.
 
@@ -523,6 +523,8 @@ Abandoned
 They are operational process states, not `MemoryStatus`.
 
 A provider timeout with no usable response may duplicate compute cost when retried, but it does not create unknown business state. Retry reuses the same source snapshot, generation policy version, provider-input hash, and generation operation.
+
+The operation identity is `(organizationId, sourceWorkId)`. Policy version is immutable provenance, not identity. A second event, source snapshot, provider input, or policy for the same Work is rejected as an integrity conflict.
 
 `Generated` is valid only when the final fenced PostgreSQL transaction creates or proves the matching Memory and atomically records `MemoryGenerated`, the processed-event result, and required audit.
 ## Draft Editing
