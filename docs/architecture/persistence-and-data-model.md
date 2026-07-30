@@ -210,7 +210,25 @@ Decision.organization_id = org-alpha
 
 A Work in org-alpha must never reference a Decision in org-beta.
 
-Database constraints should enforce this where practical.
+PostgreSQL MUST enforce Organization ownership for every authoritative relational reference. An Organization-owned foreign key MUST include `organization_id`; a single-column foreign key to a globally unique identifier is insufficient because it proves existence but not tenant ownership. Repository validation and authorization remain required, but they are not substitutes for the database constraint.
+
+For Aggregate-owned children such as Decision and Memory revisions, the foreign key MUST also include the owning Aggregate identifier. A reference to a revision therefore proves all three facts atomically:
+
+```text
+same Organization
+same Aggregate Root
+exact child revision
+```
+
+Required candidate keys follow this shape:
+
+```text
+(organization_id, decision_id, decision_revision_id)
+(organization_id, memory_id, memory_revision_id)
+(organization_id, source_snapshot_id)
+```
+
+When a reference also stores a revision number, the referenced table MUST expose a candidate key containing that number so the identifier and number cannot disagree. Cross-table references that participate in an approved coordinated local transaction MAY be `DEFERRABLE INITIALLY DEFERRED`; deferral changes validation time, not the tenant or ownership rule.
 
 ---
 
@@ -2454,28 +2472,55 @@ completion_gate_revision_number
 completion_gate_submitted_snapshot_id
 ```
 
-Recommended composite foreign key:
+Required composite foreign keys:
 
 ```sql
 FOREIGN KEY (
     organization_id,
-    blocking_decision_id
+    blocking_decision_id,
+    blocking_decision_revision_number,
+    blocking_decision_submitted_snapshot_id
 )
-REFERENCES decisions (
+REFERENCES decision_revisions (
     organization_id,
-    decision_id
-);
+    decision_id,
+    revision_number,
+    decision_revision_id
+)
+DEFERRABLE INITIALLY DEFERRED;
 ```
 
-Because Work and Decision may be inserted within the same transaction, the foreign key may be:
-
-```text
-DEFERRABLE INITIALLY DEFERRED
+```sql
+FOREIGN KEY (
+    organization_id,
+    completion_gate_decision_id,
+    completion_gate_revision_number,
+    completion_gate_submitted_snapshot_id
+)
+REFERENCES decision_revisions (
+    organization_id,
+    decision_id,
+    revision_number,
+    decision_revision_id
+)
+DEFERRABLE INITIALLY DEFERRED;
 ```
 
-when repository insertion order requires it.
+Separate check constraints require all three nullable fields in each reference to be absent or all three to be present. PostgreSQL's default `MATCH SIMPLE` behavior then permits the absent reference while the check prevents a partially populated reference from bypassing the foreign key. In the MVP physical model, `submittedSnapshotId` is the `decision_revision_id` of a revision once it becomes `Submitted` and immutable. The Application Service additionally verifies the revision lifecycle state because a foreign key cannot express `revision_status = 'Submitted'` safely. A separate submitted-snapshot table may be introduced later without changing this domain contract.
 
-Both the active blocking reference and Completion Gate evidence must also reference the immutable submitted Decision revision. In the MVP physical model, `submittedSnapshotId` is the `decision_revision_id` of a revision once it becomes `Submitted` and immutable. Composite constraints or repository validation must prove Organization, Decision, revision number, and submitted-snapshot identity agree. A separate submitted-snapshot table may be introduced later without changing this domain contract.
+```sql
+CHECK (
+    (blocking_decision_id IS NULL
+        AND blocking_decision_revision_number IS NULL
+        AND blocking_decision_submitted_snapshot_id IS NULL)
+    OR
+    (blocking_decision_id IS NOT NULL
+        AND blocking_decision_revision_number IS NOT NULL
+        AND blocking_decision_submitted_snapshot_id IS NOT NULL)
+)
+```
+
+The Completion Gate fields use the equivalent all-null-or-all-present check.
 
 ---
 
@@ -2828,7 +2873,7 @@ The repository must not issue content updates when:
 revision_status <> Draft
 ```
 
-A database trigger may provide defense in depth.
+A database trigger MUST provide defense in depth for submitted and terminal revisions. Ordinary runtime and migration roles MUST NOT be able to mutate locked content through the normal application path. A separately authorized data-governance operation may redact legally required content under ADR-0012; it does not masquerade as an ordinary revision update.
 
 Conceptual trigger behavior:
 
@@ -2857,8 +2902,32 @@ Recommended uniqueness:
 ALTER TABLE decision_revisions
 ADD CONSTRAINT uq_decision_revisions_number
 UNIQUE (
+    organization_id,
     decision_id,
     revision_number
+);
+```
+
+Required ownership candidate keys:
+
+```sql
+ALTER TABLE decision_revisions
+ADD CONSTRAINT uq_decision_revisions_ownership
+UNIQUE (
+    organization_id,
+    decision_id,
+    decision_revision_id
+);
+```
+
+```sql
+ALTER TABLE decision_revisions
+ADD CONSTRAINT uq_decision_revisions_exact_revision
+UNIQUE (
+    organization_id,
+    decision_id,
+    revision_number,
+    decision_revision_id
 );
 ```
 
@@ -2888,20 +2957,25 @@ The Decision Root stores:
 current_revision_id
 ```
 
-Recommended foreign key:
+Required foreign key:
 
 ```sql
 FOREIGN KEY (
+    organization_id,
+    decision_id,
+    current_revision_number,
     current_revision_id
 )
 REFERENCES decision_revisions (
+    organization_id,
+    decision_id,
+    revision_number,
     decision_revision_id
-);
+)
+DEFERRABLE INITIALLY DEFERRED;
 ```
 
-The repository must also verify that the revision belongs to the same Decision and Organization.
-
-A composite foreign key may enforce this more strongly.
+The composite foreign key is the authoritative structural check. Repository validation supplies typed errors before persistence but MUST NOT be the only ownership protection.
 
 ---
 
@@ -2929,6 +3003,38 @@ decided_revision_id
 ```
 
 must equal the revision that was reviewed.
+
+Required ownership foreign keys:
+
+```sql
+FOREIGN KEY (
+    organization_id,
+    decision_id,
+    submitted_revision_id
+)
+REFERENCES decision_revisions (
+    organization_id,
+    decision_id,
+    decision_revision_id
+)
+DEFERRABLE INITIALLY DEFERRED;
+```
+
+```sql
+FOREIGN KEY (
+    organization_id,
+    decision_id,
+    decided_revision_id
+)
+REFERENCES decision_revisions (
+    organization_id,
+    decision_id,
+    decision_revision_id
+)
+DEFERRABLE INITIALLY DEFERRED;
+```
+
+For terminal outcomes, a check constraint MUST require `decided_revision_id = submitted_revision_id`. The Application Service verifies that the referenced revision is immutable and has the lifecycle state required by the command.
 
 ---
 
@@ -3270,6 +3376,7 @@ memory_revisions
 - memory_revision_id
 - organization_id
 - memory_id
+- source_snapshot_id
 - revision_number
 - revision_status
 - title
@@ -3338,6 +3445,67 @@ Rejected revision content may remain immutable while a new Generated revision is
 
 This provides stronger historical traceability than mutating the rejected revision.
 
+Required ownership candidate keys:
+
+```sql
+ALTER TABLE memory_revisions
+ADD CONSTRAINT uq_memory_revisions_ownership
+UNIQUE (
+    organization_id,
+    memory_id,
+    memory_revision_id
+);
+```
+
+```sql
+ALTER TABLE memory_revisions
+ADD CONSTRAINT uq_memory_revisions_exact_revision
+UNIQUE (
+    organization_id,
+    memory_id,
+    revision_number,
+    memory_revision_id
+);
+```
+
+Every Memory revision carries the same `source_snapshot_id` as its Memory Root. A composite foreign key to the owning Memory MUST enforce this binding; copying the snapshot identifier without a constraint is insufficient provenance protection.
+
+```sql
+FOREIGN KEY (
+    organization_id,
+    memory_id,
+    source_snapshot_id
+)
+REFERENCES memories (
+    organization_id,
+    memory_id,
+    source_snapshot_id
+)
+ON UPDATE RESTRICT
+ON DELETE RESTRICT
+DEFERRABLE INITIALLY DEFERRED
+```
+
+Required Memory Root revision references:
+
+```sql
+FOREIGN KEY (
+    organization_id,
+    memory_id,
+    current_revision_number,
+    current_revision_id
+)
+REFERENCES memory_revisions (
+    organization_id,
+    memory_id,
+    revision_number,
+    memory_revision_id
+)
+DEFERRABLE INITIALLY DEFERRED
+```
+
+`submitted_revision_id` and `reviewed_revision_id` use equivalent composite foreign keys over `(organization_id, memory_id, memory_revision_id)` and are also deferrable to support atomic Root-and-revision persistence without weakening commit-time validation.
+
 ---
 
 # Approved Memory Constraint
@@ -3354,6 +3522,8 @@ status = Approved
 
 Approved content must reference an immutable Approved revision.
 
+For `Approved`, `reviewed_revision_id` MUST equal `submitted_revision_id`, and the submitted source-snapshot identifier and hash recorded by the review outcome MUST equal the Memory Root provenance. Approval never re-resolves mutable Work or Decision projections.
+
 ---
 
 # Rejected Memory Constraint
@@ -3369,6 +3539,8 @@ status = Rejected
 ```
 
 A later Human command creates or reopens a Generated revision.
+
+For `Rejected`, `reviewed_revision_id` MUST equal `submitted_revision_id`. Reopening creates a new Generated revision and clears the Root's current-cycle submission and review fields; immutable historical review records remain append-only children.
 
 ---
 
@@ -3536,6 +3708,13 @@ CREATE TABLE memories (
             memory_id
         ),
 
+    CONSTRAINT uq_memories_provenance_owner
+        UNIQUE (
+            organization_id,
+            memory_id,
+            source_snapshot_id
+        ),
+
     CONSTRAINT ck_memories_version
         CHECK (
             version > 0
@@ -3552,6 +3731,29 @@ CREATE TABLE memories (
         )
 );
 ```
+
+After `memory_revisions` and `memory_generation_sources` exist, migrations MUST add the composite revision ownership foreign keys defined above and this provenance foreign key:
+
+```sql
+ALTER TABLE memories
+ADD CONSTRAINT fk_memories_source_provenance
+FOREIGN KEY (
+    organization_id,
+    source_snapshot_id,
+    source_work_id,
+    source_snapshot_hash
+)
+REFERENCES memory_generation_sources (
+    organization_id,
+    source_snapshot_id,
+    work_id,
+    source_snapshot_hash
+)
+ON UPDATE RESTRICT
+ON DELETE RESTRICT;
+```
+
+The lifecycle check for `InReview`, `Approved`, and `Rejected` MUST require a submitted revision. Terminal review states MUST additionally require `reviewed_revision_id = submitted_revision_id` and complete Human reviewer attribution. These checks are installed by migration after the circular Root-to-revision references can be resolved; omission is not permitted by the conceptual ordering of this document.
 
 ---
 
@@ -5593,7 +5795,10 @@ Required constraints:
 ```text
 UNIQUE (organization_id, source_snapshot_id)
 UNIQUE (organization_id, work_id, work_completed_event_id, source_schema_version)
+UNIQUE (organization_id, source_snapshot_id, work_id, source_snapshot_hash)
 ```
+
+Each Decision child row MUST reference an immutable revision through `(organization_id, decision_id, decision_revision_id)`. Its submitted-snapshot identifier MUST equal that immutable revision identifier in the MVP physical model. Each child row also references its parent through `(organization_id, source_snapshot_id)` with `ON DELETE RESTRICT` for ordinary runtime roles. These constraints prevent a source snapshot from combining facts across Organizations or substituting a mutable Decision draft.
 
 The source snapshot is append-only and contains only bounded Work completion facts and immutable Decision revision content required by the generation policy. The canonical content, not the hash alone, is retained because a hash verifies integrity but cannot reproduce Human review context.
 
