@@ -4257,7 +4257,7 @@ Decision outcome:
     decisionId + decisionRevision
 
 Memory generation:
-    workId + generationPolicyVersion
+    organizationId + workId
 
 Invitation delivery:
     membershipId + invitationVersion
@@ -4836,7 +4836,7 @@ COMMIT
 
 # Memory Generation Duplicate Result
 
-If an active Memory already exists for the Work:
+If a Memory already exists for the Work:
 
 ```text
 Verify the same Organization, source Work, source snapshot, and generation identity
@@ -4847,6 +4847,8 @@ Mark event processed
 
 Result = NoOpMemoryAlreadyExists
 ```
+
+The no-op result is valid only after matching Organization, source event, immutable snapshot, provider-input hash, and generation policy. A different fingerprint is an integrity failure. The MVP uniqueness rule is unconditional for `(organizationId, sourceWorkId)`; there is no inactive-Memory exception.
 
 ---
 
@@ -7805,7 +7807,7 @@ Required tests include:
 - WorkCompleted starts generation
 - AI call occurs outside transaction
 - generated candidate validates
-- one active Memory per Work
+- at most one Memory per Work
 - duplicate trigger produces no second Memory
 - timeout retries
 - generation failure does not roll back Work completion
