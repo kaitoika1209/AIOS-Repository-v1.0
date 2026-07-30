@@ -129,7 +129,7 @@ Responsible for:
 - Transactions
 - Coordination between domain objects
 
-Should not contain business rules.
+Owns use-case orchestration, authorization integration, transaction boundaries, idempotency, and cross-Aggregate preconditions. Aggregate-owned lifecycle rules remain in the Domain layer.
 
 ---
 
@@ -158,6 +158,18 @@ Responsible for:
 - Storage
 
 Infrastructure should depend on the domain, never the opposite.
+
+Infrastructure adapters are module-owned. A module must not import another module's repository, ORM model, mutable Aggregate, database client, or internal event handler. Cross-module behavior uses an explicit public Application contract or registered event contract.
+
+---
+
+# Transaction and Tenant Rules
+
+- Every Organization-owned repository method requires trusted Organization scope.
+- Controllers and Workers call Application Services; they do not perform business writes through Prisma directly.
+- PostgreSQL transactions do not remain open during network or AI-provider calls.
+- Aggregate state, Outbox, command idempotency, and required transactional audit commit together where the architecture specifies one transaction.
+- A request DTO, route, token custom claim, event payload, or AI result cannot become authoritative Organization or actor context without server-side validation.
 
 ---
 
