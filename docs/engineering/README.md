@@ -17,6 +17,7 @@ The goal is to ensure consistency, maintainability, and high code quality as AIO
 | git-workflow.md | Git workflow |
 | pull-request.md | Pull request guidelines |
 | review-checklist.md | Review checklist |
+| mvp-implementation-plan.md | Ordered MVP milestones, gates, and definition of done |
 
 ## Principles
 
