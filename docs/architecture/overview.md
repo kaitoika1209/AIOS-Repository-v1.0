@@ -581,6 +581,8 @@ ADR identifiers are unique and immutable after adoption. A superseded ADR retain
 | [ADR-0009](../adr/0009-assign-rule-enforcement-responsibilities.md) | Assign Each Rule to an Explicit Enforcement Owner | Accepted |
 | [ADR-0010](../adr/0010-classify-blueprint-scope-and-implementation-authority.md) | Classify Blueprint Scope and Implementation Authority | Accepted |
 | [ADR-0011](../adr/0011-bound-secretary-to-context-owned-assistance-ports.md) | Bind the Secretary to Context-Owned AI Assistance Ports | Accepted |
+| [ADR-0012](../adr/0012-define-memory-source-snapshot-and-data-governance.md) | Define Memory Source Snapshot and Data-Governance Semantics | Accepted |
+| [ADR-0013](../adr/0013-govern-coordinated-aggregate-transactions.md) | Govern Coordinated Aggregate Transactions | Accepted |
 
 Location:
 
@@ -980,7 +982,7 @@ ADR identifiers are assigned only when a decision record is created.
 
 Accepted identifiers are immutable, never reused, and never renumbered. Superseded ADRs remain in the register with their original identifiers and changed status.
 
-Future decisions MUST NOT reserve numeric identifiers in prose. At the time this Blueprint version was reviewed, the accepted sequence ends at ADR-0012 and the next unassigned identifier is ADR-0013. Concurrent ADR creation must recheck the register before assigning that identifier.
+Future decisions MUST NOT reserve numeric identifiers in prose. At the time this Blueprint version was reviewed, the accepted sequence ends at ADR-0013 and the next unassigned identifier is ADR-0014. Concurrent ADR creation must recheck the register before assigning that identifier.
 
 Potential later decisions include:
 
