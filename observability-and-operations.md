@@ -89,7 +89,7 @@ If `guaranteeReference`, `owningModule`, or `primaryPreventionLayer` is unknown,
 | Finding | Authoritative guarantee and prevention owner | Database defense | Reconciliation role | Recovery authority |
 |---|---|---|---|---|
 | `WorkGateOutcomeMissing` | Work owns its Completion Gate; the owning event handler applies a final Decision outcome through the Work Application Service. | Completion-gate state check and Organization-scoped Decision reference. | Detect a final Decision whose outcome is absent from the related Work after the delivery objective. | Replay the idempotent handler; otherwise a Human-approved Work repair command. |
-| `MemoryGenerationMissing` | The Work-to-Memory use case starts only from committed `WorkCompleted`; the consumer and Memory module own idempotent generation. | Atomic processed-event, Memory, generation-outcome, and Outbox transaction; one active Memory per Work. | Detect a completed Work with no pending, generated, terminal-failure, or resolved generation record. | Automatic retry within policy; Human retry or abandonment after exhaustion. Work remains Completed. |
+| `MemoryGenerationMissing` | The Work-to-Memory use case starts only from committed `WorkCompleted`; the consumer and Memory module own idempotent generation. | Atomic processed-event, Memory, generation-outcome, and Outbox transaction; at most one Memory per Work. | Detect a completed Work with no pending, generated, terminal-failure, or resolved generation record. | Automatic retry within policy; Human retry or abandonment after exhaustion. Work remains Completed. |
 | `ActiveOrganizationWithoutOwner` | Organization/Membership Application Services preserve at least one active Human Owner under the Organization-scoped lock. | Locked owner-count transaction; optional database trigger as defense in depth. | Independently detect violation of the already-required invariant. | Human-only administrative recovery; never automatic assignment and never Secretary or System assignment. |
 | `DecisionRevisionMutatedAfterSubmission` | Decision owns revision lifecycle; submitted and decided revisions are immutable. | Repository update prohibition, revision ownership constraints, and optional immutability trigger. | Compare immutable revision identity or content hash only to detect safeguard failure. | Contain writes and require Human-led integrity repair; do not overwrite audit evidence. |
 | `ApprovedMemoryRevisionMismatch` | Memory owns review state; approval binds to the exact immutable reviewed revision. | Review-field checks, Organization-scoped revision ownership, and immutable submitted/approved revisions. | Detect mismatch or post-review mutation as corruption, not as an eventually consistent condition. | Contain Memory mutations and require Human-led repair through the Memory Application Service. |
@@ -6230,7 +6230,7 @@ Diagnosis:
 - generation attempt count
 - AI provider status
 - output validation errors
-- active Memory uniqueness
+- Memory-per-Work uniqueness
 - current Work version
 - policy and prompt-template version
 
@@ -6238,7 +6238,7 @@ Recovery:
 
 - fix provider or validation issue
 - retry using the same generation identity where applicable
-- recheck no active Memory exists
+- recheck no Memory exists for the Work
 - create Generated Memory only after validation
 - record the attempt outcome
 
@@ -6474,7 +6474,7 @@ Feature flags must never allow:
 - cross-Organization access
 - bypass of required authorization audit
 - mutation of immutable revisions
-- duplicate active Memory creation
+- duplicate Memory creation for one Work
 
 ---
 
