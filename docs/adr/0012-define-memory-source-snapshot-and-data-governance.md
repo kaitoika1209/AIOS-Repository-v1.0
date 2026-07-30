@@ -45,6 +45,8 @@ A different source snapshot is a different logical generation request. It cannot
 
 The generated Memory records the source-snapshot identifier and hash. Every submitted Memory snapshot and its review UI bind to the same source snapshot.
 
+PostgreSQL enforces this provenance with Organization-scoped composite foreign keys. A Memory revision must belong to the same Memory Root and carry the Root's source-snapshot identifier. The current, submitted, and reviewed revision references must belong to that same Organization and Memory. A terminal review outcome binds the exact submitted revision; `reviewedRevisionId` cannot name a different revision merely because that identifier exists.
+
 Approval records the submitted Memory snapshot, source-snapshot identifier, source-snapshot hash, reviewer, and resolution time. The reviewer must be able to inspect the bounded source facts and provenance used for generation. A later change to a mutable projection cannot change the meaning of the approved record.
 
 Human editing may correct the Memory draft before submission, but it does not alter generation provenance. Rejected and reopened Memory retains the original generation snapshot; a new AI regeneration policy requires a separately designed command and must not silently replace provenance.
@@ -157,4 +159,3 @@ Tests must cover:
 - [Events and Outbox](../architecture/events-and-outbox.md)
 - [Persistence and Data Model](../architecture/persistence-and-data-model.md)
 - [Authorization](../architecture/authorization.md)
-
