@@ -3272,6 +3272,7 @@ memories
 - reviewed_by_identity_id
 - reviewed_by_membership_id
 - review_note
+- rejection_reason
 - reviewed_at
 - version
 - created_at
@@ -3680,6 +3681,7 @@ CREATE TABLE memories (
     reviewed_by_identity_id           uuid NULL,
     reviewed_by_membership_id         uuid NULL,
     review_note                       text NULL,
+    rejection_reason                  text NULL,
     reviewed_at                       timestamptz NULL,
 
     version                           bigint NOT NULL,
@@ -3690,6 +3692,12 @@ CREATE TABLE memories (
         UNIQUE (
             organization_id,
             memory_id
+        ),
+
+    CONSTRAINT uq_memories_source_work
+        UNIQUE (
+            organization_id,
+            source_work_id
         ),
 
     CONSTRAINT uq_memories_provenance_owner
@@ -3712,6 +3720,16 @@ CREATE TABLE memories (
     CONSTRAINT ck_memories_generation_policy
         CHECK (
             generation_policy_version > 0
+        ),
+
+    CONSTRAINT ck_memories_status
+        CHECK (
+            status IN (
+                'Generated',
+                'InReview',
+                'Rejected',
+                'Approved'
+            )
         )
 );
 ```
@@ -8202,6 +8220,8 @@ reconciliation_findings
 # Schema Migration Strategy
 
 All schema changes are performed through version-controlled migrations.
+
+The normative initial implementation order, exact Memory lifecycle constraints, generation-operation DDL contract, role gate, and verification requirements are defined in [MVP Database Migration Plan](mvp-database-migration-plan.md) and governed by [ADR-0014](../adr/0014-establish-mvp-database-migration-baseline.md). Conceptual structures in this document do not authorize omission of constraints required there.
 
 Migrations must be:
 
