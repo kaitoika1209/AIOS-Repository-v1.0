@@ -76,9 +76,45 @@ const MEMORY_GENERATION: ConsumerRegistration = {
     "ExternalComputation with a typed generation operation as its recovery store: a failed generation for one Work does not invalidate the next, and the operation row is the durable evidence of the attempt.",
 };
 
+/**
+ * `notifications` projects Member-facing attention from registered events.
+ *
+ * The first Projection Consumer, and the only registration that can honestly
+ * claim `AllowedWhenRebuildable`: the whole table is derivable from the Outbox,
+ * so a discarded delivery costs a missing notification and nothing else. No
+ * business decision depends on one existing.
+ *
+ * `ContinueIndependent` for the same reason. A notification about one Decision
+ * is not invalidated by a failure to notify about another, and blocking the key
+ * would stop every later notification for a Member because of one that could
+ * simply be rebuilt.
+ */
+const NOTIFICATIONS: ConsumerRegistration = {
+  consumerName: "notifications",
+  eventTypes: [
+    "WorkAssignmentChanged",
+    "DecisionSubmitted",
+    "DecisionApproved",
+    "DecisionRejected",
+    "DecisionWithdrawn",
+    "MemorySubmittedForReview",
+    "MemoryApproved",
+    "MemoryRejected",
+  ],
+  consumerType: "Projection",
+  sideEffectClass: "PostgreSQLLocal",
+  orderingRequirement: "None",
+  failureContinuationPolicy: "ContinueIndependent",
+  skipPolicy: "AllowedWhenRebuildable",
+  enabled: true,
+  overrideRationale:
+    "A rebuildable projection whose entries are independent: each notification derives from one event, and a missing one is recoverable by replaying that event rather than by blocking later ones.",
+};
+
 export const CONSUMER_REGISTRY: readonly ConsumerRegistration[] = [
   DECISION_OUTCOME,
   MEMORY_GENERATION,
+  NOTIFICATIONS,
 ];
 
 export class RegistryError extends Error {

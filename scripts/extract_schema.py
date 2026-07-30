@@ -45,6 +45,7 @@ TABLE_ORDER = [
     "memories",
     "memory_revisions",
     "memory_generation_operations",
+    "notifications",
     "outbox_messages",
     "processed_events",
     "consumer_ordering_state",

@@ -37,18 +37,35 @@ describe("the shipped registry", () => {
     expect(CONSUMER_REGISTRY.map((r) => r.consumerName).sort()).toEqual([
       "decision-outcome",
       "memory-generation",
+      "notifications",
     ]);
   });
 
   it("finds the consumers for an event type", () => {
-    expect(consumersFor("DecisionApproved").map((r) => r.consumerName)).toEqual([
+    // Two consumers handle `DecisionApproved`: one applies the outcome to the
+    // Work, the other projects a notification. That is the normal case.
+    expect(consumersFor("DecisionApproved").map((r) => r.consumerName).sort()).toEqual([
       "decision-outcome",
+      "notifications",
     ]);
     expect(consumersFor("WorkCreated")).toEqual([]);
   });
 
   it("reports an unregistered consumer as absent rather than guessing", () => {
     expect(findRegistration("no-such-consumer")).toBeNull();
+  });
+
+  it("registers exactly one Projection Consumer, which is the only skippable one", () => {
+    // `AllowedWhenRebuildable` is a claim only a projection can make, and
+    // `assertRegistry` enforces that. Asserting the count keeps the claim from
+    // spreading by copy.
+    const projections = CONSUMER_REGISTRY.filter(
+      (r) => r.consumerType === "Projection",
+    );
+    expect(projections.map((r) => r.consumerName)).toEqual(["notifications"]);
+    expect(
+      CONSUMER_REGISTRY.filter((r) => r.skipPolicy === "AllowedWhenRebuildable"),
+    ).toEqual(projections);
   });
 
   it("does not let a Domain Coordination consumer be skipped without evidence", () => {

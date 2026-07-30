@@ -92,6 +92,7 @@ suite("AIOS API", () => {
     try {
       await client.query(
         `TRUNCATE decision_revisions, decisions, work_items, outbox_messages,
+                  notifications,
                   dead_letter_events, event_replays, processed_events,
                   consumer_ordering_state,
                   memory_revisions, memories,
@@ -1767,6 +1768,271 @@ suite("AIOS API", () => {
       } finally {
         client.release();
       }
+    });
+  });
+
+  describe("in-app notifications", () => {
+    const memoryOptions = {
+      memory: {
+        generator: new DeterministicMemoryGenerator(),
+        secretaryIdentityId: SECRETARY_IDENTITY_ID,
+        systemPrincipalId: "memory-generator",
+      },
+    };
+
+    const drain = () => drainOutbox(pool, dependenciesFor(pool), 20, memoryOptions);
+
+    const notificationsFor = async (who: typeof MEMBER) => {
+      const res = await request(server())
+        .get("/notifications")
+        .set(as(who))
+        .expect(200);
+      return res.body as {
+        items: { notificationId: string; notificationType: string; subjectId: string }[];
+        unacknowledged: number;
+      };
+    };
+
+    it("notifies the new assignee, and nobody else", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(MEMBER))
+        .send({ assigneeMembershipId: STRANGER.membership })
+        .expect(201);
+      await drain();
+
+      const assignee = await notificationsFor(STRANGER);
+      expect(assignee.items).toHaveLength(1);
+      expect(assignee.items[0]).toMatchObject({
+        notificationType: "WorkAssigned",
+        subjectId: work.workId,
+      });
+      expect(assignee.unacknowledged).toBe(1);
+
+      // The Member who did the assigning is not told they did it.
+      expect((await notificationsFor(MEMBER)).items).toEqual([]);
+    });
+
+    it("does not notify anyone when an assignment is only cleared", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(MEMBER))
+        .send({ assigneeMembershipId: STRANGER.membership })
+        .expect(201);
+      await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(MEMBER))
+        .send({ assigneeMembershipId: null })
+        .expect(201);
+      await drain();
+
+      // Only the assignment, not the unassignment: nobody is newly responsible.
+      expect((await notificationsFor(STRANGER)).items).toHaveLength(1);
+    });
+
+    it("tells the Reviewer a Decision is waiting, and the Work's members the outcome", async () => {
+      const work = await createWork();
+      await request(server()).post(`/works/${work.workId}/start`).set(as(MEMBER)).expect(201);
+      const decision = await request(server())
+        .post("/decisions")
+        .set(as(MEMBER))
+        .send({
+          relatedWorkId: work.workId,
+          title: "Which database?",
+          question: "Which database should we use?",
+          options: [{ optionId: "pg", summary: "PostgreSQL" }],
+          isBlocking: true,
+        })
+        .expect(201);
+      await request(server())
+        .post(`/decisions/${decision.body.decisionId}/submit`)
+        .set(as(MEMBER))
+        .expect(201);
+      await drain();
+
+      // Nothing assigns a reviewer to a Decision, so the Reviewer role is the
+      // audience.
+      const reviewer = await notificationsFor(REVIEWER);
+      expect(reviewer.items.map((n) => n.notificationType)).toEqual([
+        "DecisionSubmittedForReview",
+      ]);
+
+      await request(server())
+        .post(`/decisions/${decision.body.decisionId}/approve`)
+        .set(as(REVIEWER))
+        .send({ selectedOptionId: "pg", rationale: "Fewest moving parts." })
+        .expect(201);
+      await drain();
+
+      // The Work's creator learns the outcome; the Reviewer who decided does not
+      // get told about their own decision.
+      const creator = await notificationsFor(MEMBER);
+      expect(creator.items.map((n) => n.notificationType)).toEqual([
+        "DecisionResolved",
+      ]);
+      expect(
+        (await notificationsFor(REVIEWER)).items.map((n) => n.notificationType),
+      ).toEqual(["DecisionSubmittedForReview"]);
+    });
+
+    it("notifies through the Memory review cycle", async () => {
+      const work = await createWork("Ship the beta");
+      await request(server()).post(`/works/${work.workId}/start`).set(as(MEMBER)).expect(201);
+      await request(server())
+        .post(`/works/${work.workId}/complete`)
+        .set(as(MEMBER))
+        .send({ completionSummary: "Beta shipped on Friday" })
+        .expect(201);
+      await drain();
+
+      const memory = await request(server())
+        .get(`/memories/by-work/${work.workId}`)
+        .set(as(MEMBER))
+        .expect(200);
+      const memoryId = memory.body.memory.memoryId;
+
+      await request(server())
+        .post(`/memories/${memoryId}/submit`)
+        .set(as(MEMBER))
+        .expect(201);
+      await drain();
+      expect(
+        (await notificationsFor(REVIEWER)).items.map((n) => n.notificationType),
+      ).toEqual(["MemoryReadyForReview"]);
+
+      await request(server())
+        .post(`/memories/${memoryId}/reject`)
+        .set(as(REVIEWER))
+        .send({ note: "Add the scope decision." })
+        .expect(201);
+      await drain();
+      expect(
+        (await notificationsFor(MEMBER)).items.map((n) => n.notificationType),
+      ).toEqual(["MemoryRejected"]);
+    });
+
+    it("writes one notification when the event is redelivered", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(MEMBER))
+        .send({ assigneeMembershipId: STRANGER.membership })
+        .expect(201);
+      await drain();
+
+      const client = await pool.connect();
+      try {
+        // Redelivery: the Outbox row is returned to Pending and the consumer's
+        // processed-event row is cleared, so the projection runs again.
+        await client.query(
+          `UPDATE outbox_messages SET status = 'Pending', published_at = NULL
+            WHERE event_type = 'WorkAssignmentChanged'`,
+        );
+        await client.query(`DELETE FROM processed_events WHERE consumer_name = 'notifications'`);
+      } finally {
+        client.release();
+      }
+      await drain();
+
+      // `uq_notifications_recipient_event` is what makes this one row.
+      expect((await notificationsFor(STRANGER)).items).toHaveLength(1);
+    });
+
+    it("records the projection as its own consumer delivery", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(MEMBER))
+        .send({ assigneeMembershipId: STRANGER.membership })
+        .expect(201);
+      await drain();
+
+      const client = await pool.connect();
+      try {
+        const rows = await client.query<{ consumer_name: string; status: string }>(
+          `SELECT consumer_name, status FROM processed_events
+            WHERE event_type = 'WorkAssignmentChanged'`,
+        );
+        // Two consumers can handle one event; each has its own row.
+        expect(rows.rows).toEqual([
+          { consumer_name: "notifications", status: "Processed" },
+        ]);
+      } finally {
+        client.release();
+      }
+    });
+
+    it("acknowledges a notification, once", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(MEMBER))
+        .send({ assigneeMembershipId: STRANGER.membership })
+        .expect(201);
+      await drain();
+
+      const before = await notificationsFor(STRANGER);
+      const id = before.items[0]!.notificationId;
+
+      await request(server())
+        .post(`/notifications/${id}/acknowledge`)
+        .set(as(STRANGER))
+        .expect(204);
+
+      const after = await notificationsFor(STRANGER);
+      expect(after.unacknowledged).toBe(0);
+      expect(after.items[0]!.notificationId).toBe(id);
+
+      // Already acknowledged: reported absent rather than as a conflict.
+      await request(server())
+        .post(`/notifications/${id}/acknowledge`)
+        .set(as(STRANGER))
+        .expect(404);
+    });
+
+    it("cannot read or acknowledge another Member's notification", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/assign`)
+        .set(as(MEMBER))
+        .send({ assigneeMembershipId: STRANGER.membership })
+        .expect(201);
+      await drain();
+
+      const id = (await notificationsFor(STRANGER)).items[0]!.notificationId;
+
+      // The list has no parameter for whose it is, and acknowledging is scoped by
+      // recipient in the statement itself.
+      expect((await notificationsFor(OWNER)).items).toEqual([]);
+      await request(server())
+        .post(`/notifications/${id}/acknowledge`)
+        .set(as(OWNER))
+        .expect(404);
+    });
+
+    it("rejects a malformed notification id", async () => {
+      await request(server())
+        .post("/notifications/not-a-uuid/acknowledge")
+        .set(as(MEMBER))
+        .expect(400);
+    });
+
+    it("is now a rebuildable projection the replay route accepts", async () => {
+      // The first registered Projection Consumer, so `events.replay_projection`
+      // is no longer a route that can only refuse.
+      const res = await request(server())
+        .post("/admin/events/replay/projection")
+        .set(as(OWNER))
+        .send({
+          consumerName: "notifications",
+          reasonCode: "DRIFT",
+          reason: "Suspected missing notifications.",
+        })
+        .expect(201);
+
+      expect(res.body.replayId).toMatch(/^[0-9a-f-]{36}$/);
     });
   });
 

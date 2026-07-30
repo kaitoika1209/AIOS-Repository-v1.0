@@ -110,3 +110,22 @@ export const DEFAULT_CONTINUATION: Readonly<
   Integration: "RequireExternalRecovery",
   Operational: "ContinueIndependent",
 };
+
+/**
+ * Notification types, from the persistence document's closed list.
+ *
+ * Six, not the eight examples `mvp.md` gives. Two of those examples are not
+ * in-app deliverable and the reasons are structural: an invitation's recipient
+ * has no Identity or Membership until they accept, and Memory generation failure
+ * has no registered event — `MemoryGenerationFailed` is deliberately
+ * unregistered, with operation state as the authoritative evidence instead.
+ */
+export const NOTIFICATION_TYPES = [
+  "WorkAssigned",
+  "DecisionSubmittedForReview",
+  "DecisionResolved",
+  "MemoryReadyForReview",
+  "MemoryRejected",
+  "MemoryApproved",
+] as const;
+export type NotificationType = (typeof NOTIFICATION_TYPES)[number];

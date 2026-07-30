@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { DEV_USERS, currentUser } from "../lib/api";
+import { DEV_USERS, api, currentUser } from "../lib/api";
 import { switchUser } from "./actions";
 import "./globals.css";
 
@@ -12,6 +12,16 @@ export const metadata = {
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const user = await currentUser();
 
+  // Read here rather than on the notifications page so the count is visible from
+  // anywhere. Swallowed on failure: an unreachable API must not blank the whole
+  // layout, and the pages below report the error themselves.
+  let unacknowledged = 0;
+  try {
+    unacknowledged = (await api.listNotifications(user.subject)).unacknowledged;
+  } catch {
+    unacknowledged = 0;
+  }
+
   return (
     <html lang="en">
       <body>
@@ -20,6 +30,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             <span className="brand">
               <a href="/">AIOS</a>
             </span>
+            <a className="small" href="/notifications">
+              Notifications{unacknowledged > 0 ? ` (${unacknowledged})` : ""}
+            </a>
             <a className="small" href="/members">
               Members
             </a>

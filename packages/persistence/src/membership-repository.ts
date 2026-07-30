@@ -361,6 +361,25 @@ export class PostgresMembershipRepository implements MembershipRepository {
     }
   }
 
+  async listActiveByRole(
+    organizationId: OrganizationId,
+    role: Role,
+  ): Promise<readonly MembershipId[]> {
+    const result = await this.client.query<{ membership_id: string }>(
+      `SELECT DISTINCT m.membership_id
+         FROM memberships m
+         JOIN membership_role_assignments r
+           ON r.organization_id = m.organization_id
+          AND r.membership_id = m.membership_id
+        WHERE m.organization_id = $1
+          AND m.status = 'Active'
+          AND r.role = $2
+          AND r.revoked_at IS NULL`,
+      [organizationId, role],
+    );
+    return result.rows.map((row) => row.membership_id as MembershipId);
+  }
+
   async listMembers(
     organizationId: OrganizationId,
   ): Promise<readonly OrganizationMemberSummary[]> {

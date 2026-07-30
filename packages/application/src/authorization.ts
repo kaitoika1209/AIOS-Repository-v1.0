@@ -31,6 +31,8 @@ import {
  */
 const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
   OrganizationOwner: [
+    "notification.read",
+    "notification.acknowledge",
     "organization.rename",
     "organization.read_members",
     "organization.invite_member",
@@ -66,6 +68,8 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     "events.replay_projection",
   ],
   OrganizationAdmin: [
+    "notification.read",
+    "notification.acknowledge",
     "organization.rename",
     "organization.read_members",
     "organization.invite_member",
@@ -98,6 +102,8 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     "events.replay_projection",
   ],
   Member: [
+    "notification.read",
+    "notification.acknowledge",
     "organization.read_members",
     "work.create",
     "work.edit",
@@ -120,6 +126,8 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     "memory.submit",
   ],
   Reviewer: [
+    "notification.read",
+    "notification.acknowledge",
     "organization.read_members",
     "decision.approve",
     "decision.reject",

@@ -21,6 +21,7 @@ import type {
   MembershipId,
   MembershipStatus,
   OrganizationId,
+  NotificationType,
   Permission,
   Role,
   WorkId,
@@ -49,6 +50,7 @@ export interface IdGenerator {
   decisionId(): DecisionId;
   memoryId(): MemoryId;
   membershipId(): MembershipId;
+  notificationId(): string;
   invitationId(): InvitationId;
   identityId(): IdentityId;
   /**
@@ -240,6 +242,19 @@ export interface MembershipRepository {
   listMembers(
     organizationId: OrganizationId,
   ): Promise<readonly OrganizationMemberSummary[]>;
+
+  /**
+   * Active Memberships holding a given role.
+   *
+   * Needed by the notification projection: nothing assigns a reviewer to a
+   * specific Decision or Memory in this release, so "who should review this" is
+   * answered by the role. That is a query over Memberships, not an authorization
+   * decision — the reviewer still has to hold the permission to act.
+   */
+  listActiveByRole(
+    organizationId: OrganizationId,
+    role: Role,
+  ): Promise<readonly MembershipId[]>;
 }
 
 /**
@@ -379,6 +394,59 @@ export interface EventRecoveryRepository {
   ): Promise<boolean>;
 }
 
+/** One row of a Member's attention list. A projection, not an Aggregate. */
+export interface NotificationRecord {
+  readonly notificationId: string;
+  readonly notificationType: NotificationType;
+  readonly subjectType: string;
+  readonly subjectId: string;
+  readonly title: string;
+  readonly occurredAt: Date;
+  readonly acknowledgedAt: Date | null;
+}
+
+export interface NotificationRepository {
+  /**
+   * Append one notification, ignoring a redelivery of the same fact.
+   *
+   * Idempotent by `(recipient, sourceEvent)` rather than by a generated id: the
+   * consumer runs under at-least-once delivery, and a second attempt must not
+   * produce a second row.
+   */
+  append(input: {
+    readonly notificationId: string;
+    readonly organizationId: OrganizationId;
+    readonly recipientMembershipId: MembershipId;
+    readonly notificationType: NotificationType;
+    readonly subjectType: string;
+    readonly subjectId: string;
+    readonly title: string;
+    readonly sourceEventId: string;
+    readonly occurredAt: Date;
+  }): Promise<void>;
+
+  /** One Member's own notifications, newest first. */
+  listForMember(
+    organizationId: OrganizationId,
+    recipientMembershipId: MembershipId,
+    limit: number,
+  ): Promise<readonly NotificationRecord[]>;
+
+  /**
+   * Dismiss one notification.
+   *
+   * Scoped by recipient in the statement, so a caller cannot acknowledge someone
+   * else's item even by naming its identifier. Returns false when no row
+   * matched — already acknowledged, or not theirs.
+   */
+  acknowledge(input: {
+    readonly organizationId: OrganizationId;
+    readonly recipientMembershipId: MembershipId;
+    readonly notificationId: string;
+    readonly now: Date;
+  }): Promise<boolean>;
+}
+
 export interface OutboxPort {
   append(events: readonly DomainEvent[]): Promise<void>;
 }
@@ -406,6 +474,7 @@ export interface RepositoryBundle {
   readonly deliveries: ConsumerDeliveryRepository;
   readonly replays: ReplayRepository;
   readonly memberships: MembershipRepository;
+  readonly notifications: NotificationRepository;
   readonly identities: IdentityRepository;
   readonly outbox: OutboxPort;
 }

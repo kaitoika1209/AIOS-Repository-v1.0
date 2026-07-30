@@ -23,6 +23,7 @@ import {
   PostgresMembershipRepository,
 } from "./membership-repository.js";
 import { PostgresMemoryRepository } from "./memory-repository.js";
+import { PostgresNotificationRepository } from "./notification-repository.js";
 import { PostgresOrganizationRepository } from "./organization-repository.js";
 import { PostgresOutbox } from "./outbox.js";
 import { PostgresWorkRepository } from "./work-repository.js";
@@ -46,6 +47,7 @@ export class PostgresUnitOfWork implements UnitOfWork {
         deliveries: new PostgresConsumerDeliveryRepository(client),
         replays: new PostgresReplayRepository(client),
         memberships: new PostgresMembershipRepository(client),
+        notifications: new PostgresNotificationRepository(client),
         identities: new PostgresIdentityRepository(client),
         outbox: new PostgresOutbox(client),
       });

@@ -14,7 +14,9 @@ import type {
   InvitationId,
   MemoryId,
   MembershipId,
+  NotificationType,
   OrganizationId,
+  Role,
   WorkId,
 } from "@aios/types";
 import {
@@ -31,6 +33,8 @@ import {
 import type {
   Clock,
   ConsumerDeliveryRepository,
+  NotificationRecord,
+  NotificationRepository,
   OrganizationRepository,
   DeadLetteredDelivery,
   DecisionRepository,
@@ -298,6 +302,20 @@ export class InMemoryMembershipRepository implements MembershipRepository {
       throw new VersionConflictError(expectedVersion, existing.version);
     }
     this.rows.set(membership.membershipId, membership);
+  }
+
+  async listActiveByRole(
+    organizationId: OrganizationId,
+    role: Role,
+  ): Promise<readonly MembershipId[]> {
+    return [...this.rows.values()]
+      .filter(
+        (m) =>
+          m.organizationId === organizationId &&
+          m.status === "Active" &&
+          m.roles.includes(role),
+      )
+      .map((m) => m.membershipId);
   }
 
   async listMembers(
@@ -764,6 +782,84 @@ export class InMemoryReplayRepository implements ReplayRepository {
   }
 }
 
+export class InMemoryNotificationRepository implements NotificationRepository {
+  private readonly rows = new Map<
+    string,
+    NotificationRecord & {
+      organizationId: OrganizationId;
+      recipientMembershipId: MembershipId;
+      sourceEventId: string;
+    }
+  >();
+
+  async append(input: {
+    notificationId: string;
+    organizationId: OrganizationId;
+    recipientMembershipId: MembershipId;
+    notificationType: NotificationType;
+    subjectType: string;
+    subjectId: string;
+    title: string;
+    sourceEventId: string;
+    occurredAt: Date;
+  }): Promise<void> {
+    // Keyed by recipient and source event, matching
+    // `uq_notifications_recipient_event`: a redelivery must not produce a second
+    // row, and modelling it any other way would let a test pass that PostgreSQL
+    // would reject.
+    const key = `${input.recipientMembershipId}|${input.sourceEventId}`;
+    if (this.rows.has(key)) return;
+
+    this.rows.set(key, {
+      notificationId: input.notificationId,
+      notificationType: input.notificationType,
+      subjectType: input.subjectType,
+      subjectId: input.subjectId,
+      title: input.title,
+      occurredAt: input.occurredAt,
+      acknowledgedAt: null,
+      organizationId: input.organizationId,
+      recipientMembershipId: input.recipientMembershipId,
+      sourceEventId: input.sourceEventId,
+    });
+  }
+
+  async listForMember(
+    organizationId: OrganizationId,
+    recipientMembershipId: MembershipId,
+    limit: number,
+  ): Promise<readonly NotificationRecord[]> {
+    return [...this.rows.values()]
+      .filter(
+        (n) =>
+          n.organizationId === organizationId &&
+          n.recipientMembershipId === recipientMembershipId,
+      )
+      .sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime())
+      .slice(0, limit);
+  }
+
+  async acknowledge(input: {
+    organizationId: OrganizationId;
+    recipientMembershipId: MembershipId;
+    notificationId: string;
+    now: Date;
+  }): Promise<boolean> {
+    for (const [key, row] of this.rows) {
+      if (
+        row.notificationId === input.notificationId &&
+        row.organizationId === input.organizationId &&
+        row.recipientMembershipId === input.recipientMembershipId &&
+        row.acknowledgedAt === null
+      ) {
+        this.rows.set(key, { ...row, acknowledgedAt: input.now });
+        return true;
+      }
+    }
+    return false;
+  }
+}
+
 export class InMemoryOutbox implements OutboxPort {
   readonly events: DomainEvent[] = [];
 
@@ -839,6 +935,9 @@ export class SequentialIds implements IdGenerator {
   membershipId(): MembershipId {
     return `membership-${++this.n}` as MembershipId;
   }
+  notificationId(): string {
+    return `notification-${++this.n}`;
+  }
   invitationId(): InvitationId {
     return `invitation-${++this.n}` as InvitationId;
   }
@@ -878,6 +977,7 @@ export const buildTestHarness = (now = new Date("2026-07-28T10:00:00Z")) => {
   const replays = new InMemoryReplayRepository();
   const memberships = new InMemoryMembershipRepository();
   const organizations = new InMemoryOrganizationRepository(memberships);
+  const notifications = new InMemoryNotificationRepository();
   const identities = new InMemoryIdentityRepository();
   const outbox = new InMemoryOutbox();
   const bundle = {
@@ -890,6 +990,7 @@ export const buildTestHarness = (now = new Date("2026-07-28T10:00:00Z")) => {
     deliveries,
     replays,
     memberships,
+    notifications,
     identities,
     outbox,
   };

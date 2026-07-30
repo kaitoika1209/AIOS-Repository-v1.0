@@ -83,6 +83,12 @@ verifies nothing, and it refuses to start that way unless `NODE_ENV` is
 `development` or `test`. Clerk authenticates only: Organization, Membership,
 roles, and invitations stay in PostgreSQL, and Clerk Organizations are not used.
 
+In-app notifications are live. A registered Projection Consumer turns events
+into a Member's attention list — Work assigned to you, a Decision or Memory
+waiting for review, an outcome affecting Work you took part in — and the whole
+table is rebuildable from the Outbox, which is why it is the one consumer whose
+result may be skipped.
+
 Invitation delivery is not built. Sending email is an `ExternalBusinessEffect`,
 which the events architecture places outside the baseline MVP until an External
 Effect Contract exists — so an invitation token is shown once in the UI and

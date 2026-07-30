@@ -365,3 +365,19 @@ export const lastIssuedInvitation = async (): Promise<{
     return null;
   }
 };
+
+export const acknowledgeNotification = async (
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> => {
+  const user = await currentUser();
+  const notificationId = String(formData.get("notificationId"));
+
+  const result = await run(() =>
+    api.acknowledgeNotification(user.subject, notificationId),
+  );
+  // The layout carries the unacknowledged count, so it has to be revalidated
+  // too or the badge keeps showing an item the list no longer highlights.
+  if (result.error === undefined) revalidatePath("/", "layout");
+  return result;
+};

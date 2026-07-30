@@ -142,6 +142,14 @@ const call = async <T>(
     );
   }
 
+  // `204 No Content` has no body to parse, and several command routes return
+  // one — acknowledging a notification and retrying a failed event among them.
+  // Parsing unconditionally turned an empty success into a server-side
+  // exception, which is how this was found.
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   return (await response.json()) as T;
 };
 
@@ -203,6 +211,27 @@ export const api = {
         body: JSON.stringify({ token }),
       },
     ),
+
+  /** The caller's own notifications. There is no parameter for whose they are. */
+  listNotifications: (subject: string) =>
+    call<{
+      items: {
+        notificationId: string;
+        notificationType: string;
+        subjectType: string;
+        subjectId: string;
+        title: string;
+        occurredAt: string;
+        acknowledgedAt: string | null;
+      }[];
+      unacknowledged: number;
+    }>("/notifications", { method: "GET", subject }),
+
+  acknowledgeNotification: (subject: string, notificationId: string) =>
+    call<void>(`/notifications/${notificationId}/acknowledge`, {
+      method: "POST",
+      subject,
+    }),
 
   listWork: (subject: string) =>
     call<{ items: Work[] }>("/works", { method: "GET", subject }),

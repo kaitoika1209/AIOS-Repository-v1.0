@@ -176,6 +176,8 @@ target state as a parameter.
 | `memory.approve` | `POST /memories/{memoryId}/approve` |
 | `memory.reject` | `POST /memories/{memoryId}/reject` |
 | `memory.reopen` | `POST /memories/{memoryId}/reopen` |
+| `notification.read` | `GET /notifications` |
+| `notification.acknowledge` | `POST /notifications/{notificationId}/acknowledge` |
 | `organization.rename` | `PATCH /organizations/{organizationId}` |
 | `organization.read_members` | `GET /organizations/{organizationId}/members` |
 | `organization.invite_member` | `POST /organizations/{organizationId}/members` |

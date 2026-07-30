@@ -47,9 +47,13 @@ describe("role to permission mapping", () => {
   });
 
   it("gives the Reviewer review authority and nothing else", () => {
-    // "A Reviewer is authorized to perform Human review actions."
+    // "A Reviewer is authorized to perform Human review actions." The member
+    // list and the notification list are not review authority — both are held by
+    // every role, because reading your own attention is not administration.
     expect([...rolePermissions.Reviewer].sort()).toEqual(
       [
+        "notification.read",
+        "notification.acknowledge",
         "organization.read_members",
         "decision.approve",
         "decision.reject",
@@ -58,6 +62,13 @@ describe("role to permission mapping", () => {
         "memory.reject",
       ].sort(),
     );
+  });
+
+  it("lets every role read and acknowledge its own notifications", () => {
+    for (const role of ROLES) {
+      expect(rolePermissions[role]).toContain("notification.read");
+      expect(rolePermissions[role]).toContain("notification.acknowledge");
+    }
   });
 
   it("lets every role read the member list", () => {

@@ -23,11 +23,12 @@ import {
   applyDecisionOutcomeUseCase,
   consumersFor,
   generateMemoryUseCase,
+  projectNotificationsUseCase,
   type MemoryGenerator,
   type UseCaseDependencies,
 } from "@aios/application";
 import { PostgresConsumerDeliveryRepository } from "@aios/persistence";
-import { DomainError } from "@aios/domain";
+import { DomainError, type DomainEvent } from "@aios/domain";
 
 interface OutboxRow {
   outbox_id: string;
@@ -40,6 +41,7 @@ interface OutboxRow {
   correlation_id: string;
   event_sequence: number;
   payload: {
+    type?: string;
     decisionId?: string;
     relatedWorkId?: string;
     workId?: string;
@@ -56,6 +58,7 @@ const OUTCOME_EVENTS = ["DecisionApproved", "DecisionRejected", "DecisionWithdra
 /** Consumer names, matching the registry entries in `@aios/application`. */
 const DECISION_OUTCOME_CONSUMER = "decision-outcome";
 const MEMORY_GENERATION_CONSUMER = "memory-generation";
+const NOTIFICATIONS_CONSUMER = "notifications";
 
 /**
  * What each consumer's registration implies for a failed delivery, read once at
@@ -63,10 +66,14 @@ const MEMORY_GENERATION_CONSUMER = "memory-generation";
  */
 const CONSUMER_POLICY: Record<string, { blocks: boolean; ordered: boolean }> =
   Object.fromEntries(
-    [DECISION_OUTCOME_CONSUMER, MEMORY_GENERATION_CONSUMER].map((name) => {
-      const registration = consumersFor(
-        name === DECISION_OUTCOME_CONSUMER ? "DecisionApproved" : "WorkCompleted",
-      ).find((r) => r.consumerName === name)!;
+    [
+      [DECISION_OUTCOME_CONSUMER, "DecisionApproved"],
+      [MEMORY_GENERATION_CONSUMER, "WorkCompleted"],
+      [NOTIFICATIONS_CONSUMER, "DecisionApproved"],
+    ].map(([name, eventType]) => {
+      const registration = consumersFor(eventType!).find(
+        (r) => r.consumerName === name,
+      )!;
       return [
         name,
         {
@@ -172,7 +179,55 @@ export interface DrainResult {
   readonly applied: number;
   readonly alreadyApplied: number;
   readonly failed: number;
+  /** Notification rows written by the projection consumer. */
+  readonly notified: number;
 }
+
+/**
+ * Run the notification projection for one event, in its own transaction.
+ *
+ * Separate from the business consumer's transaction on purpose: a projection
+ * failure must not roll back an authoritative effect, and the registration says
+ * `ContinueIndependent` for exactly that reason. A failure is dead-lettered and
+ * the projection can be rebuilt.
+ */
+const projectFor = async (
+  client: PoolClient,
+  deps: UseCaseDependencies,
+  row: OutboxRow,
+): Promise<number> => {
+  const organizationId = OrganizationId(row.payload.organizationId);
+
+  if (
+    !(await beginDelivery(client, NOTIFICATIONS_CONSUMER, row, organizationId, null))
+  ) {
+    return 0;
+  }
+
+  try {
+    // The payload is the event as it was appended, so the projection reads the
+    // same shape the domain produced rather than a reconstruction.
+    const written = await deps.uow.transaction((tx) =>
+      projectNotificationsUseCase(
+        deps,
+        tx,
+        row.payload as unknown as DomainEvent,
+        row.event_id,
+      ),
+    );
+    await completeDelivery(client, NOTIFICATIONS_CONSUMER, row.event_id);
+    return written;
+  } catch (error) {
+    await failDelivery(
+      client,
+      NOTIFICATIONS_CONSUMER,
+      row.event_id,
+      organizationId,
+      error,
+    );
+    return 0;
+  }
+};
 
 /**
  * Process one batch of pending Outbox messages.
@@ -241,8 +296,21 @@ export const drainOutbox = async (
   let applied = 0;
   let alreadyApplied = 0;
   let failed = 0;
+  let notified = 0;
 
   for (const row of rows) {
+    // The notification projection runs for every event it registers for,
+    // independently of the consumer that owns the business effect. Two consumers
+    // handling the same event is the normal case, and each has its own
+    // processed-event row.
+    if (
+      consumersFor(row.event_type).some(
+        (r) => r.consumerName === NOTIFICATIONS_CONSUMER,
+      )
+    ) {
+      notified += await projectFor(client, deps, row);
+    }
+
     // WorkCompleted is the durable trigger for Memory generation (ADR-0008).
     if (row.event_type === "WorkCompleted" && options.memory !== undefined) {
       const organizationId = OrganizationId(row.payload.organizationId);
@@ -423,7 +491,7 @@ export const drainOutbox = async (
   }
 
   client.release();
-  return { claimed: rows.length, applied, alreadyApplied, failed };
+  return { claimed: rows.length, applied, alreadyApplied, failed, notified };
 };
 
 /** Poll loop for development. Production would run this as a separate worker. */

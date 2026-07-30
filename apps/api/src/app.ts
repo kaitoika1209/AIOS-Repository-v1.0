@@ -29,6 +29,7 @@ import { chooseGenerator } from "./anthropic-memory-generator.js";
 import { DecisionController } from "./decision.controller.js";
 import { InvitationController } from "./invitation.controller.js";
 import { MemoryController } from "./memory.controller.js";
+import { NotificationController } from "./notification.controller.js";
 import { OrganizationAdminController } from "./organization-admin.controller.js";
 import { OrganizationMemberController } from "./organization.controller.js";
 import { ClerkAuthAdapter, clerkOptionsFrom } from "./clerk-auth.js";
@@ -72,6 +73,9 @@ class UuidGenerator implements IdGenerator {
   }
   membershipId(): MembershipId {
     return MembershipId(randomUUID());
+  }
+  notificationId(): string {
+    return randomUUID();
   }
   invitationId(): InvitationId {
     return InvitationId(randomUUID());
@@ -123,6 +127,7 @@ export const createApp = async (options: AppOptions): Promise<INestApplication> 
       WorkController,
       DecisionController,
       MemoryController,
+      NotificationController,
       OrganizationAdminController,
       OrganizationMemberController,
       InvitationController,

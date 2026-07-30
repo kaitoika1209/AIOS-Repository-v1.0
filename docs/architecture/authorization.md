@@ -1076,6 +1076,9 @@ memory.approve
 memory.reject
 memory.reopen
 
+notification.read
+notification.acknowledge
+
 organization.rename
 organization.read_members
 organization.invite_member
@@ -1097,6 +1100,13 @@ Membership invitation is split into one permission per command rather than a sin
 otherwise: inviting, resending, and revoking are three routes. The split also makes the
 narrower grants expressible — reading the member list is not administration, and is held
 by every role.
+
+`notification.read` and `notification.acknowledge` are held by **every** role, like
+`organization.read_members`. A notification is addressed to one Membership and reports a
+fact that Membership is already entitled to see; reading your own attention list is not
+administration, and neither is dismissing an item from it. They are two permissions
+because they are two routes — the one-route-one-permission rule applies to a command
+route regardless of how small the command is.
 
 `organization.rename` is catalogued for the same reason: `docs/product/mvp.md`
 requires the MVP to support "Organization naming". Organization *creation* has no

@@ -5374,6 +5374,93 @@ UNIQUE (
 
 ---
 
+## Notification Persistence
+
+`docs/product/mvp.md` requires basic in-app notifications and classifies their
+state as a `PostgreSQLLocal` consumer effect. They are therefore a projection
+built by a registered Projection Consumer, not an Aggregate: nothing in the
+business domain depends on a notification existing, and the whole table can be
+rebuilt from the Outbox.
+
+```sql
+CREATE TABLE notifications (
+    notification_id         uuid PRIMARY KEY,
+    organization_id         uuid NOT NULL,
+    recipient_membership_id uuid NOT NULL,
+
+    notification_type       text NOT NULL,
+    subject_type            text NOT NULL,
+    subject_id              uuid NOT NULL,
+    title                   text NOT NULL,
+
+    source_event_id         uuid NOT NULL,
+    occurred_at             timestamptz NOT NULL,
+
+    acknowledged_at         timestamptz NULL,
+
+    created_at              timestamptz NOT NULL,
+
+    CONSTRAINT ck_notifications_title CHECK (length(btrim(title)) > 0),
+
+    CONSTRAINT uq_notifications_recipient_event
+        UNIQUE (recipient_membership_id, source_event_id),
+
+    FOREIGN KEY (organization_id, recipient_membership_id)
+        REFERENCES memberships (organization_id, membership_id)
+);
+```
+
+`uq_notifications_recipient_event` is what makes the consumer idempotent under
+at-least-once delivery: a redelivered event produces the same conflict rather
+than a second notification for the same fact.
+
+The recipient is a Membership, not an Identity. A notification is
+Organization-scoped business attention, and the same person in two Organizations
+must not see one Organization's notifications while acting in the other. The
+composite foreign key makes that structural.
+
+There is no `read_at` distinct from `acknowledged_at`, and no per-notification
+body. The MVP "does not require user-designed notification rules ... advanced
+digest configuration, or enterprise escalation policies", and a notification that
+carried its own copy of business content would drift from the record it points at.
+
+```sql
+CREATE INDEX ix_notifications_recipient_unacknowledged
+ON notifications (
+    organization_id,
+    recipient_membership_id,
+    occurred_at DESC
+)
+WHERE acknowledged_at IS NULL;
+```
+
+## Notification Types
+
+```text
+WorkAssigned
+DecisionSubmittedForReview
+DecisionResolved
+MemoryReadyForReview
+MemoryRejected
+MemoryApproved
+```
+
+These are the notification examples `mvp.md` lists that are both deliverable
+in-app and derivable from a registered event. Two listed examples are neither,
+and the reasons are structural rather than incidental:
+
+- **Organization invitation.** The recipient has no Identity and no Membership
+  until they accept, so there is no session in which an in-app notification could
+  appear. Invitation delivery is an `ExternalBusinessEffect`, outside the baseline
+  MVP.
+- **Memory generation failure requiring intervention.** No registered event
+  reports it: `MemoryGenerationFailed` is deliberately unregistered, and
+  generation-operation state is the authoritative process evidence. An operator
+  sees it through the failed-generation operation and the dead-letter surface,
+  neither of which is a Member-facing notification.
+
+---
+
 ## Outbox Actor Reference
 
 The ActorReference may be stored as:
