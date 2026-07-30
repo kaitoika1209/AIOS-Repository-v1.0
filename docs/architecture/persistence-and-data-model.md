@@ -9485,7 +9485,7 @@ The MVP may begin without RLS when:
 - database roles are restricted
 - isolation tests are comprehensive
 
-RLS can be introduced later through controlled migration.
+RLS can be introduced later through controlled migration. ADR-0016 requires reconsideration before direct tenant or analyst SQL, shared ad-hoc reporting, unscoped runtime query facilities, or broader administrative integrations are enabled. Until then, the production gate requires executable access-path and real connection-pool isolation evidence for the compensating controls.
 
 ---
 
