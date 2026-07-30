@@ -172,6 +172,8 @@ This participation does not authorize Platform Runtime to mutate Domain Aggregat
 
 Remote provider calls and other external effects occur outside PostgreSQL transactions.
 
+The complete MVP exception registry and its lock, timeout, retry, and extraction rules are governed by [ADR-0013](0013-govern-coordinated-aggregate-transactions.md). Same-database placement is never sufficient by itself to add a Repository to a coordinator.
+
 ---
 
 # Persistence Ownership
