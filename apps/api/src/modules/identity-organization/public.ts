@@ -1,3 +1,11 @@
 export const identityOrganizationModule = 'identity-organization' as const;
 export { resolveOrganizationContext, OrganizationContextDenied } from './application/resolve-organization-context.js';
 export type { AuthenticatedIdentity, OrganizationContext, OrganizationMembership } from './application/resolve-organization-context.js';
+export { authorize, AuthorizationDenied } from './application/authorization.js';
+export { ManageMembershipService, AccessResourceNotFound, ConcurrentModification, LastActiveOwnerViolation } from './application/manage-membership.js';
+export { OrganizationManagementService } from './application/manage-organization.js';
+export type { CreateOrganizationCommand, InviteMembershipCommand } from './application/manage-organization.js';
+export { resolveHumanMemberPrincipal } from './application/principal.js';
+export type { HumanMemberPrincipal } from './application/principal.js';
+export type { AuthenticationAssertion, AuthenticationSubjectRepository, OrganizationAccessRepository, TransactionManager } from './application/ports.js';
+export type { HumanIdentity, Membership, Organization, OrganizationRole } from './domain/model.js';
