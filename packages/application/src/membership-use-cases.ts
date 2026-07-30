@@ -14,9 +14,17 @@
 
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
-import { isHumanMember, type MembershipId, type OrganizationId, type Role } from "@aios/types";
+import {
+  isHumanMember,
+  type HumanMemberPrincipal,
+  type MembershipId,
+  type OrganizationId,
+  type Role,
+} from "@aios/types";
 import {
   acceptInvitation,
+  assignRole,
+  revokeRole,
   InvitationNotAcceptableError,
   inviteToOrganization,
   normalizeEmail,
@@ -31,7 +39,11 @@ import {
 } from "@aios/domain";
 
 import { recordTransition } from "./audit.js";
-import { requirePermission } from "./authorization.js";
+import {
+  AccessDeniedError,
+  requirePermission,
+  requireRoleGrantAuthority,
+} from "./authorization.js";
 import {
   NotFoundError,
   type OrganizationMemberSummary,
@@ -96,6 +108,19 @@ const loadMembership = async (
   }
   return membership;
 };
+
+/**
+ * Refused because the actor named their own Membership.
+ *
+ * The self-escalation policy, in its flat form: no Member may grant themselves a
+ * role. A `403` like every other authorization denial.
+ */
+export class SelfAssignmentError extends AccessDeniedError {
+  constructor() {
+    super("A Member cannot assign a role to their own Membership.");
+    this.name = "SelfAssignmentError";
+  }
+}
 
 export interface InviteMemberInput {
   readonly email: string;
@@ -473,5 +498,119 @@ export const acceptInvitationUseCase = async (
     });
 
     return { membership: state, organizationId: state.organizationId };
+  });
+};
+
+/**
+ * Grant a role to a Member (ADR-0018).
+ *
+ * Three checks, and only the first is the ordinary one:
+ *
+ * 1. `organization.assign_role`, held by Owner and Admin.
+ * 2. The target role narrows the actor — `OrganizationOwner` requires an Owner.
+ * 3. Nobody may assign a role to their own Membership.
+ *
+ * The third is the self-escalation policy the role-assignment rules require and
+ * leave undefined. It is flat rather than rank-based because the four roles are
+ * a set and not a ladder: `Reviewer` is neither above nor below `Member`, so a
+ * ranking would have to be invented and kept correct as the catalogue changes.
+ *
+ * It costs an Owner nothing — `OrganizationOwner` already holds every permission
+ * any other role holds, so there is nothing to gain by self-assignment.
+ */
+export const assignRoleUseCase = async (
+  deps: UseCaseDependencies,
+  ctx: WorkCommandContext,
+  membershipId: MembershipId,
+  role: Role,
+): Promise<MembershipState> => {
+  requirePermission(ctx.principal, "organization.assign_role");
+  requireRoleGrantAuthority(ctx.principal, role, "assign");
+
+  if (isHumanMember(ctx.principal) && ctx.principal.membershipId === membershipId) {
+    throw new SelfAssignmentError();
+  }
+
+  const roleAssignmentId = deps.ids.roleAssignmentId();
+
+  return deps.uow.transaction(async (tx) => {
+    const current = await loadMembership(tx, ctx.organizationId, membershipId);
+    const { state, events } = assignRole(current, { roleAssignmentId, role }, ctx);
+
+    await tx.memberships.update(state, current.version);
+    await tx.memberships.assignRole({
+      organizationId: ctx.organizationId,
+      membershipId,
+      roleAssignmentId,
+      role,
+      // Attribution the Membership row has nowhere to hold. Non-null because
+      // `requirePermission` already refused any non-Human principal.
+      assignedByIdentityId: (ctx.principal as HumanMemberPrincipal).identityId,
+      assignedByMembershipId: (ctx.principal as HumanMemberPrincipal).membershipId,
+      assignedAt: ctx.now,
+    });
+    await tx.outbox.append(events);
+    return state;
+  });
+};
+
+/**
+ * Withdraw a role from a Member.
+ *
+ * Revoking `OrganizationOwner` is checked against the Last Owner Invariant, for
+ * the reason the invariant itself gives: an Organization that is Active with
+ * zero active Owners is the prohibited result, and it does not matter whether
+ * the Owner left by revocation, suspension, or losing the role.
+ *
+ * Self-revocation is permitted. Stepping down is not escalation, and the
+ * invariant already refuses the only dangerous case — the final Owner removing
+ * their own Ownership.
+ */
+export const revokeRoleUseCase = async (
+  deps: UseCaseDependencies,
+  ctx: WorkCommandContext,
+  membershipId: MembershipId,
+  role: Role,
+  reason: string,
+): Promise<MembershipState> => {
+  requirePermission(ctx.principal, "organization.revoke_role");
+  requireRoleGrantAuthority(ctx.principal, role, "revoke");
+
+  return deps.uow.transaction(async (tx) => {
+    const current = await loadMembership(tx, ctx.organizationId, membershipId);
+    if (role === "OrganizationOwner") {
+      await requireAnotherActiveOwner(tx, ctx.organizationId, membershipId);
+    }
+
+    const roleAssignmentId = await tx.memberships.activeRoleAssignmentId(
+      ctx.organizationId,
+      membershipId,
+      role,
+    );
+    // Null and "the Member does not hold this role" are the same fact, read from
+    // the same rows. Letting the Aggregate refuse keeps one message for it.
+    const { state, events } = revokeRole(
+      current,
+      { roleAssignmentId: roleAssignmentId ?? "", role, reason },
+      ctx,
+    );
+
+    if (roleAssignmentId === null) {
+      // Unreachable: `revokeRole` above refuses unless the role is in the active
+      // set, and the active set is derived from these same assignment rows.
+      throw new Error("The active role assignment vanished between two reads.");
+    }
+
+    await tx.memberships.update(state, current.version);
+    await tx.memberships.revokeRole({
+      organizationId: ctx.organizationId,
+      roleAssignmentId,
+      revokedByIdentityId: (ctx.principal as HumanMemberPrincipal).identityId,
+      revokedByMembershipId: (ctx.principal as HumanMemberPrincipal).membershipId,
+      revokedAt: ctx.now,
+      reason: reason.trim(),
+    });
+    await tx.outbox.append(events);
+    return state;
   });
 };

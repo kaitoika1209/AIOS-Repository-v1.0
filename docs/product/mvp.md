@@ -257,8 +257,17 @@ The MVP must support:
 - Member invitation;
 - invitation acceptance;
 - Member removal or deactivation;
-- viewing active Members; and
+- viewing active Members;
+- assigning and revoking a Member's roles; and
 - the Owner-held Organization lifecycle: suspension, reactivation, and archival.
+
+Role assignment is scoped by
+[ADR-0018](../adr/0018-promote-role-assignment.md). Roles are otherwise fixed at
+invitation, which leaves the Last Owner Invariant — "The Organization must first: assign
+another Owner" — pointing at a command that does not exist. Granting or removing
+`OrganizationOwner` requires an acting Owner, and no Member may assign a role to
+themselves. Ownership transfer as a single atomic command is not required for the first
+release; assigning the new Owner and then revoking the old one achieves it.
 
 The lifecycle is scoped by
 [ADR-0017](../adr/0017-promote-the-organization-lifecycle.md), which promotes it from a

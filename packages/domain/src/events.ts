@@ -315,12 +315,41 @@ export type OrganizationEvent =
   | OrganizationReactivated
   | OrganizationArchived;
 
+/**
+ * Role assignment events.
+ *
+ * On the Membership stream, not the Organization's: they change what one
+ * Membership may do. The events document groups them there and shows the pairing
+ * outright — "Membership accepted ↓ MembershipActivated, OrganizationRoleAssigned".
+ *
+ * Both carry `roleAssignmentId`, because the assignment row is the durable
+ * record and revocation stamps the same row rather than deleting it.
+ */
+export interface OrganizationRoleAssigned extends DomainEventBase {
+  readonly type: "OrganizationRoleAssigned";
+  readonly membershipId: MembershipId;
+  readonly identityId: IdentityId | null;
+  readonly roleAssignmentId: string;
+  readonly role: Role;
+}
+
+export interface OrganizationRoleRevoked extends DomainEventBase {
+  readonly type: "OrganizationRoleRevoked";
+  readonly membershipId: MembershipId;
+  readonly identityId: IdentityId | null;
+  readonly roleAssignmentId: string;
+  readonly role: Role;
+  readonly reason: string;
+}
+
 export type MembershipEvent =
   | MembershipInvited
   | MembershipActivated
   | MembershipSuspended
   | MembershipReactivated
-  | MembershipRevoked;
+  | MembershipRevoked
+  | OrganizationRoleAssigned
+  | OrganizationRoleRevoked;
 
 export type WorkEvent =
   | WorkCreated

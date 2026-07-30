@@ -21,6 +21,9 @@ import {
   resendInvitation,
   revokeInvitation,
   revokeMembership,
+  revokeRole,
+  assignRole,
+  holdsRole,
   suspendMembership,
   type MembershipState,
 } from "./membership.js";
@@ -473,5 +476,144 @@ describe("revoking a Member", () => {
     expect(() => revokeMembership(active(), ctx(), "")).toThrowError(
       /revocation reason is required/,
     );
+  });
+});
+
+describe("assigning and revoking roles (ADR-0018)", () => {
+  it("adds the role to the active set and names the assignment", () => {
+    const { state, events } = assignRole(
+      active(),
+      { roleAssignmentId: "assignment-1", role: "Reviewer" },
+      ctx(),
+    );
+
+    expect(state.roles).toContain("Reviewer");
+    expect(holdsRole(state, "Reviewer")).toBe(true);
+    expect(events[0]).toMatchObject({
+      type: "OrganizationRoleAssigned",
+      roleAssignmentId: "assignment-1",
+      role: "Reviewer",
+      membershipId: MembershipId("membership-1"),
+    });
+  });
+
+  it("keeps the roles it already had", () => {
+    const before = active();
+    const { state } = assignRole(
+      before,
+      { roleAssignmentId: "assignment-1", role: "Reviewer" },
+      ctx(),
+    );
+    for (const role of before.roles) {
+      expect(state.roles).toContain(role);
+    }
+  });
+
+  /**
+   * Refused rather than ignored. A second active assignment for the same role
+   * would violate `uq_membership_role_assignments_active`, and succeeding
+   * silently would report an assignment that never happened.
+   */
+  it("refuses a role the Member already holds", () => {
+    expect(() =>
+      assignRole(
+        active(),
+        { roleAssignmentId: "assignment-1", role: DEFAULT_INVITED_ROLE },
+        ctx(),
+      ),
+    ).toThrowError(/already holds/);
+  });
+
+  /**
+   * An `Invited` Membership's roles come from its invitation and are written on
+   * acceptance. Granting one to a Suspended or Revoked Membership would leave an
+   * active assignment row attached to a Member who cannot act — and
+   * `ix_membership_roles_active_owners` would count it as an Owner.
+   */
+  it("assigns only to an Active Membership", () => {
+    for (const state of [invite(), suspended(), revokeMembership(active(), ctx(), "Left").state]) {
+      expect(
+        codeOf(() =>
+          assignRole(state, { roleAssignmentId: "a", role: "Reviewer" }, ctx()),
+        ),
+      ).toBe("MEMBERSHIP_INVALID_TRANSITION");
+    }
+  });
+
+  it("removes the role from the active set and records why", () => {
+    const withRole = assignRole(
+      active(),
+      { roleAssignmentId: "assignment-1", role: "Reviewer" },
+      ctx(),
+    ).state;
+
+    const { state, events } = revokeRole(
+      withRole,
+      { roleAssignmentId: "assignment-1", role: "Reviewer", reason: "  Reassigned.  " },
+      ctx(),
+    );
+
+    expect(state.roles).not.toContain("Reviewer");
+    expect(events[0]).toMatchObject({
+      type: "OrganizationRoleRevoked",
+      roleAssignmentId: "assignment-1",
+      role: "Reviewer",
+      reason: "Reassigned.",
+    });
+  });
+
+  /**
+   * "Role removal does not silently revoke Membership." A Member stripped of
+   * every role stays a Member who can do nothing — a visible state an
+   * administrator can correct, unlike one who quietly disappeared.
+   */
+  it("leaves the Membership Active with no roles at all", () => {
+    let state = active();
+    for (const role of [...state.roles]) {
+      state = revokeRole(
+        state,
+        { roleAssignmentId: `assignment-${role}`, role, reason: "Stepping back." },
+        ctx(),
+      ).state;
+    }
+
+    expect(state.roles).toEqual([]);
+    expect(state.status).toBe("Active");
+    expect(grantsAuthority(state)).toBe(true);
+  });
+
+  it("refuses a role the Member does not hold", () => {
+    expect(() =>
+      revokeRole(
+        active(),
+        { roleAssignmentId: "a", role: "OrganizationOwner", reason: "x" },
+        ctx(),
+      ),
+    ).toThrowError(/does not hold/);
+  });
+
+  it("requires a reason, for every role and not only privileged ones", () => {
+    const withRole = assignRole(
+      active(),
+      { roleAssignmentId: "assignment-1", role: "Reviewer" },
+      ctx(),
+    ).state;
+    expect(() =>
+      revokeRole(
+        withRole,
+        { roleAssignmentId: "assignment-1", role: "Reviewer", reason: "   " },
+        ctx(),
+      ),
+    ).toThrowError(/reason is required/);
+  });
+
+  it("refuses the Secretary", () => {
+    expect(() =>
+      assignRole(
+        active(),
+        { roleAssignmentId: "a", role: "Reviewer" },
+        ctx(secretary),
+      ),
+    ).toThrowError(/Only a Human Member/);
   });
 });

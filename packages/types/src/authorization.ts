@@ -73,6 +73,10 @@ export const ORGANIZATION_PERMISSIONS = [
   "organization.suspend_member",
   "organization.reactivate_member",
   "organization.revoke_member",
+  // Role assignment (ADR-0018). Both are narrowed beyond the permission: the
+  // target role decides who may act, and nobody may assign to themselves.
+  "organization.assign_role",
+  "organization.revoke_role",
 ] as const;
 
 /** Operational recovery permissions, restricted to Owner and Admin. */

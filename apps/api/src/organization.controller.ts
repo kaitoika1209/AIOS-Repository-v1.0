@@ -22,12 +22,14 @@ import type { Request } from "express";
 
 import { MembershipId, ROLES, type MembershipStatus, type Role } from "@aios/types";
 import {
+  assignRoleUseCase,
   inviteMemberUseCase,
   listMembersUseCase,
   resendInvitationUseCase,
   reactivateMemberUseCase,
   revokeInvitationUseCase,
   revokeMemberUseCase,
+  revokeRoleUseCase,
   suspendMemberUseCase,
   type UseCaseDependencies,
 } from "@aios/application";
@@ -227,7 +229,67 @@ export class OrganizationMemberController {
     );
     return { membershipId: membership.membershipId, status: membership.status };
   }
+
+  /**
+   * Grant a role (ADR-0018).
+   *
+   * The role is a body field, not a path segment: it names what is being granted
+   * rather than a resource, and a route per role would multiply
+   * `organization.assign_role` into four routes for one permission.
+   *
+   * Who may grant which role is decided in the Application Layer, because it
+   * depends on the acting principal's own roles as well as the target.
+   */
+  @Post(":membershipId/assign-role")
+  async assignMemberRole(
+    @Req() request: Request,
+    @Param("organizationId") organizationId: string,
+    @Param("membershipId") membershipId: string,
+    @Body() body: { role?: unknown },
+  ): Promise<{ membershipId: string; roles: readonly Role[] }> {
+    const membership = await assignRoleUseCase(
+      this.deps,
+      this.scoped(request, organizationId),
+      MembershipId(membershipId),
+      requireRole(body.role),
+    );
+    return { membershipId: membership.membershipId, roles: membership.roles };
+  }
+
+  /** Withdraw a role. The assignment row is stamped, never deleted. */
+  @Post(":membershipId/revoke-role")
+  async revokeMemberRole(
+    @Req() request: Request,
+    @Param("organizationId") organizationId: string,
+    @Param("membershipId") membershipId: string,
+    @Body() body: { role?: unknown; reason?: unknown },
+  ): Promise<{ membershipId: string; roles: readonly Role[] }> {
+    const membership = await revokeRoleUseCase(
+      this.deps,
+      this.scoped(request, organizationId),
+      MembershipId(membershipId),
+      requireRole(body.role),
+      requireString(body.reason, "reason"),
+    );
+    return { membershipId: membership.membershipId, roles: membership.roles };
+  }
 }
+
+/**
+ * A role name from the catalogue.
+ *
+ * Checked against `ROLES` at the edge so an unknown name is a `400` rather than
+ * reaching a repository and violating a check constraint. Which roles the caller
+ * may grant is a separate question, answered by authorization.
+ */
+const requireRole = (value: unknown): Role => {
+  if (typeof value !== "string" || !(ROLES as readonly string[]).includes(value)) {
+    throw new BadRequestException(
+      `role must be one of: ${ROLES.join(", ")}.`,
+    );
+  }
+  return value as Role;
+};
 
 const present = (
   membership: {

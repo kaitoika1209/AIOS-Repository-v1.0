@@ -380,6 +380,86 @@ export class PostgresMembershipRepository implements MembershipRepository {
     return result.rows.map((row) => row.membership_id as MembershipId);
   }
 
+  async activeRoleAssignmentId(
+    organizationId: OrganizationId,
+    membershipId: MembershipId,
+    role: Role,
+  ): Promise<string | null> {
+    const result = await this.client.query<{ role_assignment_id: string }>(
+      `SELECT role_assignment_id FROM membership_role_assignments
+        WHERE organization_id = $1
+          AND membership_id = $2
+          AND role = $3
+          AND revoked_at IS NULL`,
+      [organizationId, membershipId, role],
+    );
+    // `uq_membership_role_assignments_active` makes at most one row possible.
+    return result.rows[0]?.role_assignment_id ?? null;
+  }
+
+  async assignRole(input: {
+    organizationId: OrganizationId;
+    membershipId: MembershipId;
+    roleAssignmentId: string;
+    role: Role;
+    assignedByIdentityId: IdentityId;
+    assignedByMembershipId: MembershipId;
+    assignedAt: Date;
+  }): Promise<void> {
+    await this.client.query(
+      `INSERT INTO membership_role_assignments (
+         role_assignment_id, organization_id, membership_id, role,
+         assigned_by_identity_id, assigned_by_membership_id, assigned_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        input.roleAssignmentId,
+        input.organizationId,
+        input.membershipId,
+        input.role,
+        input.assignedByIdentityId,
+        input.assignedByMembershipId,
+        input.assignedAt,
+      ],
+    );
+  }
+
+  async revokeRole(input: {
+    organizationId: OrganizationId;
+    roleAssignmentId: string;
+    revokedByIdentityId: IdentityId;
+    revokedByMembershipId: MembershipId;
+    revokedAt: Date;
+    reason: string;
+  }): Promise<void> {
+    const result = await this.client.query(
+      `UPDATE membership_role_assignments
+          SET revoked_by_identity_id = $1,
+              revoked_by_membership_id = $2,
+              revoked_at = $3,
+              revocation_reason = $4
+        WHERE organization_id = $5
+          AND role_assignment_id = $6
+          AND revoked_at IS NULL`,
+      [
+        input.revokedByIdentityId,
+        input.revokedByMembershipId,
+        input.revokedAt,
+        input.reason,
+        input.organizationId,
+        input.roleAssignmentId,
+      ],
+    );
+
+    if (result.rowCount === 0) {
+      // Already revoked, or never existed in this Organization. Either way the
+      // Aggregate's view and the table disagree, which is not something to
+      // paper over — the Membership was read in this same transaction.
+      throw new Error(
+        `No active role assignment ${input.roleAssignmentId} to revoke.`,
+      );
+    }
+  }
+
   async listMembers(
     organizationId: OrganizationId,
   ): Promise<readonly OrganizationMemberSummary[]> {

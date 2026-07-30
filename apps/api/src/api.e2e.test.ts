@@ -1859,6 +1859,192 @@ suite("AIOS API", () => {
     });
   });
 
+  /**
+   * Role assignment (ADR-0018).
+   *
+   * Against the real schema, where `uq_membership_role_assignments_active` and
+   * the append-only revocation columns are enforced by the database rather than
+   * by a double.
+   */
+  describe("role assignment", () => {
+    const members = `/organizations/${ORG}/members`;
+
+    const assign = (target: string, role: string, who = OWNER) =>
+      request(server())
+        .post(`${members}/${target}/assign-role`)
+        .set(as(who))
+        .send({ role });
+
+    const revoke = (target: string, role: string, who = OWNER, reason = "Reassigned.") =>
+      request(server())
+        .post(`${members}/${target}/revoke-role`)
+        .set(as(who))
+        .send({ role, reason });
+
+    const rolesOf = async (target: string) => {
+      const res = await request(server()).get(members).set(as(OWNER)).expect(200);
+      const found = (res.body.items as { membershipId: string; roles: string[] }[]).find(
+        (m) => m.membershipId === target,
+      );
+      return found?.roles ?? [];
+    };
+
+    it("grants a role and the Member can immediately use it", async () => {
+      // STRANGER is a plain Member: no `memory.approve`, so no review authority.
+      await assign(STRANGER.membership, "Reviewer").expect(201);
+      expect(await rolesOf(STRANGER.membership)).toContain("Reviewer");
+
+      const rows = await pool.query(
+        `SELECT role, revoked_at, assigned_by_identity_id
+           FROM membership_role_assignments
+          WHERE membership_id = $1 AND role = 'Reviewer'`,
+        [STRANGER.membership],
+      );
+      expect(rows.rows).toHaveLength(1);
+      expect(rows.rows[0]).toMatchObject({
+        revoked_at: null,
+        // Attribution the Membership row has nowhere to hold.
+        assigned_by_identity_id: OWNER.identity,
+      });
+    });
+
+    it("stamps the assignment on revocation instead of deleting it", async () => {
+      await assign(STRANGER.membership, "Reviewer").expect(201);
+      await revoke(STRANGER.membership, "Reviewer", OWNER, "Moving off review.").expect(201);
+
+      expect(await rolesOf(STRANGER.membership)).not.toContain("Reviewer");
+
+      const rows = await pool.query(
+        `SELECT revoked_at, revocation_reason, revoked_by_identity_id
+           FROM membership_role_assignments
+          WHERE membership_id = $1 AND role = 'Reviewer'`,
+        [STRANGER.membership],
+      );
+      // The row survives. "There is no direct mutable role-array replacement
+      // without audit events."
+      expect(rows.rows).toHaveLength(1);
+      expect(rows.rows[0]).toMatchObject({
+        revocation_reason: "Moving off review.",
+        revoked_by_identity_id: OWNER.identity,
+      });
+      expect(rows.rows[0]?.revoked_at).not.toBeNull();
+    });
+
+    it("can re-grant a role that was revoked, leaving both rows", async () => {
+      await assign(STRANGER.membership, "Reviewer").expect(201);
+      await revoke(STRANGER.membership, "Reviewer").expect(201);
+      await assign(STRANGER.membership, "Reviewer").expect(201);
+
+      // Two rows for the same (membership, role): one revoked, one active.
+      // `uq_membership_role_assignments_active` permits that and only that.
+      const rows = await pool.query(
+        `SELECT revoked_at FROM membership_role_assignments
+          WHERE membership_id = $1 AND role = 'Reviewer'`,
+        [STRANGER.membership],
+      );
+      expect(rows.rows).toHaveLength(2);
+      expect(rows.rows.filter((r) => r.revoked_at === null)).toHaveLength(1);
+    });
+
+    it("refuses a duplicate grant rather than writing a second active row", async () => {
+      await assign(STRANGER.membership, "Reviewer").expect(201);
+      await assign(STRANGER.membership, "Reviewer").expect(422);
+    });
+
+    it("refuses to revoke a role the Member does not hold", async () => {
+      await revoke(STRANGER.membership, "Reviewer").expect(422);
+    });
+
+    it("refuses an unknown role at the edge", async () => {
+      await request(server())
+        .post(`${members}/${STRANGER.membership}/assign-role`)
+        .set(as(OWNER))
+        .send({ role: "Superuser" })
+        .expect(400);
+    });
+
+    it("requires a reason to revoke", async () => {
+      await assign(STRANGER.membership, "Reviewer").expect(201);
+      await request(server())
+        .post(`${members}/${STRANGER.membership}/revoke-role`)
+        .set(as(OWNER))
+        .send({ role: "Reviewer" })
+        .expect(400);
+    });
+
+    it("lets an Admin grant an ordinary role but not Ownership", async () => {
+      await assign(MEMBER.membership, "OrganizationAdmin").expect(201);
+
+      await assign(STRANGER.membership, "Reviewer", MEMBER).expect(201);
+      // The target role narrows the actor, even though the Admin holds the
+      // permission.
+      await assign(STRANGER.membership, "OrganizationOwner", MEMBER).expect(403);
+      await revoke(MEMBER.membership, "OrganizationAdmin", MEMBER, "x").expect(201);
+    });
+
+    it("refuses every self-assignment, including the Owner's own", async () => {
+      await assign(OWNER.membership, "Reviewer", OWNER).expect(403);
+    });
+
+    it("gives the permission to nobody below Admin", async () => {
+      await assign(STRANGER.membership, "Reviewer", REVIEWER).expect(403);
+      await revoke(STRANGER.membership, "Member", REVIEWER).expect(403);
+    });
+
+    /**
+     * The dead end this change exists to close, end to end. The Organization
+     * seeds exactly one Owner, so before this the Owner Membership could never
+     * be suspended, revoked, or replaced while the Organization was Active.
+     */
+    it("closes the Last Owner dead end", async () => {
+      await request(server())
+        .post(`${members}/${OWNER.membership}/suspend`)
+        .set(as(OWNER))
+        .send({ reason: "Stepping back." })
+        .expect(409);
+
+      // "The Organization must first: assign another Owner."
+      await assign(STRANGER.membership, "OrganizationOwner").expect(201);
+
+      await request(server())
+        .post(`${members}/${OWNER.membership}/suspend`)
+        .set(as(OWNER))
+        .send({ reason: "Stepping back." })
+        .expect(201);
+    });
+
+    it("refuses to revoke Ownership from the last active Owner", async () => {
+      await revoke(OWNER.membership, "OrganizationOwner", OWNER, "Leaving.").expect(409);
+    });
+
+    it("records the grant in the audit", async () => {
+      await assign(STRANGER.membership, "Reviewer").expect(201);
+
+      const [row] = await auditRows("organization.assign_role");
+      expect(row).toMatchObject({
+        outcome: "Allow",
+        resource_type: "Membership",
+        resource_id: STRANGER.membership,
+        membership_id: OWNER.membership,
+      });
+    });
+
+    it("writes one event per role change, on the Membership stream", async () => {
+      await assign(STRANGER.membership, "Reviewer").expect(201);
+      await revoke(STRANGER.membership, "Reviewer").expect(201);
+
+      const events = await pool.query<{ event_type: string; aggregate_type: string }>(
+        `SELECT event_type, aggregate_type FROM outbox_messages
+          WHERE event_type LIKE 'OrganizationRole%'
+          ORDER BY aggregate_version`,
+      );
+      expect(events.rows).toEqual([
+        { event_type: "OrganizationRoleAssigned", aggregate_type: "Membership" },
+        { event_type: "OrganizationRoleRevoked", aggregate_type: "Membership" },
+      ]);
+    });
+  });
+
   describe("Member lifecycle", () => {
     const members = `/organizations/${ORG}/members`;
 

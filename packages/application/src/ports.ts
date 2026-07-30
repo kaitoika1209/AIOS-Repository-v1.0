@@ -264,6 +264,52 @@ export interface MembershipRepository {
     organizationId: OrganizationId,
     role: Role,
   ): Promise<readonly MembershipId[]>;
+
+  /**
+   * The active assignment for one role, if there is one.
+   *
+   * `MembershipState.roles` is the flattened active set and carries no
+   * identifiers, so revocation needs this to name the row it is stamping.
+   * `uq_membership_role_assignments_active` guarantees at most one.
+   */
+  activeRoleAssignmentId(
+    organizationId: OrganizationId,
+    membershipId: MembershipId,
+    role: Role,
+  ): Promise<string | null>;
+
+  /**
+   * Record a role assignment.
+   *
+   * Separate from `update` because role assignments are append-only and carry
+   * their own attribution: who granted the role, and — on revocation — who
+   * withdrew it and why. `update` reconciles the Membership row and its
+   * invitations, neither of which has anywhere to put that.
+   */
+  assignRole(input: {
+    readonly organizationId: OrganizationId;
+    readonly membershipId: MembershipId;
+    readonly roleAssignmentId: string;
+    readonly role: Role;
+    readonly assignedByIdentityId: IdentityId;
+    readonly assignedByMembershipId: MembershipId;
+    readonly assignedAt: Date;
+  }): Promise<void>;
+
+  /**
+   * Stamp an active assignment as revoked.
+   *
+   * The row stays: "The lifecycle is append-only from an audit perspective."
+   * Deleting it would erase who once held the role and when.
+   */
+  revokeRole(input: {
+    readonly organizationId: OrganizationId;
+    readonly roleAssignmentId: string;
+    readonly revokedByIdentityId: IdentityId;
+    readonly revokedByMembershipId: MembershipId;
+    readonly revokedAt: Date;
+    readonly reason: string;
+  }): Promise<void>;
 }
 
 /**

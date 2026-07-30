@@ -115,6 +115,10 @@ STATUS_PRECONDITION_ONLY = {
     # Documented in the Aggregate as explicitly not a transition: "resending
     # must not create a second Membership, and it is not a lifecycle transition".
     "ResendInvitation": "supersedes the token; Membership stays Invited",
+    # Roles change what a Member may do, not whether they are one: "role removal
+    # does not silently revoke Membership", and assignment requires an already
+    # Active one.
+    "AssignOrganizationRole": "grants a role; Membership stays Active",
 }
 
 # Permissions that are routed but must not appear in the registry, because the

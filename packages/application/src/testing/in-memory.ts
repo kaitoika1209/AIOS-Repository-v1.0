@@ -250,6 +250,77 @@ export class InMemoryMemoryRepository implements MemoryRepository {
 export class InMemoryMembershipRepository implements MembershipRepository {
   private readonly rows = new Map<string, MembershipState>();
 
+  /**
+   * The append-only assignment log, keyed by assignment identifier.
+   *
+   * Modelled rather than elided, because the property worth testing is that a
+   * revocation stamps a row instead of deleting it. A `Set` of active roles
+   * would make the interesting assertion impossible.
+   */
+  readonly roleAssignments = new Map<
+    string,
+    {
+      organizationId: OrganizationId;
+      membershipId: MembershipId;
+      role: Role;
+      assignedAt: Date;
+      revokedAt: Date | null;
+      revocationReason: string | null;
+    }
+  >();
+
+  async activeRoleAssignmentId(
+    organizationId: OrganizationId,
+    membershipId: MembershipId,
+    role: Role,
+  ): Promise<string | null> {
+    for (const [id, row] of this.roleAssignments) {
+      if (
+        row.organizationId === organizationId &&
+        row.membershipId === membershipId &&
+        row.role === role &&
+        row.revokedAt === null
+      ) {
+        return id;
+      }
+    }
+    return null;
+  }
+
+  async assignRole(input: {
+    organizationId: OrganizationId;
+    membershipId: MembershipId;
+    roleAssignmentId: string;
+    role: Role;
+    assignedAt: Date;
+  }): Promise<void> {
+    this.roleAssignments.set(input.roleAssignmentId, {
+      organizationId: input.organizationId,
+      membershipId: input.membershipId,
+      role: input.role,
+      assignedAt: input.assignedAt,
+      revokedAt: null,
+      revocationReason: null,
+    });
+  }
+
+  async revokeRole(input: {
+    roleAssignmentId: string;
+    revokedAt: Date;
+    reason: string;
+  }): Promise<void> {
+    const row = this.roleAssignments.get(input.roleAssignmentId);
+    if (row === undefined || row.revokedAt !== null) {
+      throw new Error(`No active role assignment ${input.roleAssignmentId}.`);
+    }
+    // Stamped, not deleted.
+    this.roleAssignments.set(input.roleAssignmentId, {
+      ...row,
+      revokedAt: input.revokedAt,
+      revocationReason: input.reason,
+    });
+  }
+
   async findById(
     organizationId: OrganizationId,
     membershipId: MembershipId,
@@ -298,6 +369,21 @@ export class InMemoryMembershipRepository implements MembershipRepository {
 
   async insert(membership: MembershipState): Promise<void> {
     this.rows.set(membership.membershipId, membership);
+    // Seeded from the initial roles, as the real adapter does: an invitation's
+    // roles arrive with the Membership, so there is no separate assignment
+    // action to attribute them to. Without this the double would report a role
+    // held with no assignment behind it, and revocation would have nothing to
+    // stamp.
+    for (const role of membership.roles) {
+      this.roleAssignments.set(`${membership.membershipId}:${role}`, {
+        organizationId: membership.organizationId,
+        membershipId: membership.membershipId,
+        role,
+        assignedAt: membership.invitedAt ?? new Date(0),
+        revokedAt: null,
+        revocationReason: null,
+      });
+    }
   }
 
   async update(membership: MembershipState, expectedVersion: number): Promise<void> {

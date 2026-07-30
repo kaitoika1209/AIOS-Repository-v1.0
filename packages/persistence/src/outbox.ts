@@ -61,6 +61,11 @@ const aggregateOf = (
     case "MembershipSuspended":
     case "MembershipReactivated":
     case "MembershipRevoked":
+    // Role assignment changes what one Membership may do, so they belong to its
+    // stream — as the events document shows: "Membership accepted ↓
+    // MembershipActivated, OrganizationRoleAssigned".
+    case "OrganizationRoleAssigned":
+    case "OrganizationRoleRevoked":
       return { type: "Membership", id: event.membershipId };
 
     case "OrganizationCreated":

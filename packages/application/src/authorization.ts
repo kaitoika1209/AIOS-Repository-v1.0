@@ -48,6 +48,8 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     "organization.suspend_member",
     "organization.reactivate_member",
     "organization.revoke_member",
+    "organization.assign_role",
+    "organization.revoke_role",
     "work.create",
     "work.edit",
     "work.start",
@@ -86,6 +88,10 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     "organization.suspend_member",
     "organization.reactivate_member",
     "organization.revoke_member",
+    // Admin holds the permission; `requireRoleGrantAuthority` refuses them on
+    // `OrganizationOwner` specifically.
+    "organization.assign_role",
+    "organization.revoke_role",
     "work.create",
     "work.edit",
     "work.start",
@@ -183,6 +189,44 @@ export class RelationshipRequiredError extends AccessDeniedError {
     this.name = "RelationshipRequiredError";
   }
 }
+
+/**
+ * Refused because of the role being granted or withdrawn, not the permission.
+ *
+ * A subclass of `AccessDeniedError`, so it reports `403` and names neither the
+ * role nor the reason — the same discretion every other denial keeps.
+ */
+export class RoleGrantDeniedError extends AccessDeniedError {
+  constructor(role: Role, action: string) {
+    super(`Only an Owner may ${action} the ${role} role.`);
+    this.name = "RoleGrantDeniedError";
+  }
+}
+
+/**
+ * The target role narrows who may act (ADR-0018).
+ *
+ * `organization.assign_role` is necessary but not sufficient. "Only an active
+ * OrganizationOwner may assign another Owner", and revocation is held to the
+ * same bar: an Admin who could revoke Ownership could remove the Owners one at a
+ * time until only the Last Owner Invariant stood between them and an
+ * Organization they controlled outright.
+ *
+ * Here rather than in a use case because it reads the principal's roles, and
+ * every role read stays in this file.
+ */
+export const requireRoleGrantAuthority = (
+  principal: Principal,
+  role: Role,
+  action: "assign" | "revoke",
+): void => {
+  if (role !== "OrganizationOwner") return;
+  const isOwner =
+    isHumanMember(principal) && principal.roles.includes("OrganizationOwner");
+  if (!isOwner) {
+    throw new RoleGrantDeniedError(role, action);
+  }
+};
 
 /**
  * Whether the principal holds Organization-wide administrative authority.

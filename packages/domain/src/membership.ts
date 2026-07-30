@@ -79,11 +79,14 @@ export type MembershipResult = CommandResult<MembershipState, MembershipEvent>;
 /**
  * Roles an invitation may grant.
  *
- * `OrganizationOwner` is absent deliberately. Becoming an Owner is ownership
- * assignment or transfer, whose permissions authorization.md lists as reserved;
- * granting it through an invitation would route around a command that does not
- * exist yet. An Organization's first Owner is established when the Organization
- * is created, not by invitation.
+ * `OrganizationOwner` is absent deliberately, and stays absent now that
+ * `assignRole` exists (ADR-0018). An invitation is accepted by someone the
+ * Organization has not yet met; Ownership should be a deliberate second act
+ * rather than a property of the first email — and `assignRole` is the act, with
+ * its own permission, its own Owner-only rule, and its own audit record.
+ *
+ * An Organization's first Owner is established when the Organization is created,
+ * not by invitation.
  */
 export const INVITABLE_ROLES = [
   "OrganizationAdmin",
@@ -619,6 +622,147 @@ export const revokeMembership = (
         actorMembershipId: principal.membershipId,
         membershipId: state.membershipId,
         identityId: state.identityId,
+        reason,
+      },
+    ]),
+  };
+};
+
+/**
+ * The roles this Membership currently holds.
+ *
+ * `state.roles` is the active set — the repository derives it from assignment
+ * rows whose `revoked_at` is null — so membership in it is the same question as
+ * "is there an active assignment".
+ */
+export const holdsRole = (state: MembershipState, role: Role): boolean =>
+  state.roles.includes(role);
+
+export interface AssignRoleInput {
+  readonly roleAssignmentId: string;
+  readonly role: Role;
+}
+
+/**
+ * Grant a role.
+ *
+ * Only to an Active Membership. An `Invited` Membership's roles come from its
+ * invitation and are written when it is accepted; a `Suspended` or `Revoked` one
+ * holds no authority to add to, and granting a role to it would leave an active
+ * assignment row attached to a Member who cannot act — the shape
+ * `ix_membership_roles_active_owners` would then count as an Owner.
+ *
+ * Who may grant *which* role is not decided here. "Only an active
+ * OrganizationOwner may assign another Owner" and the prohibition on
+ * self-assignment are both statements about the actor's roles, and roles belong
+ * to the authorization catalogue — an Aggregate that read them would encode the
+ * same rule in two places that could disagree. The Application Layer enforces
+ * both, next to the permission check.
+ */
+export const assignRole = (
+  state: MembershipState,
+  input: AssignRoleInput,
+  ctx: ActorContext,
+): MembershipResult => {
+  const principal = requireAdministrativeHuman(ctx, "assign a role");
+  if (state.status !== "Active") {
+    throw new InvalidTransitionError("Membership", state.status, "AssignOrganizationRole", [
+      "Active",
+    ]);
+  }
+  if (holdsRole(state, input.role)) {
+    // "role is not already active". Refused rather than ignored: a second
+    // active assignment for the same role would violate
+    // `uq_membership_role_assignments_active`, and silently succeeding would
+    // report an assignment that never happened.
+    throw new ValidationError(`This Member already holds the ${input.role} role.`, {
+      field: "role",
+    });
+  }
+
+  const version = nextVersion(state);
+  return {
+    state: { ...state, roles: [...state.roles, input.role], version },
+    events: stampMembership(version, [
+      {
+        type: "OrganizationRoleAssigned",
+        organizationId: state.organizationId,
+        occurredAt: ctx.now,
+        actorIdentityId: principal.identityId,
+        actorMembershipId: principal.membershipId,
+        membershipId: state.membershipId,
+        identityId: state.identityId,
+        roleAssignmentId: input.roleAssignmentId,
+        role: input.role,
+      },
+    ]),
+  };
+};
+
+/**
+ * Withdraw a role.
+ *
+ * The assignment row is stamped, never deleted: "The lifecycle is append-only
+ * from an audit perspective." What leaves is the role's presence in the active
+ * set, which is what authorization reads.
+ *
+ * "Role removal does not silently revoke Membership" — the status is untouched,
+ * so a Member stripped of every role remains a Member who can do nothing rather
+ * than a Member who is gone. That is a visible state an administrator can
+ * correct, unlike a Membership that quietly disappeared.
+ *
+ * A reason is required for every role, not only privileged ones. The rules ask
+ * for "explicit reason for privileged roles"; requiring it always is a superset
+ * that never violates them, and it matches every other withdrawal command here.
+ *
+ * The Last Owner Invariant is *not* checked. It spans every Membership in the
+ * Organization, and this Aggregate can see only itself.
+ */
+export const revokeRole = (
+  state: MembershipState,
+  input: {
+    /**
+     * The active assignment being stamped.
+     *
+     * Passed in rather than derived, because `state.roles` is the flattened
+     * active set and carries no identifiers. Symmetric with `assignRole`, which
+     * takes the identifier of the row it is about to create.
+     */
+    readonly roleAssignmentId: string;
+    readonly role: Role;
+    readonly reason: string;
+  },
+  ctx: ActorContext,
+): MembershipResult => {
+  const principal = requireAdministrativeHuman(ctx, "revoke a role");
+  if (!holdsRole(state, input.role)) {
+    // "role is currently active". Reported as a validation failure rather than
+    // silently succeeding, for the same reason as a duplicate assignment.
+    throw new ValidationError(`This Member does not hold the ${input.role} role.`, {
+      field: "role",
+    });
+  }
+  requireReason(input.reason, "A role revocation reason is required.");
+  const reason = input.reason.trim();
+
+  const version = nextVersion(state);
+  return {
+    state: {
+      ...state,
+      roles: state.roles.filter((role) => role !== input.role),
+      version,
+    },
+    events: stampMembership(version, [
+      {
+        type: "OrganizationRoleRevoked",
+        organizationId: state.organizationId,
+        occurredAt: ctx.now,
+        actorIdentityId: principal.identityId,
+        actorMembershipId: principal.membershipId,
+        membershipId: state.membershipId,
+        identityId: state.identityId,
+        roleAssignmentId: input.roleAssignmentId,
+        role: input.role,
         reason,
       },
     ]),

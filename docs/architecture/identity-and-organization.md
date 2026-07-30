@@ -896,6 +896,15 @@ The Organization must first:
 - transfer ownership
 - suspend or archive the Organization through an explicit workflow
 
+The first is `organization.assign_role` ([ADR-0018](../adr/0018-promote-role-assignment.md))
+and the third is the Owner-held lifecycle
+([ADR-0017](../adr/0017-promote-the-organization-lifecycle.md)). Ownership transfer as a
+single atomic command remains a Future Hypothesis: assigning the new Owner and then
+revoking the old one reaches the same outcome with the invariant satisfied at every step.
+
+Until both ADRs, this list named three remedies and the system implemented none of them, so
+an Organization created with one Owner had exactly one Owner permanently.
+
 ---
 
 ## Owner Is Still Human
@@ -2801,6 +2810,17 @@ Recommended policy:
 ```text
 Only an active OrganizationOwner may assign another Owner.
 ```
+
+[ADR-0018](../adr/0018-promote-role-assignment.md) adopts this as normative and extends it
+to revocation: an Admin who could revoke Ownership could remove the Owners one at a time
+until only the Last Owner Invariant stood between them and an Organization they controlled
+outright.
+
+It also settles the self-escalation policy the Role Assignment Rules require and leave
+undefined: **no Member may assign a role to their own Membership.** Flat rather than
+rank-based, because the four roles are a set and not a ladder — `Reviewer` is neither above
+nor below `Member`. Revoking one's own role stays permitted; stepping down is not
+escalation, and the Last Owner Invariant already refuses the only dangerous case.
 
 An Admin cannot create a new Owner unless explicitly permitted by future policy.
 

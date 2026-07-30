@@ -1091,6 +1091,8 @@ organization.revoke_invitation
 organization.suspend_member
 organization.reactivate_member
 organization.revoke_member
+organization.assign_role
+organization.revoke_role
 
 events.inspect_failed
 events.retry
@@ -1151,6 +1153,27 @@ Organization is `Suspended`, `PrincipalResolver` refuses every request in it, so
 `organization.reactivate` is the only way back. An Admin who could suspend could strand
 every Owner behind a route only an Owner can call.
 
+`organization.assign_role` and `organization.revoke_role` are catalogued by
+[ADR-0018](../adr/0018-promote-role-assignment.md), which promotes them from Reserved for a
+reason this document was already creating: the Last Owner Invariant refuses to remove the
+final Owner and tells the caller to "assign another Owner" first, and until now no command
+could. Both are held by Owner and Admin, like every other membership-administration
+permission.
+
+Two rules narrow them beyond the permission itself, and neither is expressible in the
+role-to-permission map:
+
+- **The target role narrows the actor.** Granting or revoking `OrganizationOwner` requires
+  an acting Owner — "Only an active OrganizationOwner may assign another Owner". An Admin
+  holding `organization.assign_role` may grant `Member`, `Reviewer`, or
+  `OrganizationAdmin`, and is refused on `OrganizationOwner`. Without this, an Admin could
+  appoint themselves an accomplice Owner or strip the Owners in sequence.
+- **Nobody may assign a role to their own Membership.** This is the self-escalation policy
+  the role-assignment rules require and leave undefined. It is flat rather than
+  rank-based, because the four roles are a set and not a ladder. Revoking one's own role
+  remains permitted: stepping down is not escalation, and the Last Owner Invariant already
+  refuses the only dangerous case.
+
 These permissions govern the Organization's own lifecycle as its Owner controls it.
 Suspending an Organization *against* its Owner — for billing resolution or a security
 investigation, as the "Suspension may allow restricted access" section anticipates —
@@ -1169,9 +1192,6 @@ editing decision.
 
 ```text
 memory.record_secretary_contribution
-
-organization.assign_role
-organization.revoke_role
 
 authorization.read_audit
 ```

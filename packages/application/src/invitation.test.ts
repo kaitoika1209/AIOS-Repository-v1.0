@@ -20,6 +20,8 @@ import {
 import { AuthorizationError, hasPermission } from "./authorization.js";
 import {
   acceptInvitationUseCase,
+  assignRoleUseCase,
+  revokeRoleUseCase,
   hashToken,
   inviteMemberUseCase,
   listMembersUseCase,
@@ -431,5 +433,195 @@ describe("the Last Owner Invariant", () => {
       "Returned",
     );
     expect(back.status).toBe("Active");
+  });
+});
+
+/**
+ * Role assignment (ADR-0018).
+ *
+ * The Aggregate covers what a role change does. What only exists here are the
+ * two rules that narrow the permission — the target role, and the prohibition on
+ * assigning to yourself — plus the Last Owner Invariant, which spans Memberships.
+ */
+describe("assigning and revoking roles", () => {
+  /** An Active Member, invited and accepted, holding exactly one role. */
+  const withMember = async (roles: Role[] = ["Member"]) => {
+    const harness = buildTestHarness(NOW);
+    const { token } = await inviteMemberUseCase(harness.deps, ctx(), {
+      email: "alice@example.test",
+      roles,
+    });
+    const accepted = await acceptInvitationUseCase(
+      harness.deps,
+      { subject, displayName: "Alice", now: NOW },
+      token,
+    );
+    return { harness, membershipId: accepted.membership.membershipId };
+  };
+
+  it("grants a role an Admin is allowed to grant", async () => {
+    const { harness, membershipId } = await withMember();
+
+    const state = await assignRoleUseCase(harness.deps, ctx(), membershipId, "Reviewer");
+    expect(state.roles).toContain("Reviewer");
+    expect(state.roles).toContain("Member");
+  });
+
+  it("revokes a role and stamps the assignment rather than deleting it", async () => {
+    const { harness, membershipId } = await withMember(["Member", "Reviewer"]);
+
+    await revokeRoleUseCase(
+      harness.deps,
+      ctx(),
+      membershipId,
+      "Reviewer",
+      "Moving off review.",
+    );
+
+    const rows = [...harness.memberships.roleAssignments.values()].filter(
+      (r) => r.membershipId === membershipId && r.role === "Reviewer",
+    );
+    // The row survives, carrying why it ended. "The lifecycle is append-only
+    // from an audit perspective."
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ revocationReason: "Moving off review." });
+    expect(rows[0]?.revokedAt).not.toBeNull();
+  });
+
+  /**
+   * The target role narrows the actor. Without this, an Admin could appoint
+   * themselves an accomplice Owner or strip the Owners one at a time.
+   */
+  it("refuses an Admin on the OrganizationOwner role", async () => {
+    const { harness, membershipId } = await withMember();
+
+    await expect(
+      assignRoleUseCase(harness.deps, ctx(["OrganizationAdmin"]), membershipId, "OrganizationOwner"),
+    ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+  });
+
+  it("lets an Owner grant Ownership", async () => {
+    const { harness, membershipId } = await withMember();
+
+    const state = await assignRoleUseCase(
+      harness.deps,
+      ctx(["OrganizationOwner"]),
+      membershipId,
+      "OrganizationOwner",
+    );
+    expect(state.roles).toContain("OrganizationOwner");
+  });
+
+  /**
+   * The self-escalation policy, flat rather than rank-based: the four roles are
+   * a set, not a ladder.
+   */
+  it("refuses any self-assignment, including by an Owner", async () => {
+    const harness = buildTestHarness(NOW);
+    const self = ctx(["OrganizationOwner"]);
+
+    await expect(
+      assignRoleUseCase(
+        harness.deps,
+        self,
+        self.principal.membershipId,
+        "Reviewer",
+      ),
+    ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+  });
+
+  it("refuses Member and Reviewer outright", async () => {
+    const { harness, membershipId } = await withMember();
+
+    for (const roles of [["Member"], ["Reviewer"]] as Role[][]) {
+      await expect(
+        assignRoleUseCase(harness.deps, ctx(roles), membershipId, "Reviewer"),
+      ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+      await expect(
+        revokeRoleUseCase(harness.deps, ctx(roles), membershipId, "Member", "x"),
+      ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    }
+  });
+
+  /**
+   * The dead end this whole change exists to close.
+   *
+   * Before it, the Last Owner Invariant refused to remove the final Owner and
+   * told the caller to "assign another Owner" first — and no command could. This
+   * is that sequence, end to end: promote a second Owner, then step the first
+   * one down, with the invariant satisfied at every point between.
+   */
+  it("closes the Last Owner dead end", async () => {
+    const harness = buildTestHarness(NOW);
+    const owner = ctx(["OrganizationOwner"]);
+
+    const join = async (email: string, subjectId: string) => {
+      const { token } = await inviteMemberUseCase(harness.deps, ctx(), {
+        email,
+        roles: ["Member"],
+      });
+      const accepted = await acceptInvitationUseCase(
+        harness.deps,
+        { subject: { ...subject, subject: subjectId }, displayName: subjectId, now: NOW },
+        token,
+      );
+      return accepted.membership.membershipId;
+    };
+
+    const first = await join("alice@example.test", "alice");
+    const second = await join("raj@example.test", "raj");
+
+    await assignRoleUseCase(harness.deps, owner, first, "OrganizationOwner");
+    // One Owner in the member list. Removing them now is the prohibited result.
+    await expect(
+      revokeRoleUseCase(harness.deps, owner, first, "OrganizationOwner", "Leaving."),
+    ).rejects.toMatchObject({ code: "LAST_OWNER_REQUIRED" });
+
+    // "The Organization must first: assign another Owner." Now it can.
+    await assignRoleUseCase(harness.deps, owner, second, "OrganizationOwner");
+
+    const stepped = await revokeRoleUseCase(
+      harness.deps,
+      owner,
+      first,
+      "OrganizationOwner",
+      "Handing over.",
+    );
+    expect(stepped.roles).not.toContain("OrganizationOwner");
+    // Still a Member: "role removal does not silently revoke Membership".
+    expect(stepped.status).toBe("Active");
+    expect(stepped.roles).toContain("Member");
+  });
+
+  it("refuses to revoke Ownership from the only Owner", async () => {
+    const harness = buildTestHarness(NOW);
+    const { token } = await inviteMemberUseCase(harness.deps, ctx(), {
+      email: "alice@example.test",
+      roles: ["Member"],
+    });
+    const accepted = await acceptInvitationUseCase(
+      harness.deps,
+      { subject, displayName: "Alice", now: NOW },
+      token,
+    );
+    const owner = ctx(["OrganizationOwner"]);
+    await assignRoleUseCase(
+      harness.deps,
+      owner,
+      accepted.membership.membershipId,
+      "OrganizationOwner",
+    );
+
+    // Now the only active Owner in the member list. Removing the role is the
+    // same prohibited result as revoking the Membership.
+    await expect(
+      revokeRoleUseCase(
+        harness.deps,
+        owner,
+        accepted.membership.membershipId,
+        "OrganizationOwner",
+        "Leaving.",
+      ),
+    ).rejects.toMatchObject({ code: "LAST_OWNER_REQUIRED" });
   });
 });

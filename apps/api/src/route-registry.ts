@@ -52,6 +52,10 @@ const ROUTES: Readonly<Record<string, string>> = {
     "organization.reactivate_member",
   "POST /organizations/:organizationId/members/:membershipId/revoke":
     "organization.revoke_member",
+  "POST /organizations/:organizationId/members/:membershipId/assign-role":
+    "organization.assign_role",
+  "POST /organizations/:organizationId/members/:membershipId/revoke-role":
+    "organization.revoke_role",
   "POST /admin/events/:eventId/retry": "events.retry",
   "POST /admin/events/dead-letters/:deadLetterId/skip": "events.skip",
   "POST /admin/events/dead-letters/:deadLetterId/reprocess":
