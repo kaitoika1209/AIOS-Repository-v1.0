@@ -6,28 +6,30 @@ import type { HumanMemberPrincipal } from './principal.js';
 import type { OrganizationAccessRepository, TransactionManager } from './ports.js';
 
 const owner: HumanMemberPrincipal = { principalType: 'HumanMember', principalId: 'owner-a', identityId: 'human-a', membershipId: 'owner-a', organizationId: 'org-a', roles: ['OrganizationOwner'] };
-const transactions: TransactionManager = { transaction: async (work) => work() };
+const transactions: TransactionManager = { transaction: (work) => work() };
 
 function repository(): OrganizationAccessRepository {
   return {
-    findOrganization: async () => undefined, findMembership: async () => undefined,
-    findActiveMembershipForIdentity: async () => undefined, countActiveHumanOwnersForUpdate: async () => 1,
-    saveMembership: vi.fn(async () => undefined), assignRole: async () => undefined, revokeRole: async () => undefined,
-    createOrganizationWithOwner: vi.fn(async () => undefined), createInvitation: vi.fn(async () => undefined), findInvitation: async () => undefined,
+    findOrganization: () => Promise.resolve(undefined), findMembership: () => Promise.resolve(undefined),
+    findActiveMembershipForIdentity: () => Promise.resolve(undefined), countActiveHumanOwnersForUpdate: () => Promise.resolve(1),
+    saveMembership: vi.fn(() => Promise.resolve()), assignRole: () => Promise.resolve(), revokeRole: () => Promise.resolve(),
+    createOrganizationWithOwner: vi.fn(() => Promise.resolve()), createInvitation: vi.fn(() => Promise.resolve()), findInvitation: () => Promise.resolve(undefined),
   };
 }
 
 describe('OrganizationManagementService', () => {
   it('creates Organization and Human Owner through one repository operation', async () => {
-    const repo = repository();
+    const createOrganizationWithOwner = vi.fn(() => Promise.resolve());
+    const repo = { ...repository(), createOrganizationWithOwner };
     await new OrganizationManagementService(transactions, repo).create({ organizationId: 'org-a', ownerMembershipId: 'owner-a', creatorIdentityId: 'human-a', name: 'Alpha' });
-    expect(repo.createOrganizationWithOwner).toHaveBeenCalledWith({ organizationId: 'org-a', ownerMembershipId: 'owner-a', identityId: 'human-a', name: 'Alpha' });
+    expect(createOrganizationWithOwner).toHaveBeenCalledWith({ organizationId: 'org-a', ownerMembershipId: 'owner-a', identityId: 'human-a', name: 'Alpha' });
   });
 
   it('normalizes invitation email and attributes the Human inviter', async () => {
-    const repo = repository();
+    const createInvitation = vi.fn(() => Promise.resolve());
+    const repo = { ...repository(), createInvitation };
     await new OrganizationManagementService(transactions, repo).invite(owner, { organizationId: 'org-a', membershipId: 'invite-1', inviteeEmail: ' Person@Example.COM ' });
-    expect(repo.createInvitation).toHaveBeenCalledWith(expect.objectContaining({ inviteeEmailNormalized: 'person@example.com', inviterIdentityId: 'human-a', inviterMembershipId: 'owner-a' }));
+    expect(createInvitation).toHaveBeenCalledWith(expect.objectContaining({ inviteeEmailNormalized: 'person@example.com', inviterIdentityId: 'human-a', inviterMembershipId: 'owner-a' }));
   });
 
   it('rejects an invitation command using authority from another Organization', async () => {
