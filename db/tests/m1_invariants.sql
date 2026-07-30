@@ -31,10 +31,16 @@ DO $$ BEGIN
 END $$;
 
 INSERT INTO authorization_audit_records(
-  organization_id, action, decision, reason_code, actor_identity_id, actor_membership_id
+  request_id, correlation_id, principal_id, principal_type,
+  identity_id, membership_id, organization_id,
+  command_type, permission, policy_id, policy_version,
+  outcome, reason_code, evaluated_at
 ) VALUES (
-  '10000000-0000-0000-0000-000000000001', 'membership.read', 'Allowed', 'test',
-  '00000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001'
+  '30000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000002',
+  '00000000-0000-0000-0000-000000000001', 'HumanMember',
+  '00000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001',
+  '10000000-0000-0000-0000-000000000001', 'ReadMembership', 'membership.read',
+  'm1-test-policy', 1, 'Allow', 'test', now()
 );
 
 DO $$ BEGIN
