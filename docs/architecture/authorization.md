@@ -4470,6 +4470,8 @@ If RLS is used:
 
 RLS must not replace application policy evaluation.
 
+The production acceptance evidence, compensating controls for the MVP no-RLS decision, and mandatory RLS reconsideration triggers are defined in `security-and-production-readiness.md` and ADR-0016. Passing document review alone is not isolation evidence.
+
 ---
 
 # Policy Storage
