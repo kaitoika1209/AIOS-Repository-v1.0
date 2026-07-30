@@ -982,7 +982,7 @@ ADR identifiers are assigned only when a decision record is created.
 
 Accepted identifiers are immutable, never reused, and never renumbered. Superseded ADRs remain in the register with their original identifiers and changed status.
 
-Future decisions MUST NOT reserve numeric identifiers in prose. At the time this Blueprint version was reviewed, the accepted sequence ends at ADR-0014 and the next unassigned identifier is ADR-0015. Concurrent ADR creation must recheck the register before assigning that identifier.
+Future decisions MUST NOT reserve numeric identifiers in prose. At the time this Blueprint version was reviewed, the accepted sequence ends at ADR-0015 and the next unassigned identifier is ADR-0016. Concurrent ADR creation must recheck the register before assigning that identifier.
 
 Potential later decisions include:
 
@@ -1021,11 +1021,13 @@ The recommended reading order is:
 
 9. docs/architecture/mvp-database-migration-plan.md
 
-10. docs/adr/
+10. docs/architecture/worker-runtime-profile.md
 
-11. docs/product/mvp.md
+11. docs/adr/
 
-12. docs/product/roadmap.md
+12. docs/product/mvp.md
+
+13. docs/product/roadmap.md
 ```
 
 This order moves from:
@@ -1055,6 +1057,7 @@ The documents complement one another.
 | `state-machines/*` | Defines lifecycle behavior |
 | `persistence-and-data-model.md` | Defines authoritative relational persistence rules |
 | `mvp-database-migration-plan.md` | Defines the executable MVP schema order and verification gates |
+| `worker-runtime-profile.md` | Defines deployable Outbox, Worker, retry, lease, and alert defaults |
 | `adr/*` | Records significant architectural decisions |
 | `product/mvp.md` | Defines initial implementation scope |
 | `product/roadmap.md` | Defines future delivery direction |
