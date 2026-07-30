@@ -6,3 +6,6 @@
  */
 
 export const USE_CASE_DEPENDENCIES = Symbol.for("aios.useCaseDependencies");
+
+/** The Secretary Runtime adapter for Decision assistance (ADR-0011). */
+export const DECISION_ASSISTANCE = Symbol("DECISION_ASSISTANCE");

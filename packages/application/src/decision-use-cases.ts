@@ -12,10 +12,12 @@
  *   event, not inside the reviewer's transaction.
  */
 
-import type { DecisionId, OrganizationId, WorkId } from "@aios/types";
+import { isHumanMember, type DecisionId, type OrganizationId, type WorkId } from "@aios/types";
 import {
+  ValidationError,
   approveDecision,
   createDecision,
+  currentRevision,
   rejectDecision,
   recordDecisionOutcome,
   requestBlockingDecision,
@@ -29,6 +31,13 @@ import {
   updateDraft,
 } from "@aios/domain";
 
+import {
+  AssistanceNotGrantedError,
+  DECISION_PORT_CONTRACT_VERSION,
+  findGrantSpec,
+  type DecisionAssistanceProvider,
+  type SecretaryContribution,
+} from "./assistance.js";
 import { requirePermission } from "./authorization.js";
 import {
   requireDecisionRelationship,
@@ -124,6 +133,16 @@ export const editDecisionDraftUseCase = async (
   ctx: WorkCommandContext,
   decisionId: DecisionId,
   changes: Parameters<typeof updateDraft>[1],
+  /**
+   * A Secretary contribution this edit adopts, recorded for traceability.
+   *
+   * Optional, and it grants nothing: the content written is whatever the Human
+   * put in `changes`. "Adoption does not update the contribution into an
+   * authoritative state automatically. The Human executes a Decision Aggregate
+   * edit command" — this is that command, and the flag only records that it
+   * happened.
+   */
+  adoptedContributionId?: string | undefined,
 ): Promise<DecisionState> => {
   requirePermission(ctx.principal, "decision.edit_draft");
 
@@ -139,6 +158,19 @@ export const editDecisionDraftUseCase = async (
 
     await tx.decisions.update(state, current.version);
     await tx.outbox.append(events);
+
+    if (adoptedContributionId !== undefined && isHumanMember(ctx.principal)) {
+      // In the same transaction as the edit: an adoption recorded without the
+      // edit landing would claim a Human took content they never wrote.
+      await tx.contributions.markAdopted({
+        organizationId: ctx.organizationId,
+        decisionId,
+        contributionId: adoptedContributionId,
+        adoptedByIdentityId: ctx.principal.identityId,
+        now: ctx.now,
+      });
+    }
+
     return state;
   });
 };
@@ -332,3 +364,148 @@ export const listDecisionsForWorkUseCase = async (
   workId: WorkId,
 ): Promise<readonly DecisionState[]> =>
   deps.uow.transaction((tx) => tx.decisions.listByWork(ctx.organizationId, workId));
+
+
+/**
+ * Ask the Secretary to draft Decision material.
+ *
+ * The generation half of ADR-0011's two-command rule. It produces an advisory
+ * contribution and changes no authoritative content — the Decision is not
+ * touched, and the draft reaches the proposal only if a Human edits it in.
+ *
+ * Four gates, in order, and each one is the ADR's:
+ *
+ * 1. the initiating Human holds `decision.record_secretary_contribution`;
+ * 2. they hold a relationship to this Decision (step 6);
+ * 3. the operation is one this build declares — an unknown one fails closed
+ *    before the provider is reached; and
+ * 4. an active grant authorizes it for this Organization and Secretary.
+ */
+export const requestDecisionMaterialUseCase = async (
+  deps: UseCaseDependencies,
+  ctx: WorkCommandContext,
+  provider: DecisionAssistanceProvider,
+  decisionId: DecisionId,
+): Promise<SecretaryContribution> => {
+  requirePermission(ctx.principal, "decision.record_secretary_contribution");
+  const principal = ctx.principal;
+  if (!isHumanMember(principal)) {
+    // "an authenticated initiating Human command" — there is no Secretary
+    // output that nobody asked for.
+    throw new AssistanceNotGrantedError("Assistance requires a Human Member.");
+  }
+
+  const spec = findGrantSpec("Decision", "decision.draft_material");
+  if (spec === null) {
+    throw new AssistanceNotGrantedError("Unknown assistance operation.");
+  }
+
+  // Read and gate before the provider call, so an unauthorized request costs
+  // nothing and leaks nothing.
+  const { decision, request } = await deps.uow.transaction(async (tx) => {
+    const current = await loadDecision(tx, ctx.organizationId, decisionId);
+    requireDecisionRelationship(ctx.principal, current, [
+      "Creator",
+      "Contributor",
+      "Administrator",
+    ]);
+
+    const granted = await tx.assistanceGrants.isGranted({
+      organizationId: ctx.organizationId,
+      secretaryPrincipalId: provider.secretaryPrincipalId,
+      contextKey: spec.contextKey,
+      assistanceOperation: spec.assistanceOperation,
+      portContractVersion: DECISION_PORT_CONTRACT_VERSION,
+    });
+    if (!granted) {
+      throw new AssistanceNotGrantedError(
+        "No active assistance grant authorizes this operation.",
+      );
+    }
+
+    const revision = currentRevision(current);
+    if (revision === null) {
+      throw new ValidationError("The Decision has no Draft revision to assist with.");
+    }
+
+    return {
+      decision: current,
+      revision,
+      // "the minimum permitted source data": the question, its context, and the
+      // options. Not the review history, not the actor, not identifiers the
+      // provider could use to ask for more.
+      request: {
+        question: revision.question,
+        context: revision.context,
+        options: revision.options.map((o) => ({
+          optionId: o.optionId,
+          summary: o.summary,
+        })),
+      },
+    };
+  });
+
+  const draft = await provider.draftMaterial(request);
+
+  const content = draft.content.trim();
+  if (content.length === 0) {
+    // Validation belongs to the owning context, not the provider. An empty
+    // draft is a failed assistance attempt, not a contribution.
+    throw new ValidationError("The Secretary returned no material.");
+  }
+
+  const contributionId = deps.ids.contributionId();
+
+  return deps.uow.transaction(async (tx) => {
+    const current = await loadDecision(tx, ctx.organizationId, decisionId);
+    const revision = currentRevision(current);
+    if (revision === null) {
+      throw new ValidationError("The Decision has no Draft revision to assist with.");
+    }
+
+    await tx.contributions.append({
+      contributionId,
+      organizationId: ctx.organizationId,
+      decisionId,
+      decisionRevisionId: revision.revisionId,
+      secretaryPrincipalId: provider.secretaryPrincipalId,
+      requestedByIdentityId: principal.identityId,
+      requestedByMembershipId: principal.membershipId,
+      contributionType: spec.contributionType,
+      content,
+      generationId: deps.ids.generationId(),
+      now: ctx.now,
+    });
+
+    void decision;
+    return {
+      contributionId,
+      decisionId,
+      decisionRevisionId: revision.revisionId,
+      secretaryPrincipalId: provider.secretaryPrincipalId,
+      requestedByMembershipId: principal.membershipId,
+      contributionType: spec.contributionType,
+      content,
+      createdAt: ctx.now,
+      adoptedAt: null,
+      adoptedByIdentityId: null,
+    };
+  });
+};
+
+export const listDecisionContributionsUseCase = async (
+  deps: UseCaseDependencies,
+  ctx: WorkCommandContext,
+  decisionId: DecisionId,
+): Promise<readonly SecretaryContribution[]> => {
+  requirePermission(ctx.principal, "decision.record_secretary_contribution");
+  return deps.uow.transaction(async (tx) => {
+    const current = await loadDecision(tx, ctx.organizationId, decisionId);
+    requireDecisionRelationship(ctx.principal, current, [
+      "Creator",
+      "Contributor",
+      "Administrator",
+    ]);
+    return tx.contributions.listForDecision(ctx.organizationId, decisionId);
+  });
+};

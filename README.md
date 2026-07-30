@@ -83,6 +83,13 @@ verifies nothing, and it refuses to start that way unless `NODE_ENV` is
 `development` or `test`. Clerk authenticates only: Organization, Membership,
 roles, and invitations stay in PostgreSQL, and Clerk Organizations are not used.
 
+The Secretary prepares Decision material on request (ADR-0011). It is advisory
+and structurally so: the port exposes one typed operation, an active
+Organization grant must authorize it, the output is stored as an attributable
+contribution, and adopting it is the Human's own `PATCH` — the Secretary never
+writes authoritative content. `/me` is the Personal Workspace: assigned Work,
+Work waiting on a Decision, and — for a Reviewer — Memory awaiting review.
+
 In-app notifications are live. A registered Projection Consumer turns events
 into a Member's attention list — Work assigned to you, a Decision or Memory
 waiting for review, an outcome affecting Work you took part in — and the whole

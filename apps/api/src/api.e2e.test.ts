@@ -93,6 +93,7 @@ suite("AIOS API", () => {
       await client.query(
         `TRUNCATE decision_revisions, decisions, work_items, outbox_messages,
                   notifications,
+                  decision_secretary_contributions, secretary_assistance_grants,
                   dead_letter_events, event_replays, processed_events,
                   consumer_ordering_state,
                   memory_revisions, memories,
@@ -1768,6 +1769,198 @@ suite("AIOS API", () => {
       } finally {
         client.release();
       }
+    });
+  });
+
+  describe("Secretary assistance (ADR-0011)", () => {
+    /** A Draft Decision, with the Work it belongs to so it can be re-read. */
+    const draft = async () => {
+      const work = await createWork();
+      const decision = await request(server())
+        .post("/decisions")
+        .set(as(MEMBER))
+        .send({
+          relatedWorkId: work.workId,
+          title: "Which database?",
+          question: "Which database should we standardise on?",
+          options: [{ optionId: "pg", summary: "PostgreSQL" }],
+          isBlocking: true,
+        })
+        .expect(201);
+      return { decisionId: decision.body.decisionId as string, workId: work.workId };
+    };
+
+    /** There is no `GET /decisions/{id}`; decisions are read through their Work. */
+    const reread = async (workId: string) => {
+      const res = await request(server())
+        .get(`/decisions/by-work/${workId}`)
+        .set(as(MEMBER))
+        .expect(200);
+      return res.body.items[0];
+    };
+
+    const grant = async (overrides: Record<string, unknown> = {}) => {
+      const client = await pool.connect();
+      try {
+        await client.query(
+          `INSERT INTO secretary_assistance_grants
+             (grant_id, organization_id, secretary_principal_id, context_key,
+              assistance_operation, port_contract_version,
+              granted_at, granted_by_membership_id, reason)
+           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, now(), $6, 'test')`,
+          [
+            ORG,
+            overrides["secretaryPrincipalId"] ?? "decision-secretary",
+            overrides["contextKey"] ?? "Decision",
+            overrides["assistanceOperation"] ?? "decision.draft_material",
+            overrides["portContractVersion"] ?? 1,
+            OWNER.membership,
+          ],
+        );
+      } finally {
+        client.release();
+      }
+    };
+
+    it("refuses assistance with no active grant, and grants nothing on refusal", async () => {
+      const { decisionId } = await draft();
+
+      // Deny by default. The route exists and the caller holds the permission;
+      // what is missing is the Organization's grant.
+      await request(server())
+        .post(`/decisions/${decisionId}/assistance`)
+        .set(as(MEMBER))
+        .expect(422);
+
+      const listed = await request(server())
+        .get(`/decisions/${decisionId}/assistance`)
+        .set(as(MEMBER))
+        .expect(200);
+      expect(listed.body.items).toEqual([]);
+    });
+
+    it("produces an advisory contribution that changes no Decision content", async () => {
+      const { decisionId, workId } = await draft();
+      await grant();
+
+      const before = await reread(workId);
+
+      const res = await request(server())
+        .post(`/decisions/${decisionId}/assistance`)
+        .set(as(MEMBER))
+        .expect(201);
+
+      expect(res.body).toMatchObject({
+        contributionType: "DecisionMaterialDraft",
+        authoredBy: "AI",
+        secretaryPrincipalId: "decision-secretary",
+        requestedByMembershipId: MEMBER.membership,
+        adoptedAt: null,
+      });
+
+      // The Decision is untouched: same version, same question.
+      expect(await reread(workId)).toEqual(before);
+    });
+
+    it("refuses a grant for another Secretary or another contract version", async () => {
+      const { decisionId } = await draft();
+      await grant({ secretaryPrincipalId: "some-other-secretary" });
+      await request(server())
+        .post(`/decisions/${decisionId}/assistance`)
+        .set(as(MEMBER))
+        .expect(422);
+
+      await grant({ portContractVersion: 99 });
+      await request(server())
+        .post(`/decisions/${decisionId}/assistance`)
+        .set(as(MEMBER))
+        .expect(422);
+    });
+
+    it("records adoption only through the Human's own edit command", async () => {
+      const { decisionId } = await draft();
+      await grant();
+      const contribution = await request(server())
+        .post(`/decisions/${decisionId}/assistance`)
+        .set(as(MEMBER))
+        .expect(201);
+
+      // An ordinary edit adopts nothing.
+      await request(server())
+        .patch(`/decisions/${decisionId}`)
+        .set(as(MEMBER))
+        .send({ context: "my own words" })
+        .expect(200);
+      let listed = await request(server())
+        .get(`/decisions/${decisionId}/assistance`)
+        .set(as(MEMBER))
+        .expect(200);
+      expect(listed.body.items[0].adoptedAt).toBeNull();
+
+      // Naming the contribution on the edit records that it was adopted. The
+      // content written is still whatever the Human sent.
+      await request(server())
+        .patch(`/decisions/${decisionId}`)
+        .set(as(MEMBER))
+        .send({
+          context: contribution.body.content,
+          adoptedContributionId: contribution.body.contributionId,
+        })
+        .expect(200);
+      listed = await request(server())
+        .get(`/decisions/${decisionId}/assistance`)
+        .set(as(MEMBER))
+        .expect(200);
+      expect(listed.body.items[0].adoptedAt).not.toBeNull();
+    });
+
+    it("denies a Reviewer, who holds no assistance permission", async () => {
+      const { decisionId } = await draft();
+      await grant();
+      await request(server())
+        .post(`/decisions/${decisionId}/assistance`)
+        .set(as(REVIEWER))
+        .expect(403);
+    });
+
+    it("denies a Member unrelated to the Decision", async () => {
+      const { decisionId } = await draft();
+      await grant();
+      await request(server())
+        .post(`/decisions/${decisionId}/assistance`)
+        .set(as(STRANGER))
+        .expect(403);
+    });
+
+    it("reports another Organization's Decision as absent", async () => {
+      await grant();
+      await request(server())
+        .post(`/decisions/${randomUUID()}/assistance`)
+        .set(as(MEMBER))
+        .expect(404);
+    });
+  });
+
+  describe("the resolved principal", () => {
+    it("returns the caller's own Membership and the roles authorization used", async () => {
+      const res = await request(server()).get("/me").set(as(REVIEWER)).expect(200);
+
+      expect(res.body).toEqual({
+        identityId: REVIEWER.identity,
+        membershipId: REVIEWER.membership,
+        organizationId: ORG,
+        roles: ["Reviewer"],
+      });
+    });
+
+    it("takes no parameter saying whose principal to return", async () => {
+      // Two callers, two answers, from the same route with the same body.
+      const member = await request(server()).get("/me").set(as(MEMBER)).expect(200);
+      expect(member.body.membershipId).toBe(MEMBER.membership);
+    });
+
+    it("refuses an unauthenticated caller", async () => {
+      await request(server()).get("/me").set("x-organization-id", ORG).expect(401);
     });
   });
 

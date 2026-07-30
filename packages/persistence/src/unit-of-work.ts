@@ -13,6 +13,10 @@ import type { Pool, PoolClient } from "pg";
 
 import type { RepositoryBundle, UnitOfWork } from "@aios/application";
 
+import {
+  PostgresAssistanceGrantRepository,
+  PostgresSecretaryContributionRepository,
+} from "./assistance-repository.js";
 import { PostgresConsumerDeliveryRepository } from "./consumer-delivery-repository.js";
 import { PostgresDecisionRepository } from "./decision-repository.js";
 import { PostgresReplayRepository } from "./replay-repository.js";
@@ -48,6 +52,8 @@ export class PostgresUnitOfWork implements UnitOfWork {
         replays: new PostgresReplayRepository(client),
         memberships: new PostgresMembershipRepository(client),
         notifications: new PostgresNotificationRepository(client),
+        assistanceGrants: new PostgresAssistanceGrantRepository(client),
+        contributions: new PostgresSecretaryContributionRepository(client),
         identities: new PostgresIdentityRepository(client),
         outbox: new PostgresOutbox(client),
       });

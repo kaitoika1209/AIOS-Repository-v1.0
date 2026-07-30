@@ -27,6 +27,10 @@ import type {
   WorkId,
 } from "@aios/types";
 import type {
+  AssistanceGrantRepository,
+  SecretaryContributionRepository,
+} from "./assistance.js";
+import type {
   DecisionState,
   DomainEvent,
   OrganizationState,
@@ -51,6 +55,10 @@ export interface IdGenerator {
   memoryId(): MemoryId;
   membershipId(): MembershipId;
   notificationId(): string;
+  /** Identifies one assistance grant, contribution, or generation attempt. */
+  grantId(): string;
+  contributionId(): string;
+  generationId(): string;
   invitationId(): InvitationId;
   identityId(): IdentityId;
   /**
@@ -475,6 +483,8 @@ export interface RepositoryBundle {
   readonly replays: ReplayRepository;
   readonly memberships: MembershipRepository;
   readonly notifications: NotificationRepository;
+  readonly assistanceGrants: AssistanceGrantRepository;
+  readonly contributions: SecretaryContributionRepository;
   readonly identities: IdentityRepository;
   readonly outbox: OutboxPort;
 }

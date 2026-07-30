@@ -3204,6 +3204,107 @@ for traceability.
 
 ---
 
+## Secretary Assistance Grant Conceptual DDL
+
+```sql
+CREATE TABLE secretary_assistance_grants (
+    grant_id                 uuid PRIMARY KEY,
+    organization_id          uuid NOT NULL,
+    secretary_principal_id   text NOT NULL,
+    context_key              text NOT NULL,
+    assistance_operation     text NOT NULL,
+    port_contract_version    integer NOT NULL,
+
+    granted_at               timestamptz NOT NULL,
+    granted_by_membership_id uuid NOT NULL,
+    revoked_at               timestamptz NULL,
+    revoked_by_membership_id uuid NULL,
+    reason                   text NOT NULL,
+
+    CONSTRAINT ck_secretary_grants_revocation CHECK (
+        (revoked_at IS NULL) = (revoked_by_membership_id IS NULL)
+    ),
+
+    FOREIGN KEY (organization_id, granted_by_membership_id)
+        REFERENCES memberships (organization_id, membership_id)
+);
+```
+
+```sql
+CREATE UNIQUE INDEX uq_secretary_grants_active
+ON secretary_assistance_grants (
+    organization_id,
+    secretary_principal_id,
+    context_key,
+    assistance_operation,
+    port_contract_version
+)
+WHERE revoked_at IS NULL;
+```
+
+The grant is granted by a Membership, not by the platform: an assistance grant is
+Organization authority, and the composite foreign key makes a cross-tenant grant
+unrepresentable. `port_contract_version` is part of the identity because a port
+whose contract changed is a different port — "Unknown contexts, operations,
+versions, tools, models, or source types fail closed" (ADR-0011).
+
+`reason` is `NOT NULL`. A grant that lets an AI Principal act inside an
+Organization without a stated reason is not auditable.
+
+---
+
+## Decision Secretary Contribution Conceptual DDL
+
+```sql
+CREATE TABLE decision_secretary_contributions (
+    contribution_id            uuid PRIMARY KEY,
+    organization_id            uuid NOT NULL,
+    decision_id                uuid NOT NULL,
+    decision_revision_id       uuid NOT NULL,
+
+    secretary_principal_id     text NOT NULL,
+    requested_by_identity_id   uuid NOT NULL,
+    requested_by_membership_id uuid NOT NULL,
+
+    contribution_type          text NOT NULL,
+    content                    text NOT NULL,
+    generation_id              uuid NOT NULL,
+
+    created_at                 timestamptz NOT NULL,
+    adopted_at                 timestamptz NULL,
+    adopted_by_identity_id     uuid NULL,
+
+    CONSTRAINT ck_decision_contributions_content CHECK (
+        length(btrim(content)) > 0
+    ),
+
+    CONSTRAINT ck_decision_contributions_adoption CHECK (
+        (adopted_at IS NULL) = (adopted_by_identity_id IS NULL)
+    ),
+
+    FOREIGN KEY (organization_id, decision_id)
+        REFERENCES decisions (organization_id, decision_id),
+
+    FOREIGN KEY (organization_id, requested_by_membership_id)
+        REFERENCES memberships (organization_id, membership_id)
+);
+```
+
+`requested_by_membership_id` is `NOT NULL` because an invocation "requires an
+authenticated initiating Human command": there is no Secretary output that
+nobody asked for. The Secretary is recorded as `secretary_principal_id`, which is
+deliberately not a Membership — "Secretary principals must not be linked to
+`memberships`".
+
+`ck_decision_contributions_adoption` binds adoption to its actor. Adoption is a
+Human act recorded for traceability, and a row claiming it happened without
+saying who did it would assert human authorship with no author.
+
+There is no path from this table into authoritative content. Adoption is the
+Human's own edit command, and this row records only that it occurred.
+
+---
+
 ## Decision Indexes
 
 Recommended indexes:

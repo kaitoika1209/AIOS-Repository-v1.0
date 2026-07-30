@@ -20,10 +20,14 @@ import {
 import type { Request } from "express";
 
 import { DecisionId, WorkId, type DecisionStatus } from "@aios/types";
+import type { DecisionAssistanceProvider } from "@aios/application";
 import {
   approveDecisionUseCase,
   createDecisionUseCase,
   editDecisionDraftUseCase,
+  listDecisionContributionsUseCase,
+  requestDecisionMaterialUseCase,
+  type SecretaryContribution,
   listDecisionsForWorkUseCase,
   rejectDecisionUseCase,
   startRevisionUseCase,
@@ -34,7 +38,7 @@ import {
 import { currentRevision, submittedRevision, type DecisionState } from "@aios/domain";
 
 import { contextOf } from "./request-context.js";
-import { USE_CASE_DEPENDENCIES } from "./tokens.js";
+import { DECISION_ASSISTANCE, USE_CASE_DEPENDENCIES } from "./tokens.js";
 
 interface DecisionResponse {
   decisionId: string;
@@ -93,11 +97,42 @@ const requireString = (value: unknown, field: string): string => {
   return value;
 };
 
+/**
+ * An advisory contribution, as a caller sees it.
+ *
+ * `secretaryPrincipalId` and `adoptedAt` are both present so the output is
+ * "attributable to the Secretary and distinguishable from human-authored
+ * content" (ADR-0011). A client cannot render one as if a person wrote it.
+ */
+interface ContributionResponse {
+  contributionId: string;
+  contributionType: string;
+  content: string;
+  authoredBy: "AI";
+  secretaryPrincipalId: string;
+  requestedByMembershipId: string;
+  createdAt: string;
+  adoptedAt: string | null;
+}
+
+const presentContribution = (c: SecretaryContribution): ContributionResponse => ({
+  contributionId: c.contributionId,
+  contributionType: c.contributionType,
+  content: c.content,
+  authoredBy: "AI",
+  secretaryPrincipalId: c.secretaryPrincipalId,
+  requestedByMembershipId: c.requestedByMembershipId,
+  createdAt: c.createdAt.toISOString(),
+  adoptedAt: c.adoptedAt?.toISOString() ?? null,
+});
+
 @Controller("decisions")
 export class DecisionController {
   constructor(
     @Inject(USE_CASE_DEPENDENCIES)
     private readonly deps: UseCaseDependencies,
+    @Inject(DECISION_ASSISTANCE)
+    private readonly assistance: DecisionAssistanceProvider,
   ) {}
 
   @Get("by-work/:workId")
@@ -157,6 +192,7 @@ export class DecisionController {
       question?: unknown;
       context?: unknown;
       options?: unknown;
+      adoptedContributionId?: unknown;
     },
   ): Promise<DecisionResponse> {
     const changes = {
@@ -185,8 +221,45 @@ export class DecisionController {
         contextOf(request),
         DecisionId(decisionId),
         changes,
+        typeof body.adoptedContributionId === "string"
+          ? body.adoptedContributionId
+          : undefined,
       ),
     );
+  }
+
+  /**
+   * Ask the Secretary to draft Decision material, and read what it produced.
+   *
+   * Advisory only. The response is a contribution, never Decision content — a
+   * Human adopts it by sending its text back through `PATCH`, which is the
+   * separate command ADR-0011 requires.
+   */
+  @Post(":decisionId/assistance")
+  async requestAssistance(
+    @Req() request: Request,
+    @Param("decisionId") decisionId: string,
+  ): Promise<ContributionResponse> {
+    const contribution = await requestDecisionMaterialUseCase(
+      this.deps,
+      contextOf(request),
+      this.assistance,
+      DecisionId(decisionId),
+    );
+    return presentContribution(contribution);
+  }
+
+  @Get(":decisionId/assistance")
+  async listAssistance(
+    @Req() request: Request,
+    @Param("decisionId") decisionId: string,
+  ): Promise<{ items: ContributionResponse[] }> {
+    const items = await listDecisionContributionsUseCase(
+      this.deps,
+      contextOf(request),
+      DecisionId(decisionId),
+    );
+    return { items: items.map(presentContribution) };
   }
 
   /** Submits the Decision and blocks the related Work atomically (ADR-0007). */

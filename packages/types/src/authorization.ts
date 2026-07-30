@@ -39,6 +39,7 @@ export const DECISION_PERMISSIONS = [
   "decision.reject",
   "decision.withdraw",
   "decision.start_revision",
+  "decision.record_secretary_contribution",
 ] as const;
 
 export const MEMORY_PERMISSIONS = [

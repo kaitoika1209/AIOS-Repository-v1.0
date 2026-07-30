@@ -49,6 +49,8 @@ export interface Work {
   status: string;
   completionGate: string;
   blockedBy: string | null;
+  assigneeMembershipId: string | null;
+  participantMembershipIds: string[];
   completionSummary: string | null;
   version: number;
 }
@@ -212,6 +214,15 @@ export const api = {
       },
     ),
 
+  /** The caller's own resolved principal — which Membership is acting. */
+  me: (subject: string) =>
+    call<{
+      identityId: string;
+      membershipId: string;
+      organizationId: string;
+      roles: string[];
+    }>("/me", { method: "GET", subject }),
+
   /** The caller's own notifications. There is no parameter for whose they are. */
   listNotifications: (subject: string) =>
     call<{
@@ -299,6 +310,9 @@ export const api = {
       subject,
       body: JSON.stringify({ rationale }),
     }),
+
+  listMemories: (subject: string) =>
+    call<{ items: Memory[] }>("/memories", { method: "GET", subject }),
 
   memoryForWork: (subject: string, workId: string) =>
     call<{ memory: Memory | null }>(`/memories/by-work/${workId}`, {

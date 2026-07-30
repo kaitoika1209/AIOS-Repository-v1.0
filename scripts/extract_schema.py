@@ -42,6 +42,8 @@ TABLE_ORDER = [
     "work_progress_records",
     "decisions",
     "decision_revisions",
+    "decision_secretary_contributions",
+    "secretary_assistance_grants",
     "memories",
     "memory_revisions",
     "memory_generation_operations",

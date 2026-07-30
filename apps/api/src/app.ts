@@ -27,7 +27,9 @@ import { PostgresUnitOfWork } from "@aios/persistence";
 import { AdminEventsController } from "./admin-events.controller.js";
 import { chooseGenerator } from "./anthropic-memory-generator.js";
 import { DecisionController } from "./decision.controller.js";
+import { chooseDecisionAssistanceProvider } from "./decision-assistance-provider.js";
 import { InvitationController } from "./invitation.controller.js";
+import { MeController } from "./me.controller.js";
 import { MemoryController } from "./memory.controller.js";
 import { NotificationController } from "./notification.controller.js";
 import { OrganizationAdminController } from "./organization-admin.controller.js";
@@ -38,7 +40,7 @@ import { DomainExceptionFilter } from "./http-errors.js";
 import { PrincipalResolver } from "./principal-resolver.js";
 import { startOutboxWorker } from "./outbox-worker.js";
 import { RequestContextGuard, type AuthAdapter } from "./request-context.js";
-import { USE_CASE_DEPENDENCIES } from "./tokens.js";
+import { DECISION_ASSISTANCE, USE_CASE_DEPENDENCIES } from "./tokens.js";
 import { WorkController } from "./work.controller.js";
 
 /**
@@ -75,6 +77,15 @@ class UuidGenerator implements IdGenerator {
     return MembershipId(randomUUID());
   }
   notificationId(): string {
+    return randomUUID();
+  }
+  grantId(): string {
+    return randomUUID();
+  }
+  contributionId(): string {
+    return randomUUID();
+  }
+  generationId(): string {
     return randomUUID();
   }
   invitationId(): InvitationId {
@@ -127,13 +138,20 @@ export const createApp = async (options: AppOptions): Promise<INestApplication> 
       WorkController,
       DecisionController,
       MemoryController,
+      MeController,
       NotificationController,
       OrganizationAdminController,
       OrganizationMemberController,
       InvitationController,
       AdminEventsController,
     ],
-    providers: [{ provide: USE_CASE_DEPENDENCIES, useValue: deps }],
+    providers: [
+      { provide: USE_CASE_DEPENDENCIES, useValue: deps },
+      {
+        provide: DECISION_ASSISTANCE,
+        useValue: chooseDecisionAssistanceProvider(process.env).provider,
+      },
+    ],
   })
   class AppModule {}
 

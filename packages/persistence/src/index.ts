@@ -24,3 +24,4 @@ export * from "./consumer-delivery-repository.js";
 export * from "./replay-repository.js";
 export * from "./organization-repository.js";
 export * from "./notification-repository.js";
+export * from "./assistance-repository.js";

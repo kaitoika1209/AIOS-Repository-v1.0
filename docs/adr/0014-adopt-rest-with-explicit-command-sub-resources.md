@@ -171,6 +171,7 @@ target state as a parameter.
 | `decision.reject` | `POST /decisions/{decisionId}/reject` |
 | `decision.withdraw` | `POST /decisions/{decisionId}/withdraw` |
 | `decision.start_revision` | `POST /decisions/{decisionId}/revisions` |
+| `decision.record_secretary_contribution` | `POST /decisions/{decisionId}/assistance` |
 | `memory.edit_generated` | `PATCH /memories/{memoryId}` |
 | `memory.submit` | `POST /memories/{memoryId}/submit` |
 | `memory.approve` | `POST /memories/{memoryId}/approve` |

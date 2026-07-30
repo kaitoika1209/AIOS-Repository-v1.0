@@ -30,6 +30,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             <span className="brand">
               <a href="/">AIOS</a>
             </span>
+            <a className="small" href="/me">
+              My workspace
+            </a>
             <a className="small" href="/notifications">
               Notifications{unacknowledged > 0 ? ` (${unacknowledged})` : ""}
             </a>

@@ -19,6 +19,8 @@
 
 import { Pool } from "pg";
 
+import { SECRETARY_PRINCIPAL_ID } from "./decision-assistance-provider.js";
+
 export const SEED = {
   organizationId: "0a105eed-0000-4000-8000-000000000001",
   organizationName: "Acme Product Team",
@@ -117,6 +119,33 @@ export const seed = async (pool: Pool): Promise<void> => {
         [SEED.organizationId, member.membershipId, member.role, member.identityId],
       );
     }
+
+    // The Secretary's assistance grant (ADR-0011). Deny-by-default means the
+    // assistance route refuses until an Organization activates one, so the seed
+    // activates it — otherwise the flow is unreachable in development and would
+    // look broken rather than ungranted.
+    //
+    // Granted by the Owner, because an assistance grant is Organization
+    // authority: the platform cannot grant one on an Organization's behalf.
+    const owner = SEED.members.find((m) => m.role === "OrganizationOwner")!;
+    await client.query(
+      `INSERT INTO secretary_assistance_grants
+         (grant_id, organization_id, secretary_principal_id,
+          context_key, assistance_operation, port_contract_version,
+          granted_at, granted_by_membership_id, reason)
+       VALUES (gen_random_uuid(), $1, $2, 'Decision', 'decision.draft_material', 1,
+               now(), $3, $4)
+       ON CONFLICT (organization_id, secretary_principal_id, context_key,
+                    assistance_operation, port_contract_version)
+         WHERE revoked_at IS NULL
+         DO NOTHING`,
+      [
+        SEED.organizationId,
+        SECRETARY_PRINCIPAL_ID,
+        owner.membershipId,
+        "Development seed: lets the Secretary prepare Decision material on request.",
+      ],
+    );
 
     await client.query("COMMIT");
   } catch (error) {

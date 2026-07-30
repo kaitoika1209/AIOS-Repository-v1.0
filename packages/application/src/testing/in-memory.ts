@@ -31,6 +31,12 @@ import {
 } from "@aios/domain";
 
 import type {
+  AssistanceGrantRepository,
+  ContributionType,
+  SecretaryContribution,
+  SecretaryContributionRepository,
+} from "../assistance.js";
+import type {
   Clock,
   ConsumerDeliveryRepository,
   NotificationRecord,
@@ -860,6 +866,126 @@ export class InMemoryNotificationRepository implements NotificationRepository {
   }
 }
 
+export class InMemoryAssistanceGrantRepository implements AssistanceGrantRepository {
+  private readonly rows = new Map<string, { revoked: boolean }>();
+
+  private static key(i: {
+    organizationId: string;
+    secretaryPrincipalId: string;
+    contextKey: string;
+    assistanceOperation: string;
+    portContractVersion: number;
+  }): string {
+    return [
+      i.organizationId,
+      i.secretaryPrincipalId,
+      i.contextKey,
+      i.assistanceOperation,
+      i.portContractVersion,
+    ].join("|");
+  }
+
+  async isGranted(input: {
+    organizationId: OrganizationId;
+    secretaryPrincipalId: string;
+    contextKey: string;
+    assistanceOperation: string;
+    portContractVersion: number;
+  }): Promise<boolean> {
+    // Deny by default: an absent key is a refusal, not a default-allow.
+    const row = this.rows.get(InMemoryAssistanceGrantRepository.key(input));
+    return row !== undefined && !row.revoked;
+  }
+
+  async grant(input: {
+    organizationId: OrganizationId;
+    secretaryPrincipalId: string;
+    contextKey: string;
+    assistanceOperation: string;
+    portContractVersion: number;
+  }): Promise<void> {
+    this.rows.set(InMemoryAssistanceGrantRepository.key(input), { revoked: false });
+  }
+
+  /** Revoke, so a test can prove the check is consulted every time. */
+  revoke(input: {
+    organizationId: OrganizationId;
+    secretaryPrincipalId: string;
+    contextKey: string;
+    assistanceOperation: string;
+    portContractVersion: number;
+  }): void {
+    this.rows.set(InMemoryAssistanceGrantRepository.key(input), { revoked: true });
+  }
+}
+
+export class InMemorySecretaryContributionRepository
+  implements SecretaryContributionRepository
+{
+  private readonly rows = new Map<string, SecretaryContribution & { organizationId: OrganizationId }>();
+
+  async append(input: {
+    contributionId: string;
+    organizationId: OrganizationId;
+    decisionId: DecisionId;
+    decisionRevisionId: string;
+    secretaryPrincipalId: string;
+    requestedByIdentityId: IdentityId;
+    requestedByMembershipId: MembershipId;
+    contributionType: ContributionType;
+    content: string;
+    generationId: string;
+    now: Date;
+  }): Promise<void> {
+    this.rows.set(input.contributionId, {
+      contributionId: input.contributionId,
+      decisionId: input.decisionId,
+      decisionRevisionId: input.decisionRevisionId,
+      secretaryPrincipalId: input.secretaryPrincipalId,
+      requestedByMembershipId: input.requestedByMembershipId,
+      contributionType: input.contributionType,
+      content: input.content,
+      createdAt: input.now,
+      adoptedAt: null,
+      adoptedByIdentityId: null,
+      organizationId: input.organizationId,
+    });
+  }
+
+  async listForDecision(
+    organizationId: OrganizationId,
+    decisionId: DecisionId,
+  ): Promise<readonly SecretaryContribution[]> {
+    return [...this.rows.values()]
+      .filter((c) => c.organizationId === organizationId && c.decisionId === decisionId)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+
+  async markAdopted(input: {
+    organizationId: OrganizationId;
+    decisionId: DecisionId;
+    contributionId: string;
+    adoptedByIdentityId: IdentityId;
+    now: Date;
+  }): Promise<boolean> {
+    const row = this.rows.get(input.contributionId);
+    if (
+      row === undefined ||
+      row.organizationId !== input.organizationId ||
+      row.decisionId !== input.decisionId ||
+      row.adoptedAt !== null
+    ) {
+      return false;
+    }
+    this.rows.set(input.contributionId, {
+      ...row,
+      adoptedAt: input.now,
+      adoptedByIdentityId: input.adoptedByIdentityId,
+    });
+    return true;
+  }
+}
+
 export class InMemoryOutbox implements OutboxPort {
   readonly events: DomainEvent[] = [];
 
@@ -938,6 +1064,15 @@ export class SequentialIds implements IdGenerator {
   notificationId(): string {
     return `notification-${++this.n}`;
   }
+  grantId(): string {
+    return `grant-${++this.n}`;
+  }
+  contributionId(): string {
+    return `contribution-${++this.n}`;
+  }
+  generationId(): string {
+    return `generation-${++this.n}`;
+  }
   invitationId(): InvitationId {
     return `invitation-${++this.n}` as InvitationId;
   }
@@ -978,6 +1113,8 @@ export const buildTestHarness = (now = new Date("2026-07-28T10:00:00Z")) => {
   const memberships = new InMemoryMembershipRepository();
   const organizations = new InMemoryOrganizationRepository(memberships);
   const notifications = new InMemoryNotificationRepository();
+  const assistanceGrants = new InMemoryAssistanceGrantRepository();
+  const contributions = new InMemorySecretaryContributionRepository();
   const identities = new InMemoryIdentityRepository();
   const outbox = new InMemoryOutbox();
   const bundle = {
@@ -991,6 +1128,8 @@ export const buildTestHarness = (now = new Date("2026-07-28T10:00:00Z")) => {
     replays,
     memberships,
     notifications,
+    assistanceGrants,
+    contributions,
     identities,
     outbox,
   };

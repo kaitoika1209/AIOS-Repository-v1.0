@@ -1069,6 +1069,7 @@ decision.approve
 decision.reject
 decision.withdraw
 decision.start_revision
+decision.record_secretary_contribution
 
 memory.edit_generated
 memory.submit
@@ -1100,6 +1101,17 @@ Membership invitation is split into one permission per command rather than a sin
 otherwise: inviting, resending, and revoking are three routes. The split also makes the
 narrower grants expressible — reading the member list is not administration, and is held
 by every role.
+
+`decision.record_secretary_contribution` was Reserved. It is catalogued now because
+[ADR-0011](../adr/0011-bound-secretary-to-context-owned-assistance-ports.md) is
+**Accepted** and `docs/product/mvp.md` includes "AI-assisted drafting and
+summarization" — the two conditions ADR-0010's promotion rule names. Promotion "must
+identify the smallest useful vertical slice", so exactly one assistance operation is
+implemented; `memory.record_secretary_contribution` stays Reserved.
+
+The permission gates *requesting* assistance and reading what it produced. It grants no
+authority over Decision content: adoption is the Human's own `decision.edit_draft`,
+which re-evaluates authorization and domain rules.
 
 `notification.read` and `notification.acknowledge` are held by **every** role, like
 `organization.read_members`. A notification is addressed to one Membership and reports a
@@ -1134,7 +1146,6 @@ route and no role grant. Adding one is a scope change under
 editing decision.
 
 ```text
-decision.record_secretary_contribution
 memory.record_secretary_contribution
 
 organization.assign_role
