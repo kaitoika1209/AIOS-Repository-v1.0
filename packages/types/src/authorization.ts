@@ -62,6 +62,10 @@ export const ORGANIZATION_PERMISSIONS = [
   "notification.read",
   "notification.acknowledge",
   "organization.rename",
+  // The Owner-held Organization lifecycle (ADR-0017).
+  "organization.suspend",
+  "organization.reactivate",
+  "organization.archive",
   "organization.read_members",
   "organization.invite_member",
   "organization.resend_invitation",

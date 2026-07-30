@@ -279,11 +279,9 @@ export interface MembershipRevoked extends DomainEventBase {
 /**
  * Organization events.
  *
- * The registered subset this release emits. `OrganizationSuspended`,
- * `OrganizationReactivated`, and `OrganizationArchived` are registered names
- * with no command in this release — mvp.md requires creation, naming, and basic
- * settings, and says "Deleting an Organization and long-term retention policy
- * are not required for the first release".
+ * The lifecycle three are emitted by the Owner-held commands ADR-0017 promotes.
+ * Each carries the reason its command required: an Organization that went dark
+ * without one leaves nobody able to say why afterwards.
  */
 export interface OrganizationCreated extends DomainEventBase {
   readonly type: "OrganizationCreated";
@@ -295,7 +293,27 @@ export interface OrganizationRenamed extends DomainEventBase {
   readonly name: string;
 }
 
-export type OrganizationEvent = OrganizationCreated | OrganizationRenamed;
+export interface OrganizationSuspended extends DomainEventBase {
+  readonly type: "OrganizationSuspended";
+  readonly reason: string;
+}
+
+export interface OrganizationReactivated extends DomainEventBase {
+  readonly type: "OrganizationReactivated";
+  readonly reason: string;
+}
+
+export interface OrganizationArchived extends DomainEventBase {
+  readonly type: "OrganizationArchived";
+  readonly reason: string;
+}
+
+export type OrganizationEvent =
+  | OrganizationCreated
+  | OrganizationRenamed
+  | OrganizationSuspended
+  | OrganizationReactivated
+  | OrganizationArchived;
 
 export type MembershipEvent =
   | MembershipInvited

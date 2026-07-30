@@ -33,6 +33,7 @@ scope. Accepted ADRs are the highest authority in this repository — see
 | [0014](0014-adopt-rest-with-explicit-command-sub-resources.md) | Adopt REST with Explicit Command Sub-Resources and Header-Scoped Tenancy | Proposed | 2026-07-28 |
 | [0015](0015-use-documented-ddl-and-direct-sql-for-persistence.md) | Keep the Documented DDL Authoritative and Use Direct SQL for Persistence | Proposed | 2026-07-28 |
 | [0016](0016-bind-anthropic-as-the-model-provider.md) | Bind Anthropic as the Model Provider and Call It Directly | Proposed | 2026-07-29 |
+| [0017](0017-promote-the-organization-lifecycle.md) | Promote the Owner-Held Organization Lifecycle and Defer Platform Suspension | Proposed | 2026-07-30 |
 
 ---
 
@@ -48,6 +49,8 @@ New to the architecture? Read in this order:
 6. **0007**, **0008**, **0009**, **0011**, **0012** — specific mechanisms.
 7. **0013**, **0014** — how requests enter the system: authentication and the API surface.
 8. **0015**, **0016** — what the system talks to: the database, and the model provider.
+9. **0017** — a worked example of ADR-0010's promotion rule: what it takes to move a
+   documented lifecycle into implementable scope, and what stays behind.
 
 ---
 

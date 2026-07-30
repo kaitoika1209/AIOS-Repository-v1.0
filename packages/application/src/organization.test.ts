@@ -18,11 +18,19 @@ import {
 
 import { AuthorizationError } from "./authorization.js";
 import {
+  archiveOrganizationUseCase,
   createOrganizationUseCase,
   getOrganizationUseCase,
+  reactivateOrganizationUseCase,
   renameOrganizationUseCase,
+  suspendOrganizationUseCase,
 } from "./organization-use-cases.js";
 import { listMembersUseCase } from "./membership-use-cases.js";
+import {
+  completeWorkUseCase,
+  createWorkUseCase,
+  startWorkUseCase,
+} from "./work-use-cases.js";
 import { buildTestHarness } from "./testing/in-memory.js";
 
 const NOW = new Date("2026-07-28T10:00:00Z");
@@ -194,5 +202,133 @@ describe("renaming", () => {
         "Ghost",
       ),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+
+/**
+ * The Owner-held Organization lifecycle (ADR-0017).
+ *
+ * The Aggregate covers the transitions themselves. What only exists here is the
+ * archival precondition, which spans Aggregates: a Work left `InProgress` in a
+ * read-only Organization could never afterwards be completed or cancelled.
+ */
+describe("the Organization lifecycle", () => {
+  const withOrganization = async () => {
+    const h = buildTestHarness(NOW);
+    const { organization } = await createOrganizationUseCase(h.deps, creator(), {
+      name: "Northwind",
+    });
+    return { h, organizationId: organization.organizationId };
+  };
+
+  it("suspends and reactivates, back to Active", async () => {
+    const { h, organizationId } = await withOrganization();
+    const ctx = ctxFor(organizationId);
+
+    expect((await suspendOrganizationUseCase(h.deps, ctx, "Pausing.")).status).toBe(
+      "Suspended",
+    );
+    expect((await reactivateOrganizationUseCase(h.deps, ctx, "Back.")).status).toBe(
+      "Active",
+    );
+  });
+
+  it("gives the lifecycle to the Owner and to no other role", async () => {
+    const { h, organizationId } = await withOrganization();
+
+    // Admin included, and deliberately. While an Organization is Suspended,
+    // reactivation is the only reachable route — an Admin who could suspend
+    // could strand every Owner behind a command only an Owner can call.
+    for (const roles of [["OrganizationAdmin"], ["Member"], ["Reviewer"]] as Role[][]) {
+      const ctx = ctxFor(organizationId, roles);
+      await expect(
+        suspendOrganizationUseCase(h.deps, ctx, "Mine now."),
+      ).rejects.toBeInstanceOf(AuthorizationError);
+      await expect(
+        reactivateOrganizationUseCase(h.deps, ctx, "Mine now."),
+      ).rejects.toBeInstanceOf(AuthorizationError);
+      await expect(
+        archiveOrganizationUseCase(h.deps, ctx, "Mine now."),
+      ).rejects.toBeInstanceOf(AuthorizationError);
+    }
+  });
+
+  it("archives an Organization with no live Work", async () => {
+    const { h, organizationId } = await withOrganization();
+    const ctx = ctxFor(organizationId);
+
+    // A Draft Work does not block: nothing has started, so nothing is stranded.
+    await createWorkUseCase(h.deps, ctx, { title: "Never started" });
+
+    expect((await archiveOrganizationUseCase(h.deps, ctx, "Closing.")).status).toBe(
+      "Archived",
+    );
+  });
+
+  it("refuses archival while Work is InProgress, naming the count", async () => {
+    const { h, organizationId } = await withOrganization();
+    const ctx = ctxFor(organizationId);
+
+    const work = await createWorkUseCase(h.deps, ctx, { title: "Live" });
+    await startWorkUseCase(h.deps, ctx, work.workId);
+
+    await expect(
+      archiveOrganizationUseCase(h.deps, ctx, "Closing."),
+    ).rejects.toMatchObject({ code: "LIVE_WORK_REMAINS", count: 1 });
+  });
+
+  /**
+   * The refusal is a condition the caller can clear, not a permanent one — which
+   * is why it is a `409` and not a `422`.
+   */
+  it("allows archival once the live Work is finished", async () => {
+    const { h, organizationId } = await withOrganization();
+    const ctx = ctxFor(organizationId);
+
+    const work = await createWorkUseCase(h.deps, ctx, { title: "Live" });
+    await startWorkUseCase(h.deps, ctx, work.workId);
+    await expect(
+      archiveOrganizationUseCase(h.deps, ctx, "Closing."),
+    ).rejects.toMatchObject({ code: "LIVE_WORK_REMAINS" });
+
+    await completeWorkUseCase(h.deps, ctx, work.workId, "Done.");
+
+    expect((await archiveOrganizationUseCase(h.deps, ctx, "Closing.")).status).toBe(
+      "Archived",
+    );
+  });
+
+  it("counts every live Work, not just the first", async () => {
+    const { h, organizationId } = await withOrganization();
+    const ctx = ctxFor(organizationId);
+
+    for (const title of ["One", "Two", "Three"]) {
+      const work = await createWorkUseCase(h.deps, ctx, { title });
+      await startWorkUseCase(h.deps, ctx, work.workId);
+    }
+
+    await expect(
+      archiveOrganizationUseCase(h.deps, ctx, "Closing."),
+    ).rejects.toMatchObject({ count: 3 });
+  });
+
+  it("records each lifecycle transition in the audit", async () => {
+    const { h, organizationId } = await withOrganization();
+    const ctx = ctxFor(organizationId);
+
+    await suspendOrganizationUseCase(h.deps, ctx, "Pausing.");
+    await reactivateOrganizationUseCase(h.deps, ctx, "Back.");
+    await archiveOrganizationUseCase(h.deps, ctx, "Closing.");
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(
+      h.audit
+        .transitionsFor(organizationId)
+        .map((row) => [row.commandType, row.previousState, row.nextState]),
+    ).toEqual([
+      ["SuspendOrganization", "Active", "Suspended"],
+      ["ReactivateOrganization", "Suspended", "Active"],
+      ["ArchiveOrganization", "Active", "Archived"],
+    ]);
   });
 });

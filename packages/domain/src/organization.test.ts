@@ -9,9 +9,12 @@ import {
 } from "@aios/types";
 
 import {
+  archiveOrganization,
   createOrganization,
   isOperable,
+  reactivateOrganization,
   renameOrganization,
+  suspendOrganization,
   type OrganizationState,
 } from "./organization.js";
 import { DomainError } from "./errors.js";
@@ -176,6 +179,141 @@ describe("renaming an Organization", () => {
   it("refuses a blank name", () => {
     expect(() => renameOrganization(created(), "  ", ctx())).toThrowError(
       /name is required/,
+    );
+  });
+});
+
+const suspended = (): OrganizationState =>
+  suspendOrganization(created(), "Pausing for the summer.", ctx()).state;
+
+describe("the Organization lifecycle (ADR-0017)", () => {
+  it("suspends an Active Organization and records why", () => {
+    const { state, events } = suspendOrganization(
+      created(),
+      "  Pausing for the summer.  ",
+      ctx(),
+    );
+
+    expect(state.status).toBe("Suspended");
+    expect(state.suspendedAt).toEqual(NOW);
+    expect(state.version).toBe(2);
+    // The status is the whole mechanism: `PrincipalResolver` reads it on every
+    // request, which is what makes the Organization stop responding.
+    expect(isOperable(state)).toBe(false);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "OrganizationSuspended",
+      organizationId: ORG,
+      reason: "Pausing for the summer.",
+      actorIdentityId: FOUNDER,
+      aggregateVersion: 2,
+    });
+  });
+
+  it("keeps every Membership: suspension deletes nothing", () => {
+    // "no automatic deletion of resources", "preservation of membership and
+    // audit history". The Aggregate holds no Memberships to delete, and this
+    // asserts it does not acquire the ability.
+    const state = suspended();
+    expect(Object.keys(state)).toEqual(Object.keys(created()));
+  });
+
+  it("refuses suspension without a reason", () => {
+    expect(() => suspendOrganization(created(), "   ", ctx())).toThrowError(
+      /suspension reason is required/,
+    );
+  });
+
+  it("refuses to suspend an already suspended Organization", () => {
+    expect(codeOf(() => suspendOrganization(suspended(), "Again.", ctx()))).toBe(
+      "ORGANIZATION_INVALID_TRANSITION",
+    );
+  });
+
+  it("reactivates a suspended Organization and clears suspendedAt", () => {
+    const { state, events } = reactivateOrganization(suspended(), "Back.", ctx());
+
+    expect(state.status).toBe("Active");
+    // Current state, not history. The `OrganizationSuspended` event remains the
+    // durable record that the suspension happened.
+    expect(state.suspendedAt).toBeNull();
+    expect(state.version).toBe(3);
+    expect(isOperable(state)).toBe(true);
+    expect(events[0]).toMatchObject({ type: "OrganizationReactivated", reason: "Back." });
+  });
+
+  it("refuses to reactivate an Organization that is not suspended", () => {
+    expect(codeOf(() => reactivateOrganization(created(), "Why?", ctx()))).toBe(
+      "ORGANIZATION_INVALID_TRANSITION",
+    );
+  });
+
+  it("archives from Active", () => {
+    const { state, events } = archiveOrganization(created(), "Closing down.", ctx());
+
+    expect(state.status).toBe("Archived");
+    expect(state.archivedAt).toEqual(NOW);
+    expect(isOperable(state)).toBe(false);
+    expect(events[0]).toMatchObject({ type: "OrganizationArchived", reason: "Closing down." });
+  });
+
+  /**
+   * An Owner who paused their Organization and then decided to close it should
+   * not have to reactivate it first. "Organization not already Archived" is the
+   * only precondition the document states.
+   */
+  it("archives from Suspended without a detour through Active", () => {
+    expect(archiveOrganization(suspended(), "Closing down.", ctx()).state.status).toBe(
+      "Archived",
+    );
+  });
+
+  it("refuses to archive twice", () => {
+    const archived = archiveOrganization(created(), "Closing down.", ctx()).state;
+    expect(codeOf(() => archiveOrganization(archived, "Again.", ctx()))).toBe(
+      "ORGANIZATION_INVALID_TRANSITION",
+    );
+  });
+
+  it("has no command that returns an Archived Organization to Active", () => {
+    // "An Archived Organization does not return to Active in the MVP." This is
+    // why ADR-0014's recovery exemption covers Suspended alone.
+    const archived = archiveOrganization(created(), "Closing down.", ctx()).state;
+    expect(codeOf(() => reactivateOrganization(archived, "Reopen.", ctx()))).toBe(
+      "ORGANIZATION_INVALID_TRANSITION",
+    );
+    expect(codeOf(() => suspendOrganization(archived, "Reopen.", ctx()))).toBe(
+      "ORGANIZATION_INVALID_TRANSITION",
+    );
+  });
+
+  /**
+   * The Aggregate checks the tenant itself rather than trusting the Application
+   * Layer's permission check. A principal holding `organization.suspend` in
+   * their own Organization must not be able to suspend a different one.
+   */
+  it("refuses a principal from another Organization", () => {
+    const foreign = ctx(owner(OTHER_ORG));
+    expect(() => suspendOrganization(created(), "Not yours.", foreign)).toThrowError(
+      /its own Member/,
+    );
+    expect(() => archiveOrganization(created(), "Not yours.", foreign)).toThrowError(
+      /its own Member/,
+    );
+    expect(() =>
+      reactivateOrganization(suspended(), "Not yours.", foreign),
+    ).toThrowError(/its own Member/);
+  });
+
+  it("refuses the Secretary", () => {
+    // Human authority is not delegable: "Human Members retain all
+    // organizational authority."
+    expect(() => suspendOrganization(created(), "Automated.", ctx(secretary))).toThrowError(
+      /Only a Human Member/,
+    );
+    expect(() => archiveOrganization(created(), "Automated.", ctx(secretary))).toThrowError(
+      /Only a Human Member/,
     );
   });
 });

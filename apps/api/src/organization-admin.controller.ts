@@ -28,14 +28,18 @@ import type { Request } from "express";
 
 import { OrganizationId, type OrganizationStatus } from "@aios/types";
 import {
+  archiveOrganizationUseCase,
   createOrganizationUseCase,
   getOrganizationUseCase,
+  reactivateOrganizationUseCase,
   renameOrganizationUseCase,
+  suspendOrganizationUseCase,
   type UseCaseDependencies,
 } from "@aios/application";
 
 import {
   contextOf,
+  RecoversSuspendedOrganization,
   subjectOf,
   WithoutOrganizationContext,
 } from "./request-context.js";
@@ -54,6 +58,33 @@ const requireName = (value: unknown): string => {
   }
   return value;
 };
+
+/**
+ * Every lifecycle command requires one.
+ *
+ * Rejected at the edge as a `400` when it is missing or the wrong type, and by
+ * the Aggregate as a `422` when it is present but blank — the same split every
+ * other command uses. An Organization that went dark without a recorded reason
+ * leaves nobody able to say why afterwards.
+ */
+const requireReason = (value: unknown): string => {
+  if (typeof value !== "string") {
+    throw new BadRequestException("reason is required.");
+  }
+  return value;
+};
+
+const respond = (organization: {
+  organizationId: string;
+  name: string;
+  status: OrganizationStatus;
+  version: number;
+}): OrganizationResponse => ({
+  organizationId: organization.organizationId,
+  name: organization.name,
+  status: organization.status,
+  version: organization.version,
+});
 
 @Controller("organizations")
 export class OrganizationAdminController {
@@ -143,11 +174,77 @@ export class OrganizationAdminController {
       context,
       requireName(body.name),
     );
-    return {
-      organizationId: organization.organizationId,
-      name: organization.name,
-      status: organization.status,
-      version: organization.version,
-    };
+    return respond(organization);
+  }
+
+  /**
+   * Pause the Organization.
+   *
+   * The caller's *next* request will be answered `404`: once this commits, the
+   * resolver refuses every route in the Organization except reactivation. That
+   * is the command working, not failing.
+   */
+  @Post(":organizationId/suspend")
+  async suspend(
+    @Req() request: Request,
+    @Param("organizationId") organizationId: string,
+    @Body() body: { reason?: unknown },
+  ): Promise<OrganizationResponse> {
+    const context = contextOf(request);
+    if (context.organizationId !== organizationId) {
+      throw new NotFoundException("Organization not found.");
+    }
+
+    return respond(
+      await suspendOrganizationUseCase(this.deps, context, requireReason(body.reason)),
+    );
+  }
+
+  /**
+   * Return a suspended Organization to service.
+   *
+   * The only route that reaches a non-Active Organization, and the reason the
+   * exemption exists at all — without it, suspension would be a one-way door.
+   * Everything else about the request is ordinary: an Active Membership and
+   * `organization.reactivate`, which only an Owner holds.
+   */
+  @Post(":organizationId/reactivate")
+  @RecoversSuspendedOrganization()
+  async reactivate(
+    @Req() request: Request,
+    @Param("organizationId") organizationId: string,
+    @Body() body: { reason?: unknown },
+  ): Promise<OrganizationResponse> {
+    const context = contextOf(request);
+    if (context.organizationId !== organizationId) {
+      throw new NotFoundException("Organization not found.");
+    }
+
+    return respond(
+      await reactivateOrganizationUseCase(this.deps, context, requireReason(body.reason)),
+    );
+  }
+
+  /**
+   * Archive the Organization, permanently.
+   *
+   * The last command it will accept. Refused while any Work remains
+   * `InProgress` or `WaitingForDecision`, because a read-only Organization has
+   * no command left that could finish one.
+   */
+  @Post(":organizationId/archive")
+  async archive(
+    @Req() request: Request,
+    @Param("organizationId") organizationId: string,
+    @Body() body: { reason?: unknown },
+  ): Promise<OrganizationResponse> {
+    const context = contextOf(request);
+    if (context.organizationId !== organizationId) {
+      throw new NotFoundException("Organization not found.");
+    }
+
+    return respond(
+      await archiveOrganizationUseCase(this.deps, context, requireReason(body.reason)),
+    );
   }
 }

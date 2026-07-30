@@ -1081,6 +1081,9 @@ notification.read
 notification.acknowledge
 
 organization.rename
+organization.suspend
+organization.reactivate
+organization.archive
 organization.read_members
 organization.invite_member
 organization.resend_invitation
@@ -1135,6 +1138,25 @@ deactivation", and the release-scope document outranks this one
 so the three are catalogued here. Suspension and reactivation are separate permissions
 rather than one toggle for the same reason the invitation commands are separate: each is
 its own route with its own preconditions and its own audit record.
+
+`organization.suspend`, `organization.reactivate`, and `organization.archive` are
+catalogued by [ADR-0017](../adr/0017-promote-the-organization-lifecycle.md), which promotes
+the Owner-held Organization lifecycle and updates `docs/product/mvp.md` accordingly — the
+accepted-ADR-plus-scope-update pair that ADR-0010's promotion rule requires.
+
+All three are held by `OrganizationOwner` and by no other role, including
+`OrganizationAdmin`. This is the one place where Admin is not a subset of Owner minus
+Organization deletion, and the reason is reachability rather than seniority: while an
+Organization is `Suspended`, `PrincipalResolver` refuses every request in it, so
+`organization.reactivate` is the only way back. An Admin who could suspend could strand
+every Owner behind a route only an Owner can call.
+
+These permissions govern the Organization's own lifecycle as its Owner controls it.
+Suspending an Organization *against* its Owner — for billing resolution or a security
+investigation, as the "Suspension may allow restricted access" section anticipates —
+requires authority over a tenant without a Membership in it. That is the same future
+identity design this document already defers for cross-Organization replay and break-glass
+recovery, and ADR-0017 does not promote it.
 
 ---
 

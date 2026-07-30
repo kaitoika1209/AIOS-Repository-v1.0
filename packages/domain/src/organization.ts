@@ -125,13 +125,7 @@ export const renameOrganization = (
   name: string,
   ctx: ActorContext,
 ): OrganizationResult => {
-  const principal: Principal = ctx.principal;
-  if (!isHumanMember(principal)) {
-    throw new ValidationError("Only a Human Member may rename an Organization.");
-  }
-  if (principal.organizationId !== state.organizationId) {
-    throw new ValidationError("An Organization may only be renamed by its own Member.");
-  }
+  const principal = requireOwnMember(state, ctx, "rename", "renamed");
   if (state.status === "Archived") {
     throw new InvalidTransitionError("Organization", state.status, "organization.rename", [
       "Active",
@@ -163,3 +157,170 @@ export const renameOrganization = (
 /** Whether the Organization may currently carry business authority. */
 export const isOperable = (state: OrganizationState): boolean =>
   state.status === "Active";
+
+/**
+ * The Owner acting on their own Organization.
+ *
+ * Every lifecycle command requires it, and the Aggregate checks it rather than
+ * trusting the Application Layer's permission check: a principal from another
+ * Organization holding `organization.suspend` there must not be able to suspend
+ * this one.
+ *
+ * The *role* is not checked here. Which roles hold which permission is the
+ * authorization catalogue's business, and an Aggregate that also read roles
+ * would encode the same rule in two places that could disagree.
+ */
+const requireOwnMember = (
+  state: OrganizationState,
+  ctx: ActorContext,
+  verb: string,
+  done: string,
+) => {
+  const principal: Principal = ctx.principal;
+  if (!isHumanMember(principal)) {
+    throw new ValidationError(`Only a Human Member may ${verb} an Organization.`);
+  }
+  if (principal.organizationId !== state.organizationId) {
+    throw new ValidationError(`An Organization may only be ${done} by its own Member.`);
+  }
+  return principal;
+};
+
+const requireReason = (reason: string, message: string): string => {
+  const trimmed = reason.trim();
+  if (trimmed.length === 0) {
+    throw new ValidationError(message);
+  }
+  return trimmed;
+};
+
+/**
+ * Suspend an Organization.
+ *
+ * A reversible pause its Owner controls. `reactivateOrganization` is the way
+ * back, and it is reachable only because ADR-0014 exempts its route from the
+ * Organization-status check — without that, this command would be a one-way
+ * door.
+ *
+ * Nothing is deleted and no Membership changes: "no automatic deletion of
+ * resources", "preservation of membership and audit history". The effect comes
+ * entirely from the status, which `PrincipalResolver` reads on every request.
+ */
+export const suspendOrganization = (
+  state: OrganizationState,
+  reason: string,
+  ctx: ActorContext,
+): OrganizationResult => {
+  const principal = requireOwnMember(state, ctx, "suspend", "suspended");
+  if (state.status !== "Active") {
+    throw new InvalidTransitionError("Organization", state.status, "SuspendOrganization", [
+      "Active",
+    ]);
+  }
+  const explanation = requireReason(reason, "A suspension reason is required.");
+
+  const version = (state.version + 1) as AggregateVersion;
+  return {
+    state: { ...state, status: "Suspended", suspendedAt: ctx.now, version },
+    events: stampOrganization(version, [
+      {
+        type: "OrganizationSuspended",
+        organizationId: state.organizationId,
+        reason: explanation,
+        occurredAt: ctx.now,
+        actorIdentityId: principal.identityId,
+        actorMembershipId: principal.membershipId as MembershipId,
+      },
+    ]),
+  };
+};
+
+/**
+ * Return a suspended Organization to service.
+ *
+ * `suspendedAt` is cleared, because it describes a suspension that is over. The
+ * `OrganizationSuspended` event remains the durable record that it happened —
+ * the column is current state, not history.
+ *
+ * "At least one valid active Owner" is a rule about Memberships, which this
+ * Aggregate cannot see. The Application Layer enforces it, as it does the Last
+ * Owner Invariant.
+ */
+export const reactivateOrganization = (
+  state: OrganizationState,
+  reason: string,
+  ctx: ActorContext,
+): OrganizationResult => {
+  const principal = requireOwnMember(state, ctx, "reactivate", "reactivated");
+  if (state.status !== "Suspended") {
+    throw new InvalidTransitionError(
+      "Organization",
+      state.status,
+      "ReactivateOrganization",
+      ["Suspended"],
+    );
+  }
+  const explanation = requireReason(reason, "A reactivation reason is required.");
+
+  const version = (state.version + 1) as AggregateVersion;
+  return {
+    state: { ...state, status: "Active", suspendedAt: null, version },
+    events: stampOrganization(version, [
+      {
+        type: "OrganizationReactivated",
+        organizationId: state.organizationId,
+        reason: explanation,
+        occurredAt: ctx.now,
+        actorIdentityId: principal.identityId,
+        actorMembershipId: principal.membershipId as MembershipId,
+      },
+    ]),
+  };
+};
+
+/**
+ * Archive an Organization, permanently.
+ *
+ * Reachable from `Active` and from `Suspended`: an Owner who paused their
+ * Organization and then decided to close it should not have to reactivate it
+ * first, and "Organization not already Archived" is the only precondition the
+ * document states.
+ *
+ * There is no way back — "An Archived Organization does not return to Active in
+ * the MVP" — which is why the reactivation route's exemption covers `Suspended`
+ * alone.
+ *
+ * The rule that no Work may remain `InProgress` or `WaitingForDecision` is
+ * enforced by the Application Layer. It spans Aggregates, and an Organization
+ * that loaded every Work to answer it would be the boundary violation this file
+ * exists to avoid.
+ */
+export const archiveOrganization = (
+  state: OrganizationState,
+  reason: string,
+  ctx: ActorContext,
+): OrganizationResult => {
+  const principal = requireOwnMember(state, ctx, "archive", "archived");
+  if (state.status === "Archived") {
+    throw new InvalidTransitionError("Organization", state.status, "ArchiveOrganization", [
+      "Active",
+      "Suspended",
+    ]);
+  }
+  const explanation = requireReason(reason, "An archival reason is required.");
+
+  const version = (state.version + 1) as AggregateVersion;
+  return {
+    state: { ...state, status: "Archived", archivedAt: ctx.now, version },
+    events: stampOrganization(version, [
+      {
+        type: "OrganizationArchived",
+        organizationId: state.organizationId,
+        reason: explanation,
+        occurredAt: ctx.now,
+        actorIdentityId: principal.identityId,
+        actorMembershipId: principal.membershipId as MembershipId,
+      },
+    ]),
+  };
+};

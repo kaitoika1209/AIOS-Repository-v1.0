@@ -130,7 +130,28 @@ before it writes anything.
 The route accepts no `organizationId`: the identifier is server-generated, so a caller
 cannot choose it or collide with an existing tenant.
 
-These are the only two exemptions. Any further route that claims one is a defect until
+### Reactivation is exempt from the Organization *status* check
+
+```text
+POST /organizations/{organizationId}/reactivate
+```
+
+Unlike the two above, this route resolves the Organization normally. It requires an
+authenticated subject, a resolvable Active Membership, and `organization.reactivate`,
+which only an Owner holds. It is exempt from one thing only: the rule that the resolved
+Organization must be `Active`.
+
+Without the exemption the route could not be called. `PrincipalResolver` refuses every
+request whose Organization is not `Active`, and the guard reports that as `404` before any
+handler runs — so a suspended Organization would have no way back that did not involve
+editing the database.
+[ADR-0017](0017-promote-the-organization-lifecycle.md) records the reasoning, and
+`identity-and-organization.md` anticipates it: "Suspension may allow restricted access
+for: Organization recovery."
+
+The exemption covers `Suspended` and not `Archived`. Archival is terminal.
+
+These are the only three exemptions. Any further route that claims one is a defect until
 this ADR is amended.
 
 ### State transitions are explicit command sub-resources
@@ -205,6 +226,9 @@ is amended.
 | `notification.read` | `GET /notifications` |
 | `notification.acknowledge` | `POST /notifications/{notificationId}/acknowledge` |
 | `organization.rename` | `PATCH /organizations/{organizationId}` |
+| `organization.suspend` | `POST /organizations/{organizationId}/suspend` |
+| `organization.reactivate` | `POST /organizations/{organizationId}/reactivate` |
+| `organization.archive` | `POST /organizations/{organizationId}/archive` |
 | `organization.read_members` | `GET /organizations/{organizationId}/members` |
 | `organization.invite_member` | `POST /organizations/{organizationId}/members` |
 | `organization.resend_invitation` | `POST /organizations/{organizationId}/members/{membershipId}/resend-invitation` |

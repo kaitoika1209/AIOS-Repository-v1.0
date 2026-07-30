@@ -1985,6 +1985,21 @@ Suspension requires:
 - no automatic deletion of resources
 - preservation of membership and audit history
 
+[ADR-0017](../adr/0017-promote-the-organization-lifecycle.md) narrows "authorized Human
+administrative action" for this release: the Organization's own Owner, holding
+`organization.suspend`, and nobody else — not an Admin, and not a platform operator.
+
+The reasons this section goes on to list for restricted access — billing resolution,
+security investigation — describe a *platform-initiated* suspension the Owner could not
+reverse. That requires authority over a tenant without a Membership in it, which is the
+future identity design this architecture defers, and ADR-0017 does not promote it. What
+this release ships is an Owner's reversible pause.
+
+Reversibility is not incidental. `PrincipalResolver` refuses every request whose
+Organization is not `Active`, so `POST /organizations/{organizationId}/reactivate` is the
+one route ADR-0014 exempts from that check. Without it, "Suspension may allow restricted
+access for: Organization recovery" would have nothing to point at.
+
 ---
 
 ## Organization Suspended Event

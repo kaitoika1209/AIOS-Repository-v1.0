@@ -1637,6 +1637,228 @@ suite("AIOS API", () => {
     });
   });
 
+  /**
+   * The Owner-held Organization lifecycle (ADR-0017).
+   *
+   * These are the tests that only exist at this level, because the property the
+   * design turns on is a property of the guard: while an Organization is
+   * Suspended, `PrincipalResolver` refuses every request in it, so reactivation
+   * is reachable only through ADR-0014's status exemption. Nothing below HTTP
+   * can demonstrate that.
+   */
+  describe("the Organization lifecycle", () => {
+    const suspend = (who = OWNER, reason = "Pausing operations.") =>
+      request(server())
+        .post(`/organizations/${ORG}/suspend`)
+        .set(as(who))
+        .send({ reason });
+
+    it("suspends, locks the Organization, and reactivates", async () => {
+      await suspend().expect(201);
+
+      // Every ordinary route is now 404 — not 403. The Organization's
+      // availability is not something a caller may probe.
+      await request(server()).get("/works").set(as(OWNER)).expect(404);
+      await request(server()).post("/works").set(as(MEMBER)).send({ title: "x" }).expect(404);
+
+      const back = await request(server())
+        .post(`/organizations/${ORG}/reactivate`)
+        .set(as(OWNER))
+        .send({ reason: "Resuming." })
+        .expect(201);
+      expect(back.body.status).toBe("Active");
+
+      await request(server()).get("/works").set(as(OWNER)).expect(200);
+    });
+
+    /**
+     * The exemption is exactly one route wide. If it leaked to the controller or
+     * to any sibling, suspension would stop meaning anything.
+     */
+    it("exempts reactivation alone, not its neighbours", async () => {
+      await suspend().expect(201);
+
+      for (const path of [
+        `/organizations/${ORG}/suspend`,
+        `/organizations/${ORG}/archive`,
+      ]) {
+        await request(server())
+          .post(path)
+          .set(as(OWNER))
+          .send({ reason: "While suspended." })
+          .expect(404);
+      }
+      await request(server())
+        .patch(`/organizations/${ORG}`)
+        .set(as(OWNER))
+        .send({ name: "Renamed" })
+        .expect(404);
+      await request(server()).get(`/organizations/${ORG}`).set(as(OWNER)).expect(404);
+    });
+
+    /**
+     * The exemption widens the Organization-status check and nothing else. A
+     * Member of a suspended Organization still resolves — and is still refused,
+     * on the permission.
+     */
+    it("still refuses a non-Owner on the exempt route", async () => {
+      await suspend().expect(201);
+
+      await request(server())
+        .post(`/organizations/${ORG}/reactivate`)
+        .set(as(MEMBER))
+        .send({ reason: "Let me out." })
+        .expect(403);
+      await request(server())
+        .post(`/organizations/${ORG}/reactivate`)
+        .set(as(REVIEWER))
+        .send({ reason: "Let me out." })
+        .expect(403);
+    });
+
+    it("refuses an outsider on the exempt route as absent", async () => {
+      await suspend().expect(201);
+
+      // The exemption does not make a suspended Organization discoverable.
+      await request(server())
+        .post(`/organizations/${ORG}/reactivate`)
+        .set(as(OUTSIDER, ORG))
+        .send({ reason: "Mine now." })
+        .expect(404);
+    });
+
+    it("gives the lifecycle to the Owner alone", async () => {
+      for (const who of [MEMBER, REVIEWER]) {
+        await request(server())
+          .post(`/organizations/${ORG}/suspend`)
+          .set(as(who))
+          .send({ reason: "Mine now." })
+          .expect(403);
+        await request(server())
+          .post(`/organizations/${ORG}/archive`)
+          .set(as(who))
+          .send({ reason: "Mine now." })
+          .expect(403);
+      }
+    });
+
+    it("requires a reason on every lifecycle command", async () => {
+      for (const path of ["suspend", "archive"]) {
+        await request(server())
+          .post(`/organizations/${ORG}/${path}`)
+          .set(as(OWNER))
+          .send({})
+          .expect(400);
+        // Present but blank is the Aggregate's refusal, not the edge's.
+        await request(server())
+          .post(`/organizations/${ORG}/${path}`)
+          .set(as(OWNER))
+          .send({ reason: "   " })
+          .expect(422);
+      }
+    });
+
+    it("refuses archival while Work is live, and allows it once resolved", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/start`)
+        .set(as(MEMBER))
+        .send({ expectedVersion: work.version })
+        .expect(201);
+
+      const refused = await request(server())
+        .post(`/organizations/${ORG}/archive`)
+        .set(as(OWNER))
+        .send({ reason: "Closing." })
+        .expect(409);
+      // The count, not the identifiers: a refusal must not become a listing of
+      // Work the caller holds no relationship to.
+      expect(refused.body.message).toContain("1");
+      expect(JSON.stringify(refused.body)).not.toContain(work.workId);
+
+      await request(server())
+        .post(`/works/${work.workId}/complete`)
+        .set(as(MEMBER))
+        .send({ expectedVersion: work.version + 1, completionSummary: "Done." })
+        .expect(201);
+
+      await request(server())
+        .post(`/organizations/${ORG}/archive`)
+        .set(as(OWNER))
+        .send({ reason: "Closing." })
+        .expect(201);
+    });
+
+    it("locks an archived Organization with no way back", async () => {
+      await request(server())
+        .post(`/organizations/${ORG}/archive`)
+        .set(as(OWNER))
+        .send({ reason: "Closing." })
+        .expect(201);
+
+      await request(server()).get("/works").set(as(OWNER)).expect(404);
+      // Archival is terminal, so the recovery exemption does not cover it. This
+      // is the assertion that keeps `allowSuspended` from becoming
+      // `allowNotActive`.
+      await request(server())
+        .post(`/organizations/${ORG}/reactivate`)
+        .set(as(OWNER))
+        .send({ reason: "Reopen." })
+        .expect(404);
+    });
+
+    it("archives a suspended Organization without a detour through Active", async () => {
+      await suspend().expect(201);
+      // Not reachable over HTTP while suspended — archive is not exempt — so the
+      // Owner reactivates first. The Aggregate permits Suspended → Archived;
+      // the route is what requires the detour, and that is worth stating.
+      await request(server())
+        .post(`/organizations/${ORG}/archive`)
+        .set(as(OWNER))
+        .send({ reason: "Closing." })
+        .expect(404);
+    });
+
+    it("records the lifecycle transitions in the audit", async () => {
+      await suspend().expect(201);
+      await request(server())
+        .post(`/organizations/${ORG}/reactivate`)
+        .set(as(OWNER))
+        .send({ reason: "Resuming." })
+        .expect(201);
+
+      const rows = await auditRows("organization.suspend", 2);
+      const transition = rows.find((r) => r.command_type === "SuspendOrganization");
+      expect(transition).toMatchObject({
+        outcome: "Allow",
+        previous_state: "Active",
+        next_state: "Suspended",
+        resource_type: "Organization",
+        membership_id: OWNER.membership,
+      });
+    });
+
+    it("writes one event per transition", async () => {
+      await suspend().expect(201);
+      await request(server())
+        .post(`/organizations/${ORG}/reactivate`)
+        .set(as(OWNER))
+        .send({ reason: "Resuming." })
+        .expect(201);
+
+      const events = await pool.query<{ event_type: string; payload: { reason: string } }>(
+        `SELECT event_type, payload FROM outbox_messages
+          WHERE aggregate_type = 'Organization'
+          ORDER BY aggregate_version`,
+      );
+      expect(events.rows.map((r) => r.event_type)).toEqual([
+        "OrganizationSuspended",
+        "OrganizationReactivated",
+      ]);
+      expect(events.rows[0]?.payload.reason).toBe("Pausing operations.");
+    });
+  });
+
   describe("Member lifecycle", () => {
     const members = `/organizations/${ORG}/members`;
 

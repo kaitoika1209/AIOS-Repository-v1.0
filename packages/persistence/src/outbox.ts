@@ -65,6 +65,9 @@ const aggregateOf = (
 
     case "OrganizationCreated":
     case "OrganizationRenamed":
+    case "OrganizationSuspended":
+    case "OrganizationReactivated":
+    case "OrganizationArchived":
       // The Organization is its own stream, keyed by itself. `organizationId`
       // is both the tenant scope and the aggregate id here, which is true of no
       // other aggregate.

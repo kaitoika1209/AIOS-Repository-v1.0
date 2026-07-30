@@ -11,17 +11,25 @@
  * applies.
  */
 
-import type { IdentityId, OrganizationId } from "@aios/types";
+import { isHumanMember, type IdentityId, type OrganizationId } from "@aios/types";
 import {
   ValidationError,
+  archiveOrganization,
   createOrganization,
+  reactivateOrganization,
   renameOrganization,
+  suspendOrganization,
   type MembershipState,
   type OrganizationState,
 } from "@aios/domain";
 
+import { recordTransition } from "./audit.js";
 import { requirePermission } from "./authorization.js";
-import { NotFoundError, type UseCaseDependencies } from "./ports.js";
+import {
+  NotFoundError,
+  type RepositoryBundle,
+  type UseCaseDependencies,
+} from "./ports.js";
 import type { WorkCommandContext } from "./work-use-cases.js";
 
 /**
@@ -157,14 +165,190 @@ export const renameOrganizationUseCase = async (
   requirePermission(ctx.principal, "organization.rename");
 
   return deps.uow.transaction(async (tx) => {
-    const current = await tx.organizations.findById(ctx.organizationId);
-    if (current === null) {
-      throw new NotFoundError("Organization");
-    }
+    const current = await loadOrganization(tx, ctx.organizationId);
 
     const { state, events } = renameOrganization(current, name, ctx);
     await tx.organizations.update(state, current.version);
     await tx.outbox.append(events);
+    return state;
+  });
+};
+
+/**
+ * Refused because the Organization still has Work that archival would strand.
+ *
+ * `409`, not `422`: the request is well formed and the Organization is in a
+ * state that accepts archival. What refuses it is the Organization's current
+ * shape, which the caller can change by finishing or cancelling the Work —
+ * the same shape as `LastOwnerError`.
+ */
+export class LiveWorkError extends Error {
+  readonly code = "LIVE_WORK_REMAINS" as const;
+
+  constructor(readonly count: number) {
+    super(
+      `The Organization has ${count} Work item(s) still in progress or ` +
+        "waiting for a Decision. Complete or cancel them before archiving.",
+    );
+    this.name = "LiveWorkError";
+  }
+}
+
+/**
+ * ADR-0017's archival precondition: "An Organization may be archived only when
+ * no Work remains InProgress or WaitingForDecision."
+ *
+ * Archival makes the Organization read-only, so a Work left in either state
+ * could never afterwards be completed or cancelled. The check spans Aggregates,
+ * which is why it is here and not in the Organization: it is the same division
+ * the Last Owner Invariant follows.
+ *
+ * Read inside the archiving transaction, so a Work started concurrently cannot
+ * slip between the check and the write.
+ */
+const requireNoLiveWork = async (
+  tx: RepositoryBundle,
+  organizationId: OrganizationId,
+): Promise<void> => {
+  const work = await tx.work.listByOrganization(organizationId);
+  const live = work.filter(
+    (w) => w.status === "InProgress" || w.status === "WaitingForDecision",
+  );
+  if (live.length > 0) {
+    // The count, not the identifiers. A caller entitled to archive is entitled
+    // to know how much is outstanding, but an Owner holds no relationship to
+    // every Work by default and the refusal must not become a listing.
+    throw new LiveWorkError(live.length);
+  }
+};
+
+/** Load the Organization this context acts in, or report it absent. */
+const loadOrganization = async (
+  tx: RepositoryBundle,
+  organizationId: OrganizationId,
+): Promise<OrganizationState> => {
+  const organization = await tx.organizations.findById(organizationId);
+  if (organization === null) {
+    throw new NotFoundError("Organization");
+  }
+  return organization;
+};
+
+/**
+ * Record an Organization lifecycle transition.
+ *
+ * The edge interceptor records that the command was allowed; only here are both
+ * states known. See `auditWorkTransition`.
+ */
+const auditOrganizationTransition = (
+  deps: UseCaseDependencies,
+  ctx: WorkCommandContext,
+  before: OrganizationState,
+  after: OrganizationState,
+  permission: string,
+  commandType: string,
+): void => {
+  if (before.status === after.status) return;
+  recordTransition(deps.audit, {
+    organizationId: ctx.organizationId,
+    identityId: isHumanMember(ctx.principal) ? ctx.principal.identityId : null,
+    membershipId: isHumanMember(ctx.principal) ? ctx.principal.membershipId : null,
+    commandType,
+    permission,
+    resourceType: "Organization",
+    resourceId: after.organizationId,
+    previousState: before.status,
+    nextState: after.status,
+    now: ctx.now,
+  });
+};
+
+/**
+ * Pause the Organization.
+ *
+ * Every route in the Organization stops resolving the moment this commits —
+ * `PrincipalResolver` refuses a non-Active Organization — so the caller's next
+ * request will be answered `404` even though this one succeeded. The one
+ * exception is `POST /organizations/{organizationId}/reactivate`, which ADR-0014
+ * exempts from the status check precisely so there is a way back.
+ */
+export const suspendOrganizationUseCase = async (
+  deps: UseCaseDependencies,
+  ctx: WorkCommandContext,
+  reason: string,
+): Promise<OrganizationState> => {
+  requirePermission(ctx.principal, "organization.suspend");
+
+  return deps.uow.transaction(async (tx) => {
+    const current = await loadOrganization(tx, ctx.organizationId);
+    const { state, events } = suspendOrganization(current, reason, ctx);
+
+    await tx.organizations.update(state, current.version);
+    await tx.outbox.append(events);
+    auditOrganizationTransition(
+      deps, ctx, current, state, "organization.suspend", "SuspendOrganization",
+    );
+    return state;
+  });
+};
+
+/**
+ * Return a suspended Organization to service.
+ *
+ * The one route that reaches a non-Active Organization. The guard still resolves
+ * the caller's Membership and this still checks the permission, so the exemption
+ * buys exactly one thing: the Organization's status is not itself a reason to
+ * refuse.
+ *
+ * "At least one valid active Owner" is not re-checked. The caller *is* an active
+ * Owner — no other role holds `organization.reactivate`, and the guard resolved
+ * their Membership as Active before this ran — so the condition is satisfied by
+ * the fact that this code is executing.
+ */
+export const reactivateOrganizationUseCase = async (
+  deps: UseCaseDependencies,
+  ctx: WorkCommandContext,
+  reason: string,
+): Promise<OrganizationState> => {
+  requirePermission(ctx.principal, "organization.reactivate");
+
+  return deps.uow.transaction(async (tx) => {
+    const current = await loadOrganization(tx, ctx.organizationId);
+    const { state, events } = reactivateOrganization(current, reason, ctx);
+
+    await tx.organizations.update(state, current.version);
+    await tx.outbox.append(events);
+    auditOrganizationTransition(
+      deps, ctx, current, state, "organization.reactivate", "ReactivateOrganization",
+    );
+    return state;
+  });
+};
+
+/**
+ * Archive the Organization, permanently.
+ *
+ * Terminal, and the last command this Organization will accept: an Archived
+ * Organization is refused by the resolver like a Suspended one, and no route is
+ * exempt from that for `Archived`.
+ */
+export const archiveOrganizationUseCase = async (
+  deps: UseCaseDependencies,
+  ctx: WorkCommandContext,
+  reason: string,
+): Promise<OrganizationState> => {
+  requirePermission(ctx.principal, "organization.archive");
+
+  return deps.uow.transaction(async (tx) => {
+    const current = await loadOrganization(tx, ctx.organizationId);
+    await requireNoLiveWork(tx, ctx.organizationId);
+    const { state, events } = archiveOrganization(current, reason, ctx);
+
+    await tx.organizations.update(state, current.version);
+    await tx.outbox.append(events);
+    auditOrganizationTransition(
+      deps, ctx, current, state, "organization.archive", "ArchiveOrganization",
+    );
     return state;
   });
 };

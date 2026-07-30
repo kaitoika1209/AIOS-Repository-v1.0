@@ -68,6 +68,9 @@ const APPLICATION_STATUS: Readonly<Record<string, number>> = {
   // state that accepts the command. What refuses it is the Organization's
   // current shape, which the caller can change by appointing another Owner.
   LAST_OWNER_REQUIRED: 409,
+  // Well-formed, and the Organization accepts archival — what refuses it is
+  // Work the caller can still finish or cancel.
+  LIVE_WORK_REMAINS: 409,
   // `422`, not `403`: the caller holds the assistance permission and the route
   // exists. What refuses it is the absence of an Organization grant, which no
   // role can supply — "deny-by-default" (ADR-0011).

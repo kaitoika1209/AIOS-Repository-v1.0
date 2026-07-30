@@ -62,9 +62,18 @@ export type Resolution =
 export class PrincipalResolver {
   constructor(private readonly pool: Pool) {}
 
+  /**
+   * Resolve a principal.
+   *
+   * `allowSuspended` is set only by the reactivation route (ADR-0014, ADR-0017).
+   * It widens the Organization-status check to admit `Suspended` and nothing
+   * else — every other step, including the Membership's own Active check, runs
+   * unchanged. `Archived` stays refused, because archival is terminal.
+   */
   async resolve(
     subject: AuthenticatedSubject,
     organizationId: OrganizationId,
+    allowSuspended = false,
   ): Promise<Resolution> {
     const client = await this.pool.connect();
     try {
@@ -90,12 +99,16 @@ export class PrincipalResolver {
         return { ok: false, reason: "identity_disabled" };
       }
 
-      // 2. Organization must exist and be Active.
+      // 2. Organization must exist and be Active — or Suspended, on the one
+      //    route that exists to recover it.
       const organization = await client.query<{ status: string }>(
         `SELECT status FROM organizations WHERE organization_id = $1`,
         [organizationId],
       );
-      if (organization.rows[0]?.status !== "Active") {
+      const status = organization.rows[0]?.status;
+      const usable =
+        status === "Active" || (allowSuspended && status === "Suspended");
+      if (!usable) {
         return { ok: false, reason: "organization_unavailable" };
       }
 

@@ -34,6 +34,13 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     "notification.read",
     "notification.acknowledge",
     "organization.rename",
+    // The Owner-held Organization lifecycle (ADR-0017). Absent from every other
+    // role, including Admin: while an Organization is Suspended, reactivation is
+    // the only reachable route, so an Admin who could suspend could strand every
+    // Owner behind a command only an Owner can call.
+    "organization.suspend",
+    "organization.reactivate",
+    "organization.archive",
     "organization.read_members",
     "organization.invite_member",
     "organization.resend_invitation",

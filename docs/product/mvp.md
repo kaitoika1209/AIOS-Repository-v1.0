@@ -256,8 +256,19 @@ The MVP must support:
 - basic Organization settings;
 - Member invitation;
 - invitation acceptance;
-- Member removal or deactivation; and
-- viewing active Members.
+- Member removal or deactivation;
+- viewing active Members; and
+- the Owner-held Organization lifecycle: suspension, reactivation, and archival.
+
+The lifecycle is scoped by
+[ADR-0017](../adr/0017-promote-the-organization-lifecycle.md), which promotes it from a
+future design into this release. Only the Organization's own Owner may perform the three
+commands. Suspension is a reversible pause the Owner controls, not an enforcement tool:
+suspending an Organization for billing or security reasons requires authority over a
+tenant without a Membership in it, and that identity model is deferred.
+
+An Organization may be archived only when no Work remains InProgress or WaitingForDecision.
+Archival is terminal.
 
 Every organization-owned object must reference exactly one Organization.
 

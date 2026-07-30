@@ -84,6 +84,29 @@ export const WITHOUT_ORGANIZATION = "aios:withoutOrganization";
 export const WithoutOrganizationContext = () =>
   SetMetadata(WITHOUT_ORGANIZATION, true);
 
+export const RECOVERS_SUSPENDED = "aios:recoversSuspended";
+
+/**
+ * Allow a route to run while its Organization is `Suspended`.
+ *
+ * ADR-0014 permits this for reactivation alone, and ADR-0017 explains why it has
+ * to exist: `PrincipalResolver` refuses every request whose Organization is not
+ * `Active`, so without the exemption a suspended Organization would have no way
+ * back that did not involve editing the database.
+ *
+ * It is the narrowest of the three exemptions. The Organization is still
+ * resolved, the Membership must still be Active, and the permission still
+ * applies — only the Organization's own status stops being a reason to refuse.
+ *
+ * `Archived` is **not** covered. Archival is terminal: "An Archived Organization
+ * does not return to Active in the MVP."
+ *
+ * Marking any other route with this is a defect. `scripts/check_routes.py`
+ * cannot tell a second one from the first — review must.
+ */
+export const RecoversSuspendedOrganization = () =>
+  SetMetadata(RECOVERS_SUSPENDED, true);
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -215,7 +238,16 @@ export class RequestContextGuard implements CanActivate {
     }
 
     const organizationId = OrganizationId(header);
-    const resolution = await this.resolver.resolve(subject, organizationId);
+    const recovers =
+      this.reflector.getAllAndOverride<boolean>(RECOVERS_SUSPENDED, [
+        context.getHandler(),
+        context.getClass(),
+      ]) === true;
+    const resolution = await this.resolver.resolve(
+      subject,
+      organizationId,
+      recovers,
+    );
     if (!resolution.ok) {
       // The Organization the caller *claimed*, which is the useful fact: it is
       // what they were reaching for, not what they hold.

@@ -77,10 +77,28 @@ describe("role to permission mapping", () => {
     }
   });
 
+  /**
+   * The Organization's own lifecycle, held by the Owner alone (ADR-0017).
+   *
+   * The one place Admin is not Owner-minus-deletion, and the reason is
+   * reachability rather than seniority: while an Organization is Suspended,
+   * `PrincipalResolver` refuses every request in it, so `organization.reactivate`
+   * is the only way back. An Admin who could suspend could strand every Owner
+   * behind a route only an Owner can call.
+   */
+  const OWNER_ONLY = [
+    "organization.suspend",
+    "organization.reactivate",
+    "organization.archive",
+  ] as const;
+
   it("restricts membership administration to Owner and Admin", () => {
     // "Organization administration | Full | Limited | None | None".
     const administration = PERMISSIONS.filter(
-      (p) => p.startsWith("organization.") && p !== "organization.read_members",
+      (p) =>
+        p.startsWith("organization.") &&
+        p !== "organization.read_members" &&
+        !OWNER_ONLY.includes(p as (typeof OWNER_ONLY)[number]),
     );
     expect(administration.length).toBeGreaterThan(0);
     for (const permission of administration) {
@@ -88,6 +106,15 @@ describe("role to permission mapping", () => {
       expect(rolePermissions.OrganizationAdmin).toContain(permission);
       expect(rolePermissions.Member).not.toContain(permission);
       expect(rolePermissions.Reviewer).not.toContain(permission);
+    }
+  });
+
+  it("gives the Organization lifecycle to the Owner and to nobody else", () => {
+    for (const permission of OWNER_ONLY) {
+      expect(rolePermissions.OrganizationOwner).toContain(permission);
+      for (const role of ROLES.filter((r) => r !== "OrganizationOwner")) {
+        expect(rolePermissions[role]).not.toContain(permission);
+      }
     }
   });
 

@@ -38,6 +38,9 @@ const ROUTES: Readonly<Record<string, string>> = {
   "POST /memories/:memoryId/reopen": "memory.reopen",
   "POST /notifications/:notificationId/acknowledge": "notification.acknowledge",
   "PATCH /organizations/:organizationId": "organization.rename",
+  "POST /organizations/:organizationId/suspend": "organization.suspend",
+  "POST /organizations/:organizationId/reactivate": "organization.reactivate",
+  "POST /organizations/:organizationId/archive": "organization.archive",
   "POST /organizations/:organizationId/members": "organization.invite_member",
   "POST /organizations/:organizationId/members/:membershipId/resend-invitation":
     "organization.resend_invitation",
