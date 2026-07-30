@@ -22,6 +22,53 @@ DO $$ BEGIN
   EXCEPTION WHEN foreign_key_violation THEN NULL; END;
 END $$;
 
+DO $$
+DECLARE missing_constraints text[];
+BEGIN
+  SELECT array_agg(expected.name ORDER BY expected.name) INTO missing_constraints
+    FROM (VALUES
+      ('fk_membership_inviter'), ('fk_role_revoker_membership'),
+      ('ck_organization_has_owner'), ('ck_identity_change_preserves_owner'),
+      ('ck_organization_has_owner_membership'), ('ck_organization_has_owner_role'),
+      ('fk_audit_membership'), ('fk_outbox_human_membership'), ('uq_outbox_stream_position')
+    ) AS expected(name)
+   WHERE NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname=expected.name);
+  IF missing_constraints IS NOT NULL THEN
+    RAISE EXCEPTION 'reviewed M1 constraint inventory is incomplete: %', missing_constraints;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_roles
+     WHERE rolname IN ('aios_runtime','aios_worker','aios_readonly','aios_backup')
+       AND (rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls)
+  ) THEN
+    RAISE EXCEPTION 'an application or operations role has privileged role attributes';
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  BEGIN
+    UPDATE human_identities SET status='Disabled', disabled_at=now()
+      WHERE identity_id='00000000-0000-0000-0000-000000000001';
+    SET CONSTRAINTS ALL IMMEDIATE;
+    RAISE EXCEPTION 'last Human owner identity disablement was accepted';
+  EXCEPTION WHEN check_violation THEN NULL; END;
+END $$;
+
+DO $$ BEGIN
+  IF has_table_privilege('aios_runtime','authorization_audit_records','UPDATE')
+     OR has_table_privilege('aios_runtime','authorization_audit_records','DELETE')
+     OR has_table_privilege('aios_runtime','authorization_audit_records','TRUNCATE') THEN
+    RAISE EXCEPTION 'runtime role can mutate append-only authorization audit data';
+  END IF;
+  IF has_schema_privilege('aios_runtime','public','CREATE') THEN
+    RAISE EXCEPTION 'runtime role can mutate schema';
+  END IF;
+  IF has_table_privilege('aios_backup','memberships','INSERT')
+     OR NOT has_table_privilege('aios_backup','memberships','SELECT') THEN
+    RAISE EXCEPTION 'backup role grants are not read-only';
+  END IF;
+END $$;
+
 DO $$ BEGIN
   BEGIN
     UPDATE membership_role_assignments SET revoked_at=now() WHERE organization_id='10000000-0000-0000-0000-000000000001' AND role='OrganizationOwner';
@@ -43,11 +90,4 @@ INSERT INTO authorization_audit_records(
   'm1-test-policy', 1, 'Allow', 'test', now()
 );
 
-DO $$ BEGIN
-  BEGIN
-    SET LOCAL ROLE aios_runtime;
-    UPDATE authorization_audit_records SET reason_code='tampered';
-    RAISE EXCEPTION 'runtime role changed append-only authorization audit data';
-  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
-END $$;
 ROLLBACK;
