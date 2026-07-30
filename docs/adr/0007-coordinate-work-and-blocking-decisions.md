@@ -55,6 +55,8 @@ A Draft Decision never places Work in `WaitingForDecision`. An `InReview` blocki
 
 This transaction is permitted only because both Bounded Contexts are co-located in one implementation module and one authoritative PostgreSQL database. A service split requires a superseding ADR with durable coordination, compensation, recovery visibility, and equivalent invariants.
 
+The coordinator follows the canonical transaction protocol in [ADR-0013](0013-govern-coordinated-aggregate-transactions.md): processed-command identity first, Work row before an existing Decision row, bounded lock and statement timeouts, and no external calls while the transaction is open. Deadlock or serialization retry reuses the same command identity and reloads all state; an optimistic conflict returns to the Human rather than silently resubmitting a changed Draft.
+
 ### Asynchronous outcome propagation
 
 Approval, rejection, and withdrawal each commit only the Decision Aggregate, its outcome Domain Event, and `Integration / DecisionOutcomeOccurred / 1` in the Transactional Outbox.
