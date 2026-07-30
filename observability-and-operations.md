@@ -3901,7 +3901,7 @@ Metrics MAY use bounded labels such as outcome, failureCategory, workerType, and
 
 Logs, metrics, and traces are not sufficient to determine whether Memory generation is pending, running, retrying, or terminal.
 
-The authoritative operational record is `memory_generation_operations`, keyed by Organization, Work, and generation policy.
+The authoritative operational record is `memory_generation_operations`, keyed by Organization and Work. Generation policy is immutable provenance on that operation, not part of its identity.
 
 Required fields include:
 
