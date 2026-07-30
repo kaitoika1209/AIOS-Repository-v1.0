@@ -524,7 +524,7 @@ The generation process must:
 - support safe retry; and
 - avoid duplicate Memory creation.
 
-The MVP maintains at most one active Memory Aggregate for each completed Work.
+The MVP maintains at most one Memory Aggregate for each completed Work.
 
 Generation retries must be idempotent.
 
@@ -930,7 +930,7 @@ The MVP is release-ready only when the following end-to-end behavior is demonstr
 - Completing Work records a durable generation request.
 - Generation occurs without holding the Work transaction open.
 - Temporary generation failure can be retried.
-- Retry does not create duplicate active Memory.
+- Retry does not create a duplicate Memory.
 - Generated Memory preserves source traceability.
 
 ## Memory Review
