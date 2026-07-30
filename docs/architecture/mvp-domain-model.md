@@ -174,7 +174,7 @@ The State Machine documents define the allowed and forbidden transitions. This t
 - Memory generation begins only after a committed `WorkCompleted` event.
 - Memory generation failure never rolls back completed Work.
 - Repeated event delivery must not create duplicate Memory.
-- The MVP maintains at most one active Memory Aggregate for each completed Work.
+- The MVP maintains at most one Memory Aggregate for each completed Work.
 - Generated Memory is non-authoritative until Human review.
 - Approved Memory is immutable.
 - Approved Memory remains historical truth and does not automatically become Knowledge.
