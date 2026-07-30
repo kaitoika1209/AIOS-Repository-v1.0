@@ -22,9 +22,10 @@ import {
   WorkId,
 } from "@aios/types";
 import type { Clock, IdGenerator, UseCaseDependencies } from "@aios/application";
-import { PostgresUnitOfWork } from "@aios/persistence";
+import { PostgresAuditRepository, PostgresUnitOfWork } from "@aios/persistence";
 
 import { AdminEventsController } from "./admin-events.controller.js";
+import { AuditInterceptor } from "./audit-interceptor.js";
 import { chooseGenerator } from "./anthropic-memory-generator.js";
 import { DecisionController } from "./decision.controller.js";
 import { chooseDecisionAssistanceProvider } from "./decision-assistance-provider.js";
@@ -126,6 +127,9 @@ export const dependenciesFor = (pool: Pool): UseCaseDependencies => ({
   uow: new PostgresUnitOfWork(pool),
   clock: new SystemClock(),
   ids: new UuidGenerator(),
+  // Takes the pool, not a transaction client: an audit row must survive a
+  // business transaction that rolls back.
+  audit: new PostgresAuditRepository(pool),
 });
 
 export const createApp = async (options: AppOptions): Promise<INestApplication> => {
@@ -158,8 +162,14 @@ export const createApp = async (options: AppOptions): Promise<INestApplication> 
   const app = await NestFactory.create(AppModule, { logger: false });
 
   // The guard runs before every handler, so no route can be reached without a
-  // resolved principal (ADR-0013).
-  app.useGlobalGuards(new RequestContextGuard(options.auth, resolver));
+  // resolved principal (ADR-0013). It carries the audit store because Nest runs
+  // guards before interceptors: the refusals it makes — steps 2 to 4 of the
+  // Policy Evaluation Algorithm — never reach the interceptor below, and it is
+  // the only place that can record them.
+  app.useGlobalGuards(new RequestContextGuard(options.auth, resolver, deps.audit));
+  // After the guard, so the resolved principal is available, and wrapping the
+  // handler so the outcome is observed rather than predicted.
+  app.useGlobalInterceptors(new AuditInterceptor(deps.audit));
   app.useGlobalFilters(new DomainExceptionFilter());
 
   return app;

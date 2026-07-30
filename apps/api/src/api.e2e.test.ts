@@ -91,7 +91,11 @@ suite("AIOS API", () => {
     const client = await pool.connect();
     try {
       await client.query(
+        // `authorization_audit_records` is listed explicitly: it holds no
+        // foreign keys — deliberately, so a row outlives whatever it refers to —
+        // so `CASCADE` from the business tables never reaches it.
         `TRUNCATE decision_revisions, decisions, work_items, outbox_messages,
+                  authorization_audit_records,
                   notifications,
                   decision_secretary_contributions, secretary_assistance_grants,
                   dead_letter_events, event_replays, processed_events,
@@ -165,6 +169,26 @@ suite("AIOS API", () => {
   });
 
   const server = () => app.getHttpServer();
+
+  /**
+   * The audit rows for one permission, oldest first.
+   *
+   * Polled rather than read once: the interceptor never awaits its write into
+   * the response, on purpose — an audit outage must not become an availability
+   * outage — so the row lands shortly after the request resolves.
+   */
+  const auditRows = async (permission: string, expected = 1) => {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const result = await pool.query(
+        `SELECT * FROM authorization_audit_records
+          WHERE permission = $1 ORDER BY evaluated_at, created_at`,
+        [permission],
+      );
+      if (result.rows.length >= expected) return result.rows;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error(`no audit row for ${permission} after 500ms`);
+  };
 
   const createWork = async (title = "Ship the MVP") => {
     const res = await request(server())
@@ -1964,6 +1988,234 @@ suite("AIOS API", () => {
     });
   });
 
+  /**
+   * The authorization audit.
+   *
+   * The property that motivated it: **a refused command produces no event**, so
+   * the Outbox holds no trace of a denial. Every one of these tests that asserts
+   * a `Deny` row is asserting something the Outbox structurally cannot record.
+   */
+  describe("the authorization audit", () => {
+    it("records an Allow row for a command that succeeds", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/start`)
+        .set(as(MEMBER))
+        .send({ expectedVersion: work.version })
+        .expect(201);
+
+      // The edge row specifically. The use case records a second row for the
+      // same permission, and its `evaluatedAt` is the request's start time, so
+      // it sorts first — see "records the decision at the edge and the states
+      // in the use case".
+      const rows = await auditRows("work.start", 2);
+      const row = rows.find((r) => r.command_type.startsWith("POST "));
+      expect(row).toMatchObject({
+        outcome: "Allow",
+        reason_code: null,
+        command_type: "POST /works/:workId/start",
+        principal_type: "HumanMember",
+        identity_id: MEMBER.identity,
+        membership_id: MEMBER.membership,
+        organization_id: ORG,
+        resource_type: "Work",
+        resource_id: work.workId,
+      });
+    });
+
+    it("records a Deny row naming why, for a command that is refused", async () => {
+      const work = await createWork();
+      // A Reviewer reviews; the matrix gives them no `work.start`.
+      await request(server())
+        .post(`/works/${work.workId}/start`)
+        .set(as(REVIEWER))
+        .send({ expectedVersion: work.version })
+        .expect(403);
+
+      const [row] = await auditRows("work.start");
+      expect(row).toMatchObject({
+        outcome: "Deny",
+        reason_code: "PERMISSION_DENIED",
+        membership_id: REVIEWER.membership,
+        resource_type: "Work",
+        resource_id: work.workId,
+        previous_state: null,
+        next_state: null,
+      });
+    });
+
+    /**
+     * The refusal that leaves nothing else behind. A cross-tenant request is
+     * answered `404` and touches no row in any business table, so without this
+     * record there is no evidence the attempt was ever made.
+     */
+    it("records a cross-tenant attempt that the response reports as absent", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/start`)
+        .set(as(OUTSIDER, OTHER_ORG))
+        .send({ expectedVersion: work.version })
+        .expect(404);
+
+      const [row] = await auditRows("work.start");
+      expect(row).toMatchObject({
+        outcome: "Deny",
+        reason_code: "NOT_FOUND",
+        membership_id: OUTSIDER.membership,
+        // The Organization the caller acted in, not the one that owns the Work.
+        // An audit row must not leak which tenant holds the resource.
+        organization_id: OTHER_ORG,
+        resource_id: work.workId,
+      });
+    });
+
+    it("records an invalid transition as a denial with the domain's code", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/complete`)
+        .set(as(MEMBER))
+        .send({ expectedVersion: work.version, completionSummary: "Done." })
+        .expect(409);
+
+      const [row] = await auditRows("work.complete");
+      expect(row).toMatchObject({
+        outcome: "Deny",
+        reason_code: "WORK_INVALID_TRANSITION",
+        membership_id: MEMBER.membership,
+      });
+    });
+
+    /**
+     * The two halves, on one request. The edge records the decision; the use
+     * case records the states, which the edge cannot see because it holds the
+     * request and the response, never the row the handler read.
+     */
+    it("records the decision at the edge and the states in the use case", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/start`)
+        .set(as(MEMBER))
+        .send({ expectedVersion: work.version })
+        .expect(201);
+
+      const rows = await auditRows("work.start", 2);
+      expect(rows).toHaveLength(2);
+
+      const edge = rows.find((r) => r.command_type.startsWith("POST "));
+      const transition = rows.find((r) => r.command_type === "StartWork");
+      expect(edge).toMatchObject({ outcome: "Allow", previous_state: null });
+      expect(transition).toMatchObject({
+        outcome: "Allow",
+        previous_state: "Draft",
+        next_state: "InProgress",
+      });
+    });
+
+    it("stamps every row with the policy it was decided under", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/start`)
+        .set(as(MEMBER))
+        .send({ expectedVersion: work.version })
+        .expect(201);
+
+      for (const row of await auditRows("work.start", 2)) {
+        expect(row).toMatchObject({
+          policy_id: "aios-authorization-model",
+          policy_version: 1,
+        });
+      }
+    });
+
+    /**
+     * `mvp.md` asks for "every protected action", and a query is not one. A row
+     * per list request would bury the ones that matter.
+     */
+    it("records nothing for a read", async () => {
+      await createWork();
+      await request(server()).get("/works").set(as(MEMBER)).expect(200);
+
+      const rows = await pool.query(
+        `SELECT permission FROM authorization_audit_records
+          WHERE command_type LIKE 'GET %'`,
+      );
+      expect(rows.rows).toHaveLength(0);
+    });
+
+    /**
+     * "The audit repository should expose `Insert` only" and "Audit information
+     * must not be silently overwritten". The application code has no method that
+     * could; this asserts the rows themselves are not rewritten by the ordinary
+     * lifecycle of what they refer to.
+     */
+    it("keeps the denial after the resource it refers to is gone", async () => {
+      const work = await createWork();
+      await request(server())
+        .post(`/works/${work.workId}/start`)
+        .set(as(REVIEWER))
+        .send({ expectedVersion: work.version })
+        .expect(403);
+      await auditRows("work.start");
+
+      const client = await pool.connect();
+      try {
+        await client.query(`DELETE FROM work_items WHERE work_id = $1`, [
+          work.workId,
+        ]);
+      } finally {
+        client.release();
+      }
+
+      const [row] = await auditRows("work.start");
+      expect(row).toMatchObject({ outcome: "Deny", resource_id: work.workId });
+    });
+
+    /**
+     * Steps 2 to 4 of the Policy Evaluation Algorithm are refused by the guard,
+     * which Nest runs *before* interceptors — so the interceptor never sees
+     * them. They are recorded by the guard instead, and this is the test that
+     * says so: without it, a caller reaching into an Organization they do not
+     * belong to would leave no trace anywhere.
+     */
+    it("records a refusal made before the handler was reached", async () => {
+      await request(server())
+        .post("/works")
+        .set(as(OUTSIDER, ORG))
+        .send({ title: "Ship it" })
+        .expect(404);
+
+      const [row] = await auditRows("work.create");
+      expect(row).toMatchObject({
+        outcome: "Deny",
+        reason_code: "NO_MEMBERSHIP",
+        principal_type: "AuthenticatedSubject",
+        // Attributable to the subject that presented the request, even though no
+        // Membership resolved and therefore no principal exists.
+        principal_id: `${DEV_PROVIDER}:${OUTSIDER.subject}`,
+        membership_id: null,
+        organization_id: ORG,
+        command_type: "POST /works",
+      });
+    });
+
+    /**
+     * Authentication failure is not an authorization decision: the request never
+     * becomes a command, so there is no principal to attribute and nothing the
+     * audit could say beyond what the access log already does.
+     */
+    it("records nothing for a request that fails authentication", async () => {
+      await request(server())
+        .post("/works")
+        .set("x-organization-id", ORG)
+        .send({ title: "Ship it" })
+        .expect(401);
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const rows = await pool.query(`SELECT 1 FROM authorization_audit_records`);
+      expect(rows.rows).toHaveLength(0);
+    });
+  });
+
   describe("in-app notifications", () => {
     const memoryOptions = {
       memory: {
@@ -2738,6 +2990,25 @@ suite("AIOS API", () => {
         .set(as(OWNER))
         .send({ consumerName: "no-such-consumer", reasonCode: "X", reason: "y" })
         .expect(404);
+    });
+
+    it("records a Deny row for each refused recovery command", async () => {
+      const { deadLetterId } = await seedDeadLetter("decision-outcome");
+      await request(server())
+        .post(`/admin/events/dead-letters/${deadLetterId}/skip`)
+        .set(as(MEMBER))
+        .send({ expectedVersion: 1, reasonCode: "X", reason: "y" })
+        .expect(403);
+
+      const [row] = await auditRows("events.skip");
+      expect(row).toMatchObject({
+        outcome: "Deny",
+        reason_code: "PERMISSION_DENIED",
+        permission: "events.skip",
+        membership_id: MEMBER.membership,
+        resource_type: "DeadLetter",
+        resource_id: deadLetterId,
+      });
     });
 
     it("denies a Member every consumer recovery command", async () => {

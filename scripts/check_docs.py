@@ -184,6 +184,10 @@ ROUTE_ROW = re.compile(r"^\| `([a-z_]+\.[a-z_]+)` \| `([^`]+)` \|", re.MULTILINE
 AUTHZ_DOC = "docs/architecture/authorization.md"
 ROUTE_ADR = "docs/adr/0014-adopt-rest-with-explicit-command-sub-resources.md"
 
+# The one route ADR-0014 permits to carry two permissions, under the heading
+# "Atomic activation is the one route that carries two permissions".
+SHARED_ROUTE = {"decision.submit", "work.request_decision"}
+
 CATALOGUE_HEADING = "## Permission Catalogue"
 RESERVED_HEADING = "## Reserved Permissions"
 
@@ -246,10 +250,13 @@ def check_route_catalogue() -> None:
         failures.append(f"{ROUTE_ADR}: {name!r} is reserved and must not be routed")
 
     # Two permissions sharing a route would defeat the one-to-one rule from the
-    # other direction, which the set comparison above cannot see.
+    # other direction, which the set comparison above cannot see. ADR-0014 names
+    # one exemption, and it is not a routing choice: ADR-0007 requires
+    # `Decision.SubmitForReview` and `Work.RequestBlockingDecision` to commit in
+    # one transaction, and two routes cannot share one.
     seen: dict[str, str] = {}
     for permission, route in rows:
-        if route in seen:
+        if route in seen and {seen[route], permission} != SHARED_ROUTE:
             failures.append(
                 f"{ROUTE_ADR}: route {route!r} is claimed by both "
                 f"{seen[route]!r} and {permission!r} (ADR-0014)"

@@ -152,6 +152,31 @@ target state as a parameter.
 `PATCH` is reserved for content edits that carry no lifecycle meaning
 (`work.edit`, `decision.edit_draft`, `memory.edit_generated`).
 
+#### Atomic activation is the one route that carries two permissions
+
+```text
+POST /decisions/{decisionId}/submit
+```
+
+ADR-0007 makes `RequestBlockingDecision` "the only approved MVP use case that mutates
+both Work and Decision in one transaction", and requires that `Decision.SubmitForReview`
+and `Work.RequestBlockingDecision` commit together or not at all. Two HTTP requests
+cannot share one transaction, so the two commands cannot have two routes: splitting them
+is not a routing preference this ADR is free to express, it is a durability property
+ADR-0007 already decided.
+
+This route therefore checks `decision.submit` **and** `work.request_decision`, and a
+caller holding only one of them is refused. The one-to-one rule holds in the direction
+that matters for the audit — each permission still has exactly one route, so a permission
+identifier still names a single place — and it is the reverse direction that bends here.
+
+There is no `POST /works/{workId}/request-decision`. A route that placed Work in
+`WaitingForDecision` on its own would create exactly the state ADR-0007 forbids: "A Draft
+Decision never places Work in `WaitingForDecision`."
+
+This is the only route with two permissions. Any further one is a defect until this ADR
+is amended.
+
 ### Route catalogue
 
 | Permission | Route |
@@ -161,7 +186,7 @@ target state as a parameter.
 | `work.start` | `POST /works/{workId}/start` |
 | `work.assign` | `POST /works/{workId}/assign` |
 | `work.record_progress` | `POST /works/{workId}/progress` |
-| `work.request_decision` | `POST /works/{workId}/request-decision` |
+| `work.request_decision` | `POST /decisions/{decisionId}/submit` |
 | `work.complete` | `POST /works/{workId}/complete` |
 | `work.cancel` | `POST /works/{workId}/cancel` |
 | `decision.create` | `POST /decisions` |

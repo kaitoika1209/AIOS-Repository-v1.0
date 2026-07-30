@@ -14,7 +14,8 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "check:docs": "python3 scripts/check_docs.py",
-    "check:routes": "python3 scripts/check_routes.py"
+    "check:routes": "python3 scripts/check_routes.py",
+    "check:audit": "python3 scripts/check_audit.py"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

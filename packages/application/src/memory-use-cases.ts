@@ -13,7 +13,7 @@
  * no authoritative business effect and is safe to retry.
  */
 
-import type { MemoryId, OrganizationId, WorkId } from "@aios/types";
+import { isHumanMember, type MemoryId, type OrganizationId, type WorkId } from "@aios/types";
 import {
   approveMemory,
   createGeneratedMemory,
@@ -27,6 +27,7 @@ import {
   type MemoryState,
 } from "@aios/domain";
 
+import { recordTransition } from "./audit.js";
 import { requirePermission } from "./authorization.js";
 import { requireMemoryRelationship } from "./relationships.js";
 import {
@@ -104,6 +105,36 @@ export const GENERATION_LEASE_MS = 5 * 60 * 1000;
 
 /** Backoff before a retryable failure is attempted again. */
 export const GENERATION_RETRY_DELAY_MS = 60 * 1000;
+
+/**
+ * Record a Memory lifecycle transition.
+ *
+ * See `auditWorkTransition`: the edge records the decision, the use case records
+ * what changed.
+ */
+const auditMemoryTransition = (
+  deps: UseCaseDependencies,
+  ctx: WorkCommandContext,
+  before: { status: string },
+  after: { status: string },
+  resourceId: string,
+  permission: string,
+  commandType: string,
+): void => {
+  if (before.status === after.status) return;
+  recordTransition(deps.audit, {
+    organizationId: ctx.organizationId,
+    identityId: isHumanMember(ctx.principal) ? ctx.principal.identityId : null,
+    membershipId: isHumanMember(ctx.principal) ? ctx.principal.membershipId : null,
+    commandType,
+    permission,
+    resourceType: "Memory",
+    resourceId,
+    previousState: before.status,
+    nextState: after.status,
+    now: ctx.now,
+  });
+};
 
 /**
  * Generate the Memory for a completed Work.
@@ -357,6 +388,7 @@ export const submitMemoryUseCase = async (
     const { state, events } = submitMemoryForReview(current, ctx);
     await tx.memories.update(state, current.version);
     await tx.outbox.append(events);
+    auditMemoryTransition(deps, ctx, current, state, memoryId, "memory.submit", "SubmitMemoryForReview");
     return state;
   });
 };
@@ -375,6 +407,7 @@ export const approveMemoryUseCase = async (
     const { state, events } = approveMemory(current, note, ctx);
     await tx.memories.update(state, current.version);
     await tx.outbox.append(events);
+    auditMemoryTransition(deps, ctx, current, state, memoryId, "memory.approve", "ApproveMemory");
     return state;
   });
 };
@@ -392,6 +425,7 @@ export const rejectMemoryUseCase = async (
     const { state, events } = rejectMemory(current, note, ctx);
     await tx.memories.update(state, current.version);
     await tx.outbox.append(events);
+    auditMemoryTransition(deps, ctx, current, state, memoryId, "memory.reject", "RejectMemory");
     return state;
   });
 };
@@ -407,6 +441,7 @@ export const reopenMemoryUseCase = async (
     const current = await loadMemory(tx, ctx.organizationId, memoryId);
     const { state } = reopenMemory(current, deps.ids.revisionId(), ctx);
     await tx.memories.update(state, current.version);
+    auditMemoryTransition(deps, ctx, current, state, memoryId, "memory.reopen", "ReopenMemory");
     return state;
   });
 };

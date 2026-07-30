@@ -21,3 +21,6 @@ jobs:
 
       - name: Check routed permissions are enforced
         run: python3 scripts/check_routes.py
+
+      - name: Check the authorization audit records what it claims to
+        run: python3 scripts/check_audit.py

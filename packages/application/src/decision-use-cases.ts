@@ -38,6 +38,7 @@ import {
   type DecisionAssistanceProvider,
   type SecretaryContribution,
 } from "./assistance.js";
+import { recordTransition } from "./audit.js";
 import { requirePermission } from "./authorization.js";
 import {
   requireDecisionRelationship,
@@ -72,6 +73,37 @@ const loadWork = async (
     throw new NotFoundError("Work");
   }
   return work;
+};
+
+
+/**
+ * Record a Decision lifecycle transition.
+ *
+ * See `auditWorkTransition`: the edge records the decision, the use case records
+ * what changed.
+ */
+const auditDecisionTransition = (
+  deps: UseCaseDependencies,
+  ctx: WorkCommandContext,
+  before: { status: string },
+  after: { status: string },
+  resourceId: string,
+  permission: string,
+  commandType: string,
+): void => {
+  if (before.status === after.status) return;
+  recordTransition(deps.audit, {
+    organizationId: ctx.organizationId,
+    identityId: isHumanMember(ctx.principal) ? ctx.principal.identityId : null,
+    membershipId: isHumanMember(ctx.principal) ? ctx.principal.membershipId : null,
+    commandType,
+    permission,
+    resourceType: "Decision",
+    resourceId,
+    previousState: before.status,
+    nextState: after.status,
+    now: ctx.now,
+  });
 };
 
 export const createDecisionUseCase = async (
@@ -223,6 +255,25 @@ export const submitBlockingDecisionUseCase = async (
     await tx.work.update(blocked.state, currentWork.version);
     await tx.outbox.append([...submitted.events, ...blocked.events]);
 
+    // ADR-0007's atomic activation changes two Aggregates, so it records two
+    // transitions. One row naming both would lose which state belonged to which.
+    auditDecisionTransition(
+      deps, ctx, currentDecision, submitted.state, decisionId,
+      "decision.submit", "SubmitForReview",
+    );
+    recordTransition(deps.audit, {
+      organizationId: ctx.organizationId,
+      identityId: isHumanMember(ctx.principal) ? ctx.principal.identityId : null,
+      membershipId: isHumanMember(ctx.principal) ? ctx.principal.membershipId : null,
+      commandType: "RequestBlockingDecision",
+      permission: "work.request_decision",
+      resourceType: "Work",
+      resourceId: currentWork.workId,
+      previousState: currentWork.status,
+      nextState: blocked.state.status,
+      now: ctx.now,
+    });
+
     return { decision: submitted.state, work: blocked.state };
   });
 };
@@ -241,6 +292,7 @@ export const approveDecisionUseCase = async (
 
     await tx.decisions.update(state, current.version);
     await tx.outbox.append(events);
+    auditDecisionTransition(deps, ctx, current, state, decisionId, "decision.approve", "ApproveDecision");
     return state;
   });
 };
@@ -259,6 +311,7 @@ export const rejectDecisionUseCase = async (
 
     await tx.decisions.update(state, current.version);
     await tx.outbox.append(events);
+    auditDecisionTransition(deps, ctx, current, state, decisionId, "decision.reject", "RejectDecision");
     return state;
   });
 };
@@ -277,6 +330,7 @@ export const withdrawDecisionUseCase = async (
 
     await tx.decisions.update(state, current.version);
     await tx.outbox.append(events);
+    auditDecisionTransition(deps, ctx, current, state, decisionId, "decision.withdraw", "WithdrawDecision");
     return state;
   });
 };
@@ -299,6 +353,10 @@ export const startRevisionUseCase = async (
     const { state } = startRevision(current, deps.ids.revisionId(), ctx);
 
     await tx.decisions.update(state, current.version);
+    auditDecisionTransition(
+      deps, ctx, current, state, decisionId,
+      "decision.start_revision", "StartRevision",
+    );
     return state;
   });
 };
@@ -354,6 +412,22 @@ export const applyDecisionOutcomeUseCase = async (
 
     await tx.work.update(state, current.version);
     await tx.outbox.append(events);
+    // Recorded under the System Principal that applied it, not under the human
+    // who resolved the Decision: this row says when the Work's gate actually
+    // moved, which is a later and separately observable moment. The human's
+    // authority is already recorded on the Decision's own row.
+    recordTransition(deps.audit, {
+      organizationId: input.organizationId,
+      identityId: null,
+      membershipId: null,
+      commandType: "RecordDecisionOutcome",
+      permission: "work.record_decision_outcome",
+      resourceType: "Work",
+      resourceId: input.workId,
+      previousState: current.status,
+      nextState: state.status,
+      now: ctx.now,
+    });
     return state;
   });
 

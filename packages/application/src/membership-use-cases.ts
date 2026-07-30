@@ -14,7 +14,7 @@
 
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
-import type { MembershipId, OrganizationId, Role } from "@aios/types";
+import { isHumanMember, type MembershipId, type OrganizationId, type Role } from "@aios/types";
 import {
   acceptInvitation,
   InvitationNotAcceptableError,
@@ -30,6 +30,7 @@ import {
   type MembershipState,
 } from "@aios/domain";
 
+import { recordTransition } from "./audit.js";
 import { requirePermission } from "./authorization.js";
 import {
   NotFoundError,
@@ -185,6 +186,9 @@ export const revokeInvitationUseCase = async (
     const { state, events } = revokeInvitation(current, ctx, reason);
     await tx.memberships.update(state, current.version);
     await tx.outbox.append(events);
+    auditMembershipTransition(
+      deps, ctx, current, state, membershipId, "organization.revoke_invitation", "RevokeInvitation",
+    );
     return state;
   });
 };
@@ -261,6 +265,9 @@ export const suspendMemberUseCase = async (
     const { state, events } = suspendMembership(current, ctx, reason);
     await tx.memberships.update(state, current.version);
     await tx.outbox.append(events);
+    auditMembershipTransition(
+      deps, ctx, current, state, membershipId, "organization.suspend_member", "SuspendMembership",
+    );
     return state;
   });
 };
@@ -279,6 +286,9 @@ export const reactivateMemberUseCase = async (
     const { state, events } = reactivateMembership(current, ctx, reason);
     await tx.memberships.update(state, current.version);
     await tx.outbox.append(events);
+    auditMembershipTransition(
+      deps, ctx, current, state, membershipId, "organization.reactivate_member", "ReactivateMembership",
+    );
     return state;
   });
 };
@@ -307,7 +317,41 @@ export const revokeMemberUseCase = async (
     const { state, events } = revokeMembership(current, ctx, reason);
     await tx.memberships.update(state, current.version);
     await tx.outbox.append(events);
+    auditMembershipTransition(
+      deps, ctx, current, state, membershipId, "organization.revoke_member", "RevokeMembership",
+    );
     return state;
+  });
+};
+
+
+/**
+ * Record a Membership lifecycle transition.
+ *
+ * See `auditWorkTransition`: the edge records the decision, the use case records
+ * what changed.
+ */
+const auditMembershipTransition = (
+  deps: UseCaseDependencies,
+  ctx: WorkCommandContext,
+  before: { status: string },
+  after: { status: string },
+  resourceId: string,
+  permission: string,
+  commandType: string,
+): void => {
+  if (before.status === after.status) return;
+  recordTransition(deps.audit, {
+    organizationId: ctx.organizationId,
+    identityId: isHumanMember(ctx.principal) ? ctx.principal.identityId : null,
+    membershipId: isHumanMember(ctx.principal) ? ctx.principal.membershipId : null,
+    commandType,
+    permission,
+    resourceType: "Membership",
+    resourceId,
+    previousState: before.status,
+    nextState: after.status,
+    now: ctx.now,
   });
 };
 
@@ -409,6 +453,24 @@ export const acceptInvitationUseCase = async (
 
     await tx.memberships.update(state, membership.version);
     await tx.outbox.append(events);
+
+    // Acceptance is the moment authority comes into existence, so it is the one
+    // transition most worth recording — and the caller holds no permission, so
+    // `permission` names the exemption ADR-0014 grants rather than a grant the
+    // caller has. The Membership is what the audit can attribute this to; the
+    // Identity was created moments ago and may have existed for seconds.
+    recordTransition(deps.audit, {
+      organizationId: state.organizationId,
+      identityId: identity.identityId,
+      membershipId: state.membershipId,
+      commandType: "AcceptInvitation",
+      permission: "invitation.accept",
+      resourceType: "Membership",
+      resourceId: state.membershipId,
+      previousState: membership.status,
+      nextState: state.status,
+      now: ctx.now,
+    });
 
     return { membership: state, organizationId: state.organizationId };
   });

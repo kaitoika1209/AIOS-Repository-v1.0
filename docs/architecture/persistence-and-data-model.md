@@ -5206,6 +5206,83 @@ authorization_audit_records
 
 ---
 
+## Authorization Audit Conceptual DDL
+
+```sql
+CREATE TABLE authorization_audit_records (
+    authorization_audit_id uuid PRIMARY KEY,
+    request_id             uuid NOT NULL,
+    command_id             uuid NULL,
+    correlation_id         uuid NOT NULL,
+
+    principal_id           text NOT NULL,
+    principal_type         text NOT NULL,
+    identity_id            uuid NULL,
+    membership_id          uuid NULL,
+    organization_id        uuid NULL,
+
+    command_type           text NOT NULL,
+    permission             text NULL,
+    resource_type          text NULL,
+    resource_id            text NULL,
+
+    policy_id              text NOT NULL,
+    policy_version         integer NOT NULL,
+
+    outcome                text NOT NULL,
+    reason_code            text NULL,
+
+    previous_state         text NULL,
+    next_state             text NULL,
+
+    evaluated_at           timestamptz NOT NULL,
+    resulting_event_id     uuid NULL,
+    created_at             timestamptz NOT NULL,
+
+    CONSTRAINT ck_authorization_audit_denial CHECK (
+        outcome = 'Allow' OR reason_code IS NOT NULL
+    ),
+
+    CONSTRAINT ck_authorization_audit_allow_state CHECK (
+        outcome = 'Allow' OR (previous_state IS NULL AND next_state IS NULL)
+    )
+);
+```
+
+`identity_id`, `membership_id`, and `organization_id` are all nullable, and each
+null is a real case rather than laxity. A request refused at Organization
+resolution — steps 2 to 4 of the Policy Evaluation Algorithm — has no Membership
+and no resolved Identity, only the subject that presented it; `POST /organizations`
+and `POST /invitations/accept` have no Organization, because neither the caller's
+Membership nor, in the first case, the Organization itself exists yet. A
+`NOT NULL` here would make the denials most worth recording unrecordable.
+
+A request that fails *authentication* records nothing. The audit records
+authorization decisions — "Every authoritative command must produce an auditable
+authorization record" — and a request with no authenticated subject never becomes
+a command. There is no principal to attribute and nothing to say that the access
+log does not already say.
+
+There is deliberately **no** foreign key to `memberships` or `organizations`. An
+audit row must survive the deletion of what it refers to, and a request that
+named a nonexistent Organization must still be recordable — a foreign key would
+reject exactly the probe an operator most wants to see.
+
+`previous_state` and `next_state` are not in the conceptual column list above.
+They are here because `docs/product/mvp.md` requires every important business
+transition to record "previous state; next state", and the release-scope document
+outranks this one. They are null for a denial, since a refused command changes no
+state: `ck_authorization_audit_allow_state` enforces that rather than trusting the
+writer.
+
+`ck_authorization_audit_denial` requires a `reason_code` on every `Deny`. A
+recorded refusal that does not say why is not an audit record.
+
+The table has no `version` and no update path. "The audit repository should
+expose `Insert` only", and "Audit information must not be silently overwritten".
+
+---
+
 ## Authorization Audit Outcome
 
 Supported values:

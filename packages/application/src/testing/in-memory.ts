@@ -30,6 +30,7 @@ import {
   type WorkState,
 } from "@aios/domain";
 
+import type { AuditRecord, AuditRepository } from "../audit.js";
 import type {
   AssistanceGrantRepository,
   ContributionType,
@@ -986,6 +987,27 @@ export class InMemorySecretaryContributionRepository
   }
 }
 
+/**
+ * The audit store, as a test can inspect it.
+ *
+ * Append-only like the real one: there is no method here that updates or
+ * deletes, so a test cannot accidentally assert against a mutable record.
+ */
+export class InMemoryAuditRepository implements AuditRepository {
+  readonly entries: AuditRecord[] = [];
+
+  async record(entry: AuditRecord): Promise<void> {
+    this.entries.push(entry);
+  }
+
+  /** Transitions recorded for one resource, oldest first. */
+  transitionsFor(resourceId: string): AuditRecord[] {
+    return this.entries.filter(
+      (e) => e.resourceId === resourceId && e.previousState !== null,
+    );
+  }
+}
+
 export class InMemoryOutbox implements OutboxPort {
   readonly events: DomainEvent[] = [];
 
@@ -1117,6 +1139,7 @@ export const buildTestHarness = (now = new Date("2026-07-28T10:00:00Z")) => {
   const contributions = new InMemorySecretaryContributionRepository();
   const identities = new InMemoryIdentityRepository();
   const outbox = new InMemoryOutbox();
+  const audit = new InMemoryAuditRepository();
   const bundle = {
     organizations,
     work,
@@ -1136,10 +1159,12 @@ export const buildTestHarness = (now = new Date("2026-07-28T10:00:00Z")) => {
 
   return {
     ...bundle,
+    audit,
     deps: {
       uow: new InMemoryUnitOfWork(bundle),
       clock: new FixedClock(now),
       ids: new SequentialIds(),
+      audit,
     },
   };
 };

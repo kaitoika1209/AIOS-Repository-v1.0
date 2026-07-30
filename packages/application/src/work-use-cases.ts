@@ -9,7 +9,7 @@
  * re-implement that rule — they coordinate.
  */
 
-import type { MembershipId, OrganizationId, WorkId } from "@aios/types";
+import { isHumanMember, type MembershipId, type OrganizationId, type WorkId } from "@aios/types";
 import {
   addParticipant,
   assigneeOf,
@@ -27,6 +27,7 @@ import {
   type WorkState,
 } from "@aios/domain";
 
+import { recordTransition } from "./audit.js";
 import { requirePermission } from "./authorization.js";
 import { requireWorkRelationship } from "./relationships.js";
 import {
@@ -49,6 +50,36 @@ const loadWork = async (
     throw new NotFoundError("Work");
   }
   return work;
+};
+
+/**
+ * Record a Work lifecycle transition.
+ *
+ * The edge interceptor records that the command was allowed; only here are both
+ * states known. `mvp.md` requires previous and next state on every important
+ * business transition, and a status change is what makes one important.
+ */
+const auditWorkTransition = (
+  deps: UseCaseDependencies,
+  ctx: WorkCommandContext,
+  before: WorkState,
+  after: WorkState,
+  permission: string,
+  commandType: string,
+): void => {
+  if (before.status === after.status) return;
+  recordTransition(deps.audit, {
+    organizationId: ctx.organizationId,
+    identityId: isHumanMember(ctx.principal) ? ctx.principal.identityId : null,
+    membershipId: isHumanMember(ctx.principal) ? ctx.principal.membershipId : null,
+    commandType,
+    permission,
+    resourceType: "Work",
+    resourceId: after.workId,
+    previousState: before.status,
+    nextState: after.status,
+    now: ctx.now,
+  });
 };
 
 export const createWorkUseCase = async (
@@ -124,6 +155,7 @@ export const startWorkUseCase = async (
 
     await tx.work.update(state, current.version);
     await tx.outbox.append(events);
+    auditWorkTransition(deps, ctx, current, state, "work.start", "StartWork");
     return state;
   });
 };
@@ -155,6 +187,7 @@ export const completeWorkUseCase = async (
 
     await tx.work.update(state, current.version);
     await tx.outbox.append(events);
+    auditWorkTransition(deps, ctx, current, state, "work.complete", "CompleteWork");
     return state;
   });
 };
@@ -175,6 +208,7 @@ export const cancelWorkUseCase = async (
 
     await tx.work.update(state, current.version);
     await tx.outbox.append(events);
+    auditWorkTransition(deps, ctx, current, state, "work.cancel", "CancelWork");
     return state;
   });
 };

@@ -30,6 +30,7 @@ import type {
   AssistanceGrantRepository,
   SecretaryContributionRepository,
 } from "./assistance.js";
+import type { AuditRepository } from "./audit.js";
 import type {
   DecisionState,
   DomainEvent,
@@ -493,6 +494,14 @@ export interface UseCaseDependencies {
   readonly uow: UnitOfWork;
   readonly clock: Clock;
   readonly ids: IdGenerator;
+  /**
+   * The audit store.
+   *
+   * Outside the `RepositoryBundle` on purpose: audit writes must not join the
+   * caller's transaction. A business transaction that rolls back still happened,
+   * and the record of the attempt has to survive it.
+   */
+  readonly audit: AuditRepository;
 }
 
 export class NotFoundError extends Error {
