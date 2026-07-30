@@ -1952,6 +1952,10 @@ publishedAt
 attemptCount
 nextAttemptAt
 status
+claimVersion
+lockedBy
+lockedUntil
+failedAt
 lastError
 ```
 
@@ -1968,7 +1972,7 @@ Published
 Failed
 ```
 
-A claim may instead be represented by lease fields while the durable status remains `Pending`. Status meaning and claim ownership must remain consistent with `docs/architecture/events-and-outbox.md`; `Publishing` is not a separate canonical business state.
+The MVP persists `Claimed` together with lease and fencing fields. `Pending` always means eligible and unowned; `Publishing` is not a canonical persisted status. Concrete defaults are governed by `docs/architecture/worker-runtime-profile.md`.
 
 ---
 
@@ -1978,11 +1982,11 @@ The event has been committed but not yet published successfully.
 
 ---
 
-## Publishing
+## Claimed
 
 A Worker has claimed the record for publication.
 
-This status may be represented through row locking rather than persisted state.
+This status is persisted with `lockedBy`, `lockedUntil`, and `claimVersion` and is recoverable after lease expiry.
 
 ---
 
