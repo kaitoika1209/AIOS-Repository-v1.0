@@ -982,7 +982,7 @@ ADR identifiers are assigned only when a decision record is created.
 
 Accepted identifiers are immutable, never reused, and never renumbered. Superseded ADRs remain in the register with their original identifiers and changed status.
 
-Future decisions MUST NOT reserve numeric identifiers in prose. At the time this Blueprint version was reviewed, the accepted sequence ends at ADR-0016 and the next unassigned identifier is ADR-0017. Concurrent ADR creation must recheck the register before assigning that identifier.
+Future decisions MUST NOT reserve numeric identifiers in prose. At the time this Blueprint version was reviewed, the accepted sequence ends at ADR-0017 and the next unassigned identifier is ADR-0018. Concurrent ADR creation must recheck the register before assigning that identifier.
 
 Potential later decisions include:
 
@@ -1025,11 +1025,13 @@ The recommended reading order is:
 
 11. docs/architecture/security-and-production-readiness.md
 
-12. docs/adr/
+12. docs/engineering/mvp-implementation-plan.md
 
-13. docs/product/mvp.md
+13. docs/adr/
 
-14. docs/product/roadmap.md
+14. docs/product/mvp.md
+
+15. docs/product/roadmap.md
 ```
 
 This order moves from:
@@ -1061,6 +1063,7 @@ The documents complement one another.
 | `mvp-database-migration-plan.md` | Defines the executable MVP schema order and verification gates |
 | `worker-runtime-profile.md` | Defines deployable Outbox, Worker, retry, lease, and alert defaults |
 | `security-and-production-readiness.md` | Defines the evidence-based MVP security and production approval gate |
+| `engineering/mvp-implementation-plan.md` | Defines the ordered MVP vertical milestones and executable definition of done |
 | `adr/*` | Records significant architectural decisions |
 | `product/mvp.md` | Defines initial implementation scope |
 | `product/roadmap.md` | Defines future delivery direction |
