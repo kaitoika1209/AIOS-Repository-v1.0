@@ -1,0 +1,26 @@
+{
+  "name": "aios",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.14.0",
+  "engines": { "node": ">=22.0.0" },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint && pnpm architecture:check",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "architecture:check": "node scripts/check-architecture.mjs",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.32.0",
+    "@types/node": "24.1.0",
+    "eslint": "9.32.0",
+    "prettier": "3.6.2",
+    "turbo": "2.5.5",
+    "typescript": "7.0.2",
+    "typescript-eslint": "8.38.0",
+    "vitest": "3.2.4"
+  }
+}
