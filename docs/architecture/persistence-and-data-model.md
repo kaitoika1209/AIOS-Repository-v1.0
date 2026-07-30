@@ -4960,9 +4960,12 @@ attempt_count
 next_attempt_at
 locked_by
 locked_until
+claim_version
 published_at
+failed_at
 last_error_code
 last_error_message
+updated_at
 ```
 
 ---
