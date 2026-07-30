@@ -1,5 +1,8 @@
 # Technology Stack
 
+> **Document status:** Normative for the MVP under ADR-0017  
+> **Blueprint version:** 0.2.1
+
 ## Purpose
 
 This document defines the technologies used to build AIOS.
@@ -109,19 +112,18 @@ Database
 - Migration management
 - Excellent developer experience
 
+Prisma is a mapping and query tool, not the authoritative migration specification. Reviewed PostgreSQL SQL migrations, constraints, grants, triggers, validation phases, and schema fingerprints follow ADR-0014. Generated ORM metadata must mirror that schema.
+
 ---
 
 # AI
 
 ## Runtime
 
-- LangGraph
+- Context-owned Secretary assistance ports
+- Provider adapter with durable generation operation
 
-### Why
-
-- Stateful workflows
-- Multi-agent orchestration
-- Human-in-the-loop support
+LangGraph and multi-agent orchestration are outside the MVP. They require a later ADR based on a measured orchestration need.
 
 ---
 
@@ -144,6 +146,8 @@ The application should remain provider-agnostic.
 - Fast implementation
 - Secure authentication
 - Organization support
+
+Clerk is an Identity Provider only. AIOS PostgreSQL Organization, Membership, role, permission, and policy data remains authoritative. Provider Organization or role claims never grant business authority by themselves.
 
 ---
 
