@@ -1,6 +1,8 @@
 name: release-candidate-evidence
 
 on:
+  push:
+    branches: [architecture/implementation-readiness]
   workflow_dispatch:
     inputs:
       environment_id:
