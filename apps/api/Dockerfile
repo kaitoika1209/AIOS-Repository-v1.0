@@ -6,7 +6,7 @@ COPY packages ./packages
 COPY apps/api ./apps/api
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @aios/api... build
-RUN pnpm deploy --filter @aios/api --prod /runtime
+RUN pnpm deploy --legacy --filter @aios/api --prod /runtime
 
 FROM node:22.17.1-bookworm-slim AS runtime
 ENV NODE_ENV=production
@@ -16,4 +16,3 @@ COPY --from=build --chown=aios:aios /runtime ./
 USER aios
 EXPOSE 3001
 CMD ["node", "dist/main.js"]
-
