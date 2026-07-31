@@ -1,0 +1,15 @@
+import{describe,expect,it,vi}from'vitest';
+import type{WorkState}from'../../work/public.js';
+import type{DecisionEventLedger,DecisionOutcomeOccurred}from'./ports.js';
+import{DecisionOutcomeConsumer}from'./outcome-consumer.js';
+const actor={actorType:'HumanMember'as const,identityId:'human-a',membershipId:'member-a'};
+const reference={decisionId:'decision-a',revisionNumber:1,submittedSnapshotId:'revision-a'};
+const waiting:WorkState={workId:'work-a',organizationId:'org-a',creator:actor,status:'WaitingForDecision',details:{title:'M3',description:'',intendedOutcome:'Reviewed'},assignments:[],version:3,createdAt:new Date(0),updatedAt:new Date(0),startedAt:new Date(0),startedBy:actor,completionGate:{type:'Pending',...reference},activeBlockingDecision:reference,appliedDecisionEventIds:[]};
+const event:DecisionOutcomeOccurred={eventId:'event-a',organizationId:'org-a',workId:'work-a',...reference,decisionAggregateVersion:3,outcome:'Approved',resolvedByMembershipId:'reviewer-a',resolvedAt:new Date()};
+function harness(state:WorkState){let current=state;const processed=new Map<string,string>();const save=vi.fn((_organizationId:string,work:{state:WorkState})=>{current=work.state;return Promise.resolve();});const ledger:DecisionEventLedger={has:(eventId)=>Promise.resolve(processed.has(eventId)),record:(eventId,_consumer,_organizationId,outcome)=>{processed.set(eventId,outcome);return Promise.resolve();}};const consumer=new DecisionOutcomeConsumer({transactions:{transaction:(operation)=>operation()},work:{getForUpdate:()=>Promise.resolve(current),save},events:ledger,outbox:{appendDomain:()=>Promise.resolve(),appendWork:()=>Promise.resolve(),appendOutcome:()=>Promise.resolve()},clock:{now:()=>new Date()},ids:{eventId:()=>`work-event`,revisionId:()=>'',reviewId:()=>'',hash:()=>''}});return{consumer,save,state:()=>current};}
+describe('DecisionOutcomeConsumer',()=>{
+ it('applies the exact submitted snapshot and satisfies the Work gate without completing Work',async()=>{const h=harness(waiting);await expect(h.consumer.consume(event)).resolves.toBe('Applied');expect(h.state()).toMatchObject({status:'InProgress',completionGate:{type:'Satisfied',outcome:'Approved'}});expect(h.state().status).not.toBe('Completed');});
+ it('is idempotent for duplicate delivery',async()=>{const h=harness(waiting);await h.consumer.consume(event);await expect(h.consumer.consume(event)).resolves.toBe('Duplicate');expect(h.save).toHaveBeenCalledTimes(1);});
+ it('rejects stale or mismatched outcomes visibly',async()=>{const h=harness(waiting);await expect(h.consumer.consume({...event,submittedSnapshotId:'older-revision'})).resolves.toBe('RejectedPoison');expect(h.save).not.toHaveBeenCalled();});
+ it.each(['Completed','Cancelled']as const)('uses a deterministic terminal no-op after Work is %s',async(status)=>{const terminal:WorkState={...waiting,status,activeBlockingDecision:undefined,completionGate:{type:'Satisfied',outcome:'Approved',...reference}};await expect(harness(terminal).consumer.consume(event)).resolves.toBe('TerminalNoOp');});
+});
