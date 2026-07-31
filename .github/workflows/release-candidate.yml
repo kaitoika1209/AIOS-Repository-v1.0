@@ -36,10 +36,7 @@ jobs:
         with: { version: 10.14.0 }
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - run: pnpm install --no-frozen-lockfile
-
-      - name: Export dependency lock for bootstrap
-        run: gzip -c pnpm-lock.yaml | base64 -w 0
+      - run: pnpm install --frozen-lockfile
       - run: pnpm verify
         env:
           NODE_ENV: test
