@@ -36,6 +36,8 @@ jobs:
         run: for migration in db/migrations/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"; done
       - name: Verify M1 database invariants
         run: psql "$DATABASE_URL" -f db/tests/m1_invariants.sql
+      - name: Verify M2 Work invariants
+        run: psql "$DATABASE_URL" -f db/tests/m2_work_invariants.sql
       - name: Record reviewed schema fingerprint
         run: |
           psql "$DATABASE_URL" -Atc "SELECT md5(string_agg(definition, E'\\n' ORDER BY definition)) FROM (SELECT table_name||':'||ordinal_position||':'||column_name||':'||data_type||':'||is_nullable AS definition FROM information_schema.columns WHERE table_schema='public' UNION ALL SELECT conrelid::regclass::text||':'||conname||':'||pg_get_constraintdef(oid,true) FROM pg_constraint WHERE connamespace='public'::regnamespace) schema_contract" | tee m1-schema-fingerprint.txt
