@@ -1,0 +1,70 @@
+name: release-candidate-evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment_id:
+        description: Production-equivalent environment identity
+        required: true
+        default: production-equivalent-ci
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: postgresql://aios_test:test_only@localhost:5432/aios_test
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: aios_test
+          POSTGRES_USER: aios_test
+          POSTGRES_PASSWORD: test_only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U aios_test -d aios_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.14.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm verify
+        env:
+          NODE_ENV: test
+          AIOS_API_PORT: '3001'
+          AIOS_WORKER_ROLES: outbox-publisher,local-consumer,memory-generation,lease-recovery
+          CLERK_ISSUER_URL: https://test.clerk.accounts.dev
+          OPENAI_API_KEY_REF: test-reference
+      - name: Rehearse migrations and invariants
+        run: |
+          for migration in db/migrations/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"; done
+          for test_file in db/tests/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$test_file"; done
+      - name: Build immutable release artifact
+        run: |
+          mkdir -p release-evidence
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -czf release-evidence/release-artifact.tgz apps packages db scripts package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json turbo.json
+          psql "$DATABASE_URL" -Atc "SELECT md5(string_agg(definition, E'\\n' ORDER BY definition)) FROM (SELECT table_name||':'||ordinal_position||':'||column_name||':'||data_type||':'||is_nullable AS definition FROM information_schema.columns WHERE table_schema='public' UNION ALL SELECT conrelid::regclass::text||':'||conname||':'||pg_get_constraintdef(oid,true) FROM pg_constraint WHERE connamespace='public'::regnamespace) schema_contract" > release-evidence/schema-fingerprint.txt
+      - name: Capture dependency vulnerability report
+        id: audit
+        continue-on-error: true
+        run: pnpm audit --prod --audit-level critical --json > release-evidence/vulnerability-report.json
+      - name: Generate evidence manifest and SBOM
+        run: |
+          if git ls-files --error-unmatch pnpm-lock.yaml >/dev/null 2>&1; then lockfile_committed=true; else lockfile_committed=false; fi
+          node scripts/build-release-evidence.mjs --environment "${{ inputs.environment_id }}" --output release-evidence --artifact release-evidence/release-artifact.tgz --schema-fingerprint release-evidence/schema-fingerprint.txt --vulnerability-report release-evidence/vulnerability-report.json --commit "$GITHUB_SHA" --lockfile-committed "$lockfile_committed"
+      - name: Enforce critical vulnerability gate
+        run: test "${{ steps.audit.outcome }}" = success
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-candidate-evidence-${{ github.sha }}
+          path: release-evidence/
+          if-no-files-found: error
+          retention-days: 30
