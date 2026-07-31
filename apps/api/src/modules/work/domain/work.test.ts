@@ -4,7 +4,7 @@ import { Work,WorkInvariantViolation,type WorkActor,type WorkState } from './wor
 const actor:WorkActor={actorType:'HumanMember',identityId:'human-a',membershipId:'member-a'};
 const details={title:'Ship M2',description:'Vertical slice',intendedOutcome:'A Human can complete Work safely'};
 let id=0;
-const eventId=()=>`event-${++id}`;
+const eventId=()=>`event-${String(++id)}`;
 const at=(minute:number)=>new Date(`2026-07-31T00:${String(minute).padStart(2,'0')}:00.000Z`);
 
 describe('Work lifecycle',()=>{
@@ -14,7 +14,7 @@ describe('Work lifecycle',()=>{
     work.start(actor,at(1)); work.complete(actor,'Done',at(2));
     expect(work.state).toMatchObject({status:'Completed',version:3,completionSummary:'Done'});
     expect(work.pullEvents().map(event=>event.eventType)).toEqual(['WorkCreated','WorkStarted','WorkCompleted']);
-    expect(()=>work.complete(actor,'Again',at(3))).toThrow(WorkInvariantViolation);
+    expect(()=>{work.complete(actor,'Again',at(3));}).toThrow(WorkInvariantViolation);
     expect(work.pullEvents()).toHaveLength(0);
   });
   it.each([
@@ -28,9 +28,9 @@ describe('Work lifecycle',()=>{
   it('rejects terminal mutation and duplicate assignment',()=>{
     const work=Work.create({workId:'w',organizationId:'o',actor,details,now:at(0),eventId});
     work.assign(actor,'member-b','Assignee',at(1));
-    expect(()=>work.assign(actor,'member-b','Assignee',at(2))).toThrow(WorkInvariantViolation);
+    expect(()=>{work.assign(actor,'member-b','Assignee',at(2));}).toThrow(WorkInvariantViolation);
     work.cancel(actor,'Stopped',at(3));
-    expect(()=>work.updateDetails(actor,details,at(4))).toThrow(WorkInvariantViolation);
+    expect(()=>{work.updateDetails(actor,details,at(4));}).toThrow(WorkInvariantViolation);
   });
   it('does not provide any Decision or Secretary completion command',()=>{
     expect('completeFromDecision' in Work.prototype).toBe(false);
