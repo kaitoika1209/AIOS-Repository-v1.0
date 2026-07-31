@@ -17,7 +17,7 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with: { terraform_version: 1.9.8 }
       - name: Check Terraform formatting
-        run: terraform fmt -check -recursive infra/terraform
+        run: terraform fmt -check -diff -recursive infra/terraform
       - name: Validate Terraform configuration
         working-directory: infra/terraform
         run: terraform init -backend=false && terraform validate
