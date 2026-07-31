@@ -1,6 +1,8 @@
 name: release-candidate-evidence
 
 on:
+  push:
+    branches: [architecture/implementation-readiness]
   workflow_dispatch:
     inputs:
       environment_id:
@@ -58,7 +60,9 @@ jobs:
       - name: Generate evidence manifest and SBOM
         run: |
           if git ls-files --error-unmatch pnpm-lock.yaml >/dev/null 2>&1; then lockfile_committed=true; else lockfile_committed=false; fi
-          node scripts/build-release-evidence.mjs --environment "${{ inputs.environment_id }}" --output release-evidence --artifact release-evidence/release-artifact.tgz --schema-fingerprint release-evidence/schema-fingerprint.txt --vulnerability-report release-evidence/vulnerability-report.json --commit "$GITHUB_SHA" --lockfile-committed "$lockfile_committed"
+          environment_id="${{ inputs.environment_id }}"
+          if [ -z "$environment_id" ]; then environment_id=production-equivalent-ci; fi
+          node scripts/build-release-evidence.mjs --environment "$environment_id" --output release-evidence --artifact release-evidence/release-artifact.tgz --schema-fingerprint release-evidence/schema-fingerprint.txt --vulnerability-report release-evidence/vulnerability-report.json --commit "$GITHUB_SHA" --lockfile-committed "$lockfile_committed"
       - name: Enforce critical vulnerability gate
         run: test "${{ steps.audit.outcome }}" = success
       - uses: actions/upload-artifact@v4
