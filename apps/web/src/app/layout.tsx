@@ -39,6 +39,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             <a className="small" href="/members">
               Members
             </a>
+            <a className="small" href="/settings">
+              Settings
+            </a>
             <a className="small" href="/join">
               Join
             </a>

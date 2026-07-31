@@ -177,6 +177,19 @@ export interface Invitation {
   token: string;
 }
 
+export interface Organization {
+  organizationId: string;
+  name: string;
+  status: "Active" | "Suspended" | "Archived";
+  version: number;
+}
+
+export interface AssistanceGrant {
+  operation: string;
+  contextKey: string;
+  portContractVersion: number;
+}
+
 export const api = {
   listMembers: (subject: string) =>
     call<{ items: Member[] }>(`/organizations/${ORGANIZATION_ID}/members`, {
@@ -201,6 +214,88 @@ export const api = {
     call<{ membershipId: string; status: string }>(
       `/organizations/${ORGANIZATION_ID}/members/${membershipId}/revoke-invitation`,
       { method: "POST", subject, body: JSON.stringify({ reason }) },
+    ),
+
+  suspendMember: (subject: string, membershipId: string, reason: string) =>
+    call<{ membershipId: string; status: string }>(
+      `/organizations/${ORGANIZATION_ID}/members/${membershipId}/suspend`,
+      { method: "POST", subject, body: JSON.stringify({ reason }) },
+    ),
+
+  reactivateMember: (subject: string, membershipId: string, reason: string) =>
+    call<{ membershipId: string; status: string }>(
+      `/organizations/${ORGANIZATION_ID}/members/${membershipId}/reactivate`,
+      { method: "POST", subject, body: JSON.stringify({ reason }) },
+    ),
+
+  revokeMember: (subject: string, membershipId: string, reason: string) =>
+    call<{ membershipId: string; status: string }>(
+      `/organizations/${ORGANIZATION_ID}/members/${membershipId}/revoke`,
+      { method: "POST", subject, body: JSON.stringify({ reason }) },
+    ),
+
+  assignRole: (subject: string, membershipId: string, role: string) =>
+    call<{ membershipId: string; roles: string[] }>(
+      `/organizations/${ORGANIZATION_ID}/members/${membershipId}/assign-role`,
+      { method: "POST", subject, body: JSON.stringify({ role }) },
+    ),
+
+  revokeRole: (
+    subject: string,
+    membershipId: string,
+    role: string,
+    reason: string,
+  ) =>
+    call<{ membershipId: string; roles: string[] }>(
+      `/organizations/${ORGANIZATION_ID}/members/${membershipId}/revoke-role`,
+      { method: "POST", subject, body: JSON.stringify({ role, reason }) },
+    ),
+
+  organization: (subject: string) =>
+    call<Organization>(`/organizations/${ORGANIZATION_ID}`, {
+      method: "GET",
+      subject,
+    }),
+
+  renameOrganization: (subject: string, name: string) =>
+    call<Organization>(`/organizations/${ORGANIZATION_ID}`, {
+      method: "PATCH",
+      subject,
+      body: JSON.stringify({ name }),
+    }),
+
+  suspendOrganization: (subject: string, reason: string) =>
+    call<Organization>(`/organizations/${ORGANIZATION_ID}/suspend`, {
+      method: "POST",
+      subject,
+      body: JSON.stringify({ reason }),
+    }),
+
+  reactivateOrganization: (subject: string, reason: string) =>
+    call<Organization>(`/organizations/${ORGANIZATION_ID}/reactivate`, {
+      method: "POST",
+      subject,
+      body: JSON.stringify({ reason }),
+    }),
+
+  archiveOrganization: (subject: string, reason: string) =>
+    call<Organization>(`/organizations/${ORGANIZATION_ID}/archive`, {
+      method: "POST",
+      subject,
+      body: JSON.stringify({ reason }),
+    }),
+
+  grantAssistance: (subject: string, operation: string, reason: string) =>
+    call<AssistanceGrant>(`/organizations/${ORGANIZATION_ID}/assistance-grants`, {
+      method: "POST",
+      subject,
+      body: JSON.stringify({ operation, reason }),
+    }),
+
+  revokeAssistance: (subject: string, operation: string) =>
+    call<AssistanceGrant>(
+      `/organizations/${ORGANIZATION_ID}/assistance-grants/revoke`,
+      { method: "POST", subject, body: JSON.stringify({ operation }) },
     ),
 
   acceptInvitation: (subject: string, token: string) =>

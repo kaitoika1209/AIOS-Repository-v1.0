@@ -330,6 +330,210 @@ export const revokeInvitation = async (
   return result;
 };
 
+/**
+ * Member administration.
+ *
+ * Every one of these requires a reason, because every underlying command does:
+ * an authority change that nobody wrote a reason for leaves the audit able to
+ * say what happened and not why.
+ */
+const memberContext = async (formData: FormData) => ({
+  user: await currentUser(),
+  membershipId: String(formData.get("membershipId")),
+  reason: String(formData.get("reason") ?? "").trim(),
+});
+
+const requireReason = (reason: string): ActionResult | null =>
+  reason.length === 0
+    ? { error: { code: "VALIDATION_FAILED", message: "A reason is required." } }
+    : null;
+
+export const suspendMember = async (
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> => {
+  const { user, membershipId, reason } = await memberContext(formData);
+  const missing = requireReason(reason);
+  if (missing !== null) return missing;
+
+  const result = await run(() => api.suspendMember(user.subject, membershipId, reason));
+  if (result.error === undefined) revalidatePath("/members");
+  return result;
+};
+
+export const reactivateMember = async (
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> => {
+  const { user, membershipId, reason } = await memberContext(formData);
+  const missing = requireReason(reason);
+  if (missing !== null) return missing;
+
+  const result = await run(() =>
+    api.reactivateMember(user.subject, membershipId, reason),
+  );
+  if (result.error === undefined) revalidatePath("/members");
+  return result;
+};
+
+export const revokeMember = async (
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> => {
+  const { user, membershipId, reason } = await memberContext(formData);
+  const missing = requireReason(reason);
+  if (missing !== null) return missing;
+
+  const result = await run(() => api.revokeMember(user.subject, membershipId, reason));
+  if (result.error === undefined) revalidatePath("/members");
+  return result;
+};
+
+export const assignRole = async (
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> => {
+  const user = await currentUser();
+  const result = await run(() =>
+    api.assignRole(
+      user.subject,
+      String(formData.get("membershipId")),
+      String(formData.get("role")),
+    ),
+  );
+  if (result.error === undefined) revalidatePath("/members");
+  return result;
+};
+
+export const revokeRole = async (
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> => {
+  const { user, membershipId, reason } = await memberContext(formData);
+  const missing = requireReason(reason);
+  if (missing !== null) return missing;
+
+  const result = await run(() =>
+    api.revokeRole(user.subject, membershipId, String(formData.get("role")), reason),
+  );
+  if (result.error === undefined) revalidatePath("/members");
+  return result;
+};
+
+/**
+ * Organization settings.
+ *
+ * Suspension and archival ask the caller to retype the Organization's name.
+ * Both take an Organization away from everyone in it — suspension until an Owner
+ * reverses it, archival for good — and a button that does that on one click is
+ * a button someone will press by accident.
+ */
+export const renameOrganization = async (
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> => {
+  const user = await currentUser();
+  const name = String(formData.get("name") ?? "").trim();
+  if (name.length === 0) {
+    return { error: { code: "VALIDATION_FAILED", message: "A name is required." } };
+  }
+
+  const result = await run(() => api.renameOrganization(user.subject, name));
+  if (result.error === undefined) revalidatePath("/settings");
+  return result;
+};
+
+const confirmedName = (formData: FormData): string =>
+  String(formData.get("confirmName") ?? "").trim();
+
+export const suspendOrganization = async (
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> => {
+  const user = await currentUser();
+  const reason = String(formData.get("reason") ?? "").trim();
+  const missing = requireReason(reason);
+  if (missing !== null) return missing;
+  if (confirmedName(formData) !== String(formData.get("expectedName"))) {
+    return {
+      error: {
+        code: "CONFIRMATION_REQUIRED",
+        message: "Type the Organization's name exactly to confirm.",
+      },
+    };
+  }
+
+  const result = await run(() => api.suspendOrganization(user.subject, reason));
+  if (result.error === undefined) revalidatePath("/settings");
+  return result;
+};
+
+export const reactivateOrganization = async (
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> => {
+  const user = await currentUser();
+  const reason = String(formData.get("reason") ?? "").trim();
+  const missing = requireReason(reason);
+  if (missing !== null) return missing;
+
+  // No retyping here. Reactivation is the way back, and putting an obstacle in
+  // front of recovery is the wrong place for one.
+  const result = await run(() => api.reactivateOrganization(user.subject, reason));
+  if (result.error === undefined) revalidatePath("/settings");
+  return result;
+};
+
+export const archiveOrganization = async (
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> => {
+  const user = await currentUser();
+  const reason = String(formData.get("reason") ?? "").trim();
+  const missing = requireReason(reason);
+  if (missing !== null) return missing;
+  if (confirmedName(formData) !== String(formData.get("expectedName"))) {
+    return {
+      error: {
+        code: "CONFIRMATION_REQUIRED",
+        message: "Type the Organization's name exactly to confirm.",
+      },
+    };
+  }
+
+  const result = await run(() => api.archiveOrganization(user.subject, reason));
+  if (result.error === undefined) revalidatePath("/settings");
+  return result;
+};
+
+export const grantAssistance = async (
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> => {
+  const user = await currentUser();
+  const result = await run(() =>
+    api.grantAssistance(
+      user.subject,
+      String(formData.get("operation")),
+      "Enabled from Organization settings.",
+    ),
+  );
+  if (result.error === undefined) revalidatePath("/settings");
+  return result;
+};
+
+export const revokeAssistance = async (
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> => {
+  const user = await currentUser();
+  const result = await run(() =>
+    api.revokeAssistance(user.subject, String(formData.get("operation"))),
+  );
+  if (result.error === undefined) revalidatePath("/settings");
+  return result;
+};
+
 export const acceptInvitation = async (
   _prev: ActionResult,
   formData: FormData,

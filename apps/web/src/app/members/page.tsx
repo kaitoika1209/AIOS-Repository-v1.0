@@ -1,11 +1,26 @@
 import { ApiError, api, currentUser } from "../../lib/api";
 import {
+  assignRole,
   inviteMember,
   lastIssuedInvitation,
+  reactivateMember,
   resendInvitation,
   revokeInvitation,
+  revokeMember,
+  revokeRole,
+  suspendMember,
 } from "../actions";
 import { ActionForm } from "../ui";
+
+/**
+ * Roles a Member may be given from here.
+ *
+ * `OrganizationOwner` is absent, and its absence is the point: only an Owner may
+ * grant it (ADR-0018), so offering it to everyone would produce a control that
+ * is refused for most of the people who can see it. Ownership is handed over
+ * deliberately, not from a dropdown beside "Reviewer".
+ */
+const GRANTABLE_ROLES = ["OrganizationAdmin", "Member", "Reviewer"] as const;
 
 const statusClass = (status: string): string =>
   status === "Active" ? "badge ok"
@@ -140,6 +155,112 @@ export default async function Members() {
                       <input type="text" name="reason" placeholder="Reason" />
                     </ActionForm>
                   </div>
+                )}
+
+                {(member.status === "Active" || member.status === "Suspended") && (
+                  <>
+                    <div className="row">
+                      {member.status === "Active" ? (
+                        <ActionForm
+                          action={suspendMember}
+                          submitLabel="Suspend"
+                          variant="secondary"
+                        >
+                          <input
+                            type="hidden"
+                            name="membershipId"
+                            value={member.membershipId}
+                          />
+                          <input
+                            type="text"
+                            name="reason"
+                            placeholder="Reason for suspending"
+                          />
+                        </ActionForm>
+                      ) : (
+                        <ActionForm
+                          action={reactivateMember}
+                          submitLabel="Reactivate"
+                          variant="secondary"
+                        >
+                          <input
+                            type="hidden"
+                            name="membershipId"
+                            value={member.membershipId}
+                          />
+                          <input
+                            type="text"
+                            name="reason"
+                            placeholder="Reason for reactivating"
+                          />
+                        </ActionForm>
+                      )}
+                      <ActionForm
+                        action={revokeMember}
+                        submitLabel="Remove"
+                        variant="danger"
+                      >
+                        <input
+                          type="hidden"
+                          name="membershipId"
+                          value={member.membershipId}
+                        />
+                        <input
+                          type="text"
+                          name="reason"
+                          placeholder="Reason for removing"
+                        />
+                      </ActionForm>
+                    </div>
+
+                    <div className="row">
+                      <ActionForm
+                        action={assignRole}
+                        submitLabel="Grant role"
+                        variant="secondary"
+                      >
+                        <input
+                          type="hidden"
+                          name="membershipId"
+                          value={member.membershipId}
+                        />
+                        <select name="role" defaultValue="Reviewer">
+                          {GRANTABLE_ROLES.filter(
+                            (role) => !member.roles.includes(role),
+                          ).map((role) => (
+                            <option key={role} value={role}>
+                              {role}
+                            </option>
+                          ))}
+                        </select>
+                      </ActionForm>
+                      {member.roles.length > 0 && (
+                        <ActionForm
+                          action={revokeRole}
+                          submitLabel="Withdraw role"
+                          variant="secondary"
+                        >
+                          <input
+                            type="hidden"
+                            name="membershipId"
+                            value={member.membershipId}
+                          />
+                          <select name="role" defaultValue={member.roles[0]}>
+                            {member.roles.map((role) => (
+                              <option key={role} value={role}>
+                                {role}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            type="text"
+                            name="reason"
+                            placeholder="Reason for withdrawing"
+                          />
+                        </ActionForm>
+                      )}
+                    </div>
+                  </>
                 )}
               </li>
             ))}
