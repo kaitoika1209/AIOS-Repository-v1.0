@@ -31,7 +31,7 @@ jobs:
         with: { version: 10.14.0 }
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm install --frozen-lockfile
       - name: Apply M1 database baseline
         run: for migration in db/migrations/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"; done
       - name: Verify M1 database invariants
