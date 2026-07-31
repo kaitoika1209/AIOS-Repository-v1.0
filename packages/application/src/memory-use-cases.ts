@@ -439,6 +439,11 @@ export const reopenMemoryUseCase = async (
 
   return deps.uow.transaction(async (tx) => {
     const current = await loadMemory(tx, ctx.organizationId, memoryId);
+    // "ReopenRejectedMemory | Editor, related Work Member, or Admin" — the same
+    // relationship as editing and submitting, because reopening is what makes
+    // the draft editable again. Its absence went unnoticed while the permission
+    // was held only by the Owner, who passes this check as an Administrator.
+    await requireMemoryAuthoring(tx, ctx, current);
     const { state } = reopenMemory(current, deps.ids.revisionId(), ctx);
     await tx.memories.update(state, current.version);
     auditMemoryTransition(deps, ctx, current, state, memoryId, "memory.reopen", "ReopenMemory");

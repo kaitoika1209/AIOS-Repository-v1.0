@@ -471,6 +471,27 @@ export class PostgresConsumerDeliveryRepository
       [row.consumer_name, row.event_id, input.now],
     );
 
+    // And the message itself, or the replay would be inert. A consumer failure
+    // leaves the Outbox row `Failed`, and the publisher claims only `Pending`
+    // ones — so readying the consumer without readying the message means
+    // nothing is ever redelivered to it.
+    //
+    // Safe for the other consumers of the same event: `claim` refuses a
+    // delivery that already succeeded, so they are skipped rather than re-run.
+    // `attempt_count` and `last_error_code` are left alone, as `retryFailed`
+    // leaves them — they are the evidence of how hard the system already tried.
+    await this.client.query(
+      `UPDATE outbox_messages
+          SET status = 'Pending',
+              next_attempt_at = $3,
+              locked_by = NULL,
+              locked_until = NULL
+        WHERE organization_id = $1
+          AND event_id = $2
+          AND status = 'Failed'`,
+      [input.organizationId, row.event_id, input.now],
+    );
+
     // The key is unblocked so the worker may claim the delivery again. It stays
     // Recovering rather than Active until the attempt reaches a terminal state.
     await this.client.query(

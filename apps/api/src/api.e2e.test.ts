@@ -899,16 +899,19 @@ suite("AIOS API", () => {
         .send({ note: "Missing the decision rationale" })
         .expect(201);
 
-      // memory.reopen is not a Member permission — authorization.md grants a
-      // Member only "edit Generated Memory" and "submit Memory for review".
+      // "ReopenRejectedMemory | Editor, related Work Member, or Admin" — the
+      // same required relationship as editing and submitting, because reopening
+      // is what makes the draft editable again. So the permission is not what
+      // separates callers here; the relationship is. STRANGER holds every
+      // ordinary Member permission and no relationship to this Memory.
       await request(server())
         .post(`/memories/${draft.memoryId}/reopen`)
-        .set(as(MEMBER))
+        .set(as(STRANGER))
         .expect(403);
 
       const reopened = await request(server())
         .post(`/memories/${draft.memoryId}/reopen`)
-        .set(as(OWNER))
+        .set(as(MEMBER))
         .expect(201);
 
       expect(reopened.body.status).toBe("Generated");
@@ -3398,6 +3401,65 @@ suite("AIOS API", () => {
         .set(as(OWNER))
         .send({ consumerName: "no-such-consumer", reasonCode: "X", reason: "y" })
         .expect(404);
+    });
+
+    /**
+     * The two halves of a consumer replay have to meet.
+     *
+     * A consumer failure leaves the Outbox row `Failed`, and the publisher
+     * claims only `Pending` ones. Readying the consumer without readying the
+     * message made the replay inert — accepted, audited, and with nothing ever
+     * redelivered. Found by the Release Acceptance Criteria suite, where
+     * "Temporary generation failure can be retried" could not be demonstrated
+     * through either recovery command.
+     */
+    it("returns the message to Pending so the replay actually redelivers", async () => {
+      const { deadLetterId, eventId } = await seedDeadLetter("decision-outcome");
+
+      // `seedDeadLetter` builds the consumer side only, so the message it
+      // refers to is added here, in the state a consumer failure leaves it.
+      const client = await pool.connect();
+      try {
+        await client.query(
+          `INSERT INTO outbox_messages (
+             outbox_id, event_id, event_type, event_category, schema_version,
+             aggregate_type, aggregate_id, aggregate_version, event_sequence,
+             organization_id, payload, headers, destination,
+             occurred_at, recorded_at, correlation_id,
+             status, attempt_count, next_attempt_at, last_error_code
+           ) VALUES (
+             gen_random_uuid(), $1, 'DecisionApproved', 'Domain', 1,
+             'Decision', gen_random_uuid(), 1, 1,
+             $2, '{}'::jsonb, '{}'::jsonb, 'local',
+             now(), now(), gen_random_uuid(),
+             'Failed', 5, now(), 'WORK_INVALID_TRANSITION'
+           )`,
+          [eventId, ORG],
+        );
+      } finally {
+        client.release();
+      }
+
+      await request(server())
+        .post(`/admin/events/dead-letters/${deadLetterId}/reprocess`)
+        .set(as(OWNER))
+        .send({ expectedVersion: 1, reasonCode: "FIXED", reason: "Handler corrected." })
+        .expect(201);
+
+      const message = await pool.query<{ status: string }>(
+        `SELECT status FROM outbox_messages WHERE event_id = $1`,
+        [eventId],
+      );
+      expect(message.rows[0]?.status).toBe("Pending");
+
+      // The consumer side is ready too, and `attempt_count` survives — a
+      // poisonous message must stay visible as one.
+      const delivery = await pool.query<{ status: string; attempt_count: number }>(
+        `SELECT status, attempt_count FROM processed_events WHERE event_id = $1`,
+        [eventId],
+      );
+      expect(delivery.rows[0]?.status).toBe("RetryPending");
+      expect(delivery.rows[0]?.attempt_count).toBeGreaterThan(0);
     });
 
     it("records a Deny row for each refused recovery command", async () => {

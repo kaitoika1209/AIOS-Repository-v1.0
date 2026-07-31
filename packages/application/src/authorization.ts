@@ -107,6 +107,11 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     "decision.record_secretary_contribution",
     "memory.edit_generated",
     "memory.submit",
+    // "ReopenRejectedMemory | Editor, related Work Member, or Admin" — the same
+    // required relationship as editing and submitting, so the same roles hold
+    // it. Withholding it left a rejected Memory reopenable only by an Owner,
+    // which the matrix does not say.
+    "memory.reopen",
     "events.inspect_failed",
     "events.retry",
     "events.skip",
@@ -140,6 +145,7 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     "decision.record_secretary_contribution",
     "memory.edit_generated",
     "memory.submit",
+    "memory.reopen",
   ],
   Reviewer: [
     "notification.read",
