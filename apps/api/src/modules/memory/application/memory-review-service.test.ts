@@ -1,4 +1,4 @@
-import{describe,expect,it,vi}from'vitest';
+import{describe,expect,it}from'vitest';
 import type{HumanMemberPrincipal}from'../../identity-organization/public.js';
 import{Memory,type MemoryContent}from'../domain/memory.js';
 import{MemoryNotFound,MemoryReviewService}from'./memory-review-service.js';
