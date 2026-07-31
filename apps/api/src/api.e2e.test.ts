@@ -2207,6 +2207,141 @@ suite("AIOS API", () => {
     });
   });
 
+  /**
+   * Granting and revoking the Secretary's advisory operations (ADR-0019).
+   *
+   * Against the real schema, where `uq_secretary_grants_active` admits one
+   * active grant per five-field identity and the revocation columns are
+   * enforced by the database.
+   */
+  describe("assistance grants", () => {
+    const grants = `/organizations/${ORG}/assistance-grants`;
+
+    const grant = (who = OWNER, operation = "decision.draft_material") =>
+      request(server())
+        .post(grants)
+        .set(as(who))
+        .send({ operation, reason: "Enabling Decision drafting." });
+
+    const revoke = (who = OWNER, operation = "decision.draft_material") =>
+      request(server()).post(`${grants}/revoke`).set(as(who)).send({ operation });
+
+    const activeGrants = async () => {
+      const rows = await pool.query<{ assistance_operation: string }>(
+        `SELECT assistance_operation FROM secretary_assistance_grants
+          WHERE organization_id = $1 AND revoked_at IS NULL`,
+        [ORG],
+      );
+      return rows.rows.map((r) => r.assistance_operation);
+    };
+
+    it("grants an operation and resolves its context from the registry", async () => {
+      const res = await grant().expect(201);
+
+      // The caller named an operation; the context and contract version came
+      // from the declared registry, never from the body.
+      expect(res.body).toEqual({
+        operation: "decision.draft_material",
+        contextKey: "Decision",
+        portContractVersion: 1,
+      });
+      expect(await activeGrants()).toEqual(["decision.draft_material"]);
+    });
+
+    it("stamps the grant on revocation instead of deleting it", async () => {
+      await grant().expect(201);
+      await revoke().expect(201);
+
+      expect(await activeGrants()).toEqual([]);
+      const rows = await pool.query<{ revoked_by_membership_id: string }>(
+        `SELECT revoked_by_membership_id FROM secretary_assistance_grants
+          WHERE organization_id = $1`,
+        [ORG],
+      );
+      expect(rows.rows).toHaveLength(1);
+      expect(rows.rows[0]?.revoked_by_membership_id).toBe(OWNER.membership);
+    });
+
+    it("can re-grant after revoking, leaving both rows", async () => {
+      await grant().expect(201);
+      await revoke().expect(201);
+      await grant().expect(201);
+
+      // `uq_secretary_grants_active` constrains active rows only, so the history
+      // survives beside the current grant.
+      const rows = await pool.query<{ revoked_at: Date | null }>(
+        `SELECT revoked_at FROM secretary_assistance_grants WHERE organization_id = $1`,
+        [ORG],
+      );
+      expect(rows.rows).toHaveLength(2);
+      expect(rows.rows.filter((r) => r.revoked_at === null)).toHaveLength(1);
+    });
+
+    it("grants idempotently rather than writing a second active row", async () => {
+      await grant().expect(201);
+      await grant().expect(201);
+      expect(await activeGrants()).toEqual(["decision.draft_material"]);
+    });
+
+    it("reports revoking what is not granted as absent", async () => {
+      await revoke().expect(404);
+    });
+
+    it("refuses an operation the build does not declare", async () => {
+      await request(server())
+        .post(grants)
+        .set(as(OWNER))
+        .send({ operation: "decision.approve", reason: "Widening the port." })
+        .expect(422);
+      await request(server())
+        .post(grants)
+        .set(as(OWNER))
+        .send({ reason: "No operation." })
+        .expect(400);
+    });
+
+    it("gives both commands to Owner and Admin, and to nobody else", async () => {
+      for (const who of [MEMBER, REVIEWER]) {
+        await grant(who).expect(403);
+        await revoke(who).expect(403);
+      }
+    });
+
+    /**
+     * The behaviour the grant exists to gate. Revoking it stops the Secretary
+     * from drafting, without touching anything the Decision already holds.
+     */
+    it("stops the Secretary drafting once revoked", async () => {
+      await grant().expect(201);
+
+      const work = await createWork();
+      const decision = await request(server())
+        .post("/decisions")
+        .set(as(MEMBER))
+        .send({
+          relatedWorkId: work.workId,
+          title: "Which database?",
+          question: "Which database should we standardise on?",
+          options: [{ optionId: "pg", summary: "PostgreSQL" }],
+        })
+        .expect(201);
+
+      await request(server())
+        .post(`/decisions/${decision.body.decisionId}/assistance`)
+        .set(as(MEMBER))
+        .send({ operation: "decision.draft_material" })
+        .expect(201);
+
+      await revoke().expect(201);
+
+      await request(server())
+        .post(`/decisions/${decision.body.decisionId}/assistance`)
+        .set(as(MEMBER))
+        .send({ operation: "decision.draft_material" })
+        .expect(422);
+    });
+  });
+
   describe("Secretary assistance (ADR-0011)", () => {
     /** A Draft Decision, with the Work it belongs to so it can be re-read. */
     const draft = async () => {

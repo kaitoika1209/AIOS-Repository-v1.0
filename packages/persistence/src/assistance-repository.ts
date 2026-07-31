@@ -85,6 +85,40 @@ export class PostgresAssistanceGrantRepository
       ],
     );
   }
+
+  async revoke(input: {
+    organizationId: OrganizationId;
+    secretaryPrincipalId: string;
+    contextKey: string;
+    assistanceOperation: string;
+    portContractVersion: number;
+    revokedByMembershipId: MembershipId;
+    now: Date;
+  }): Promise<boolean> {
+    // Stamped, never deleted. A grant that once existed is part of what an
+    // auditor needs, and the partial unique index only constrains active rows —
+    // so a revoked grant can be issued again without colliding with its history.
+    const result = await this.client.query(
+      `UPDATE secretary_assistance_grants
+          SET revoked_at = $6, revoked_by_membership_id = $7
+        WHERE organization_id = $1
+          AND secretary_principal_id = $2
+          AND context_key = $3
+          AND assistance_operation = $4
+          AND port_contract_version = $5
+          AND revoked_at IS NULL`,
+      [
+        input.organizationId,
+        input.secretaryPrincipalId,
+        input.contextKey,
+        input.assistanceOperation,
+        input.portContractVersion,
+        input.now,
+        input.revokedByMembershipId,
+      ],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
 }
 
 interface ContributionRow {

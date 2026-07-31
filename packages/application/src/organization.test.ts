@@ -20,6 +20,8 @@ import { AuthorizationError } from "./authorization.js";
 import {
   archiveOrganizationUseCase,
   createOrganizationUseCase,
+  grantAssistanceUseCase,
+  revokeAssistanceUseCase,
   getOrganizationUseCase,
   reactivateOrganizationUseCase,
   renameOrganizationUseCase,
@@ -34,6 +36,9 @@ import {
 import { buildTestHarness } from "./testing/in-memory.js";
 
 const NOW = new Date("2026-07-28T10:00:00Z");
+
+/** The Organization's Secretary, as the composition root names it. */
+const SECRETARY = "secretary-1";
 
 const SUBJECT = {
   provider: "dev",
@@ -67,7 +72,7 @@ describe("Organization bootstrap", () => {
     const { organization, membership } = await createOrganizationUseCase(
       h.deps,
       creator(),
-      { name: "Northwind" },
+      { name: "Northwind", secretaryPrincipalId: SECRETARY },
     );
 
     expect(organization.status).toBe("Active");
@@ -80,6 +85,7 @@ describe("Organization bootstrap", () => {
     const h = buildTestHarness(NOW);
     const { organization } = await createOrganizationUseCase(h.deps, creator(), {
       name: "Northwind",
+      secretaryPrincipalId: SECRETARY,
     });
 
     // The bootstrap invariant, checked from the outside: the member list an
@@ -97,7 +103,10 @@ describe("Organization bootstrap", () => {
 
   it("creates the Human Identity when the subject is unmapped", async () => {
     const h = buildTestHarness(NOW);
-    await createOrganizationUseCase(h.deps, creator(), { name: "Northwind" });
+    await createOrganizationUseCase(h.deps, creator(), {
+        name: "Northwind",
+        secretaryPrincipalId: SECRETARY,
+      });
 
     // ADR-0013: an unmapped subject "may create a Human Identity". Membership is
     // still granted only here or through the invitation flow.
@@ -110,10 +119,16 @@ describe("Organization bootstrap", () => {
 
   it("reuses an Identity the subject already maps to", async () => {
     const h = buildTestHarness(NOW);
-    await createOrganizationUseCase(h.deps, creator(), { name: "First" });
+    await createOrganizationUseCase(h.deps, creator(), {
+        name: "First",
+        secretaryPrincipalId: SECRETARY,
+      });
     const first = await h.identities.findBySubject(SUBJECT);
 
-    await createOrganizationUseCase(h.deps, creator(), { name: "Second" });
+    await createOrganizationUseCase(h.deps, creator(), {
+        name: "Second",
+        secretaryPrincipalId: SECRETARY,
+      });
     const second = await h.identities.findBySubject(SUBJECT);
 
     // "A person may have Memberships in multiple Organizations" — one Identity,
@@ -136,13 +151,19 @@ describe("Organization bootstrap", () => {
     // "Verify Human Identity is Active" is the first step of the bootstrap
     // transaction: a disabled Identity must not acquire a new Organization.
     await expect(
-      createOrganizationUseCase(h.deps, creator(), { name: "Northwind" }),
+      createOrganizationUseCase(h.deps, creator(), {
+        name: "Northwind",
+        secretaryPrincipalId: SECRETARY,
+      }),
     ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
 
   it("emits OrganizationCreated and MembershipActivated", async () => {
     const h = buildTestHarness(NOW);
-    await createOrganizationUseCase(h.deps, creator(), { name: "Northwind" });
+    await createOrganizationUseCase(h.deps, creator(), {
+        name: "Northwind",
+        secretaryPrincipalId: SECRETARY,
+      });
 
     // `MembershipCreated` appears in the identity document but is not a
     // registered event name; the events catalogue is authoritative for names.
@@ -156,7 +177,10 @@ describe("Organization bootstrap", () => {
     const h = buildTestHarness(NOW);
 
     await expect(
-      createOrganizationUseCase(h.deps, creator(), { name: "   " }),
+      createOrganizationUseCase(h.deps, creator(), {
+        name: "   ",
+        secretaryPrincipalId: SECRETARY,
+      }),
     ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
 
     expect(h.outbox.typesOf()).toEqual([]);
@@ -169,6 +193,7 @@ describe("renaming", () => {
     const h = buildTestHarness(NOW);
     const { organization } = await createOrganizationUseCase(h.deps, creator(), {
       name: "Northwind",
+      secretaryPrincipalId: SECRETARY,
     });
     return { h, organizationId: organization.organizationId };
   };
@@ -217,6 +242,7 @@ describe("the Organization lifecycle", () => {
     const h = buildTestHarness(NOW);
     const { organization } = await createOrganizationUseCase(h.deps, creator(), {
       name: "Northwind",
+      secretaryPrincipalId: SECRETARY,
     });
     return { h, organizationId: organization.organizationId };
   };
@@ -330,5 +356,144 @@ describe("the Organization lifecycle", () => {
       ["ReactivateOrganization", "Suspended", "Active"],
       ["ArchiveOrganization", "Active", "Archived"],
     ]);
+  });
+});
+
+/**
+ * Secretary assistance grants (ADR-0019).
+ *
+ * The Organization enables and disables its own Secretary. What only exists at
+ * this level is the registry boundary — a caller names an operation, never a
+ * context — and the bootstrap provisioning that makes a new Organization
+ * usable without a second step.
+ */
+describe("assistance grants", () => {
+  const withOrganization = async () => {
+    const h = buildTestHarness(NOW);
+    const { organization, membership } = await createOrganizationUseCase(
+      h.deps,
+      creator(),
+      { name: "Northwind", secretaryPrincipalId: SECRETARY },
+    );
+    return { h, organizationId: organization.organizationId, membership };
+  };
+
+  const isGranted = (h: ReturnType<typeof buildTestHarness>, organizationId: OrganizationId) =>
+    h.assistanceGrants.isGranted({
+      organizationId,
+      secretaryPrincipalId: SECRETARY,
+      contextKey: "Decision",
+      assistanceOperation: "decision.draft_material",
+      portContractVersion: 1,
+    });
+
+  it("grants the baseline operations when the Organization is created", async () => {
+    const { h, organizationId } = await withOrganization();
+
+    // `mvp.md` presents one Secretary per Organization as a property of an
+    // Organization, not an opt-in.
+    expect(await isGranted(h, organizationId)).toBe(true);
+  });
+
+  it("revokes and re-grants, so bootstrap is not a one-way door", async () => {
+    const { h, organizationId } = await withOrganization();
+    const ctx = ctxFor(organizationId);
+
+    await revokeAssistanceUseCase(h.deps, ctx, {
+      secretaryPrincipalId: SECRETARY,
+      operation: "decision.draft_material",
+    });
+    expect(await isGranted(h, organizationId)).toBe(false);
+
+    await grantAssistanceUseCase(h.deps, ctx, {
+      secretaryPrincipalId: SECRETARY,
+      operation: "decision.draft_material",
+      reason: "Turning the Secretary back on.",
+    });
+    expect(await isGranted(h, organizationId)).toBe(true);
+  });
+
+  it("reports a revocation of something not granted as absent", async () => {
+    const { h, organizationId } = await withOrganization();
+    const ctx = ctxFor(organizationId);
+
+    await revokeAssistanceUseCase(h.deps, ctx, {
+      secretaryPrincipalId: SECRETARY,
+      operation: "decision.draft_material",
+    });
+
+    // Silently succeeding would tell an operator the Secretary had been stopped
+    // when it was already stopped — the opposite of what they asked to confirm.
+    await expect(
+      revokeAssistanceUseCase(h.deps, ctx, {
+        secretaryPrincipalId: SECRETARY,
+        operation: "decision.draft_material",
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  /**
+   * ADR-0011 requires unknown operations to "fail closed". This is that
+   * boundary at granting time: a caller cannot invent an operation and have a
+   * grant written for it.
+   */
+  it("refuses an operation the build does not declare", async () => {
+    const { h, organizationId } = await withOrganization();
+
+    await expect(
+      grantAssistanceUseCase(h.deps, ctxFor(organizationId), {
+        secretaryPrincipalId: SECRETARY,
+        operation: "decision.approve",
+        reason: "Trying to widen the port.",
+      }),
+    ).rejects.toMatchObject({ code: "ASSISTANCE_NOT_GRANTED" });
+  });
+
+  it("gives both commands to Owner and Admin, and to nobody else", async () => {
+    const { h, organizationId } = await withOrganization();
+
+    for (const roles of [["Member"], ["Reviewer"]] as Role[][]) {
+      const ctx = ctxFor(organizationId, roles);
+      await expect(
+        grantAssistanceUseCase(h.deps, ctx, {
+          secretaryPrincipalId: SECRETARY,
+          operation: "decision.draft_material",
+          reason: "Not mine to grant.",
+        }),
+      ).rejects.toBeInstanceOf(AuthorizationError);
+      await expect(
+        revokeAssistanceUseCase(h.deps, ctx, {
+          secretaryPrincipalId: SECRETARY,
+          operation: "decision.draft_material",
+        }),
+      ).rejects.toBeInstanceOf(AuthorizationError);
+    }
+
+    // An Admin may, because enabling advisory drafting is administration.
+    await revokeAssistanceUseCase(h.deps, ctxFor(organizationId, ["OrganizationAdmin"]), {
+      secretaryPrincipalId: SECRETARY,
+      operation: "decision.draft_material",
+    });
+    expect(await isGranted(h, organizationId)).toBe(false);
+  });
+
+  it("grants idempotently", async () => {
+    const { h, organizationId } = await withOrganization();
+    const ctx = ctxFor(organizationId);
+
+    // Already granted by the bootstrap. A repeat must not create a second active
+    // grant that revocation would then have to find twice.
+    await grantAssistanceUseCase(h.deps, ctx, {
+      secretaryPrincipalId: SECRETARY,
+      operation: "decision.draft_material",
+      reason: "Again.",
+    });
+    expect(await isGranted(h, organizationId)).toBe(true);
+
+    await revokeAssistanceUseCase(h.deps, ctx, {
+      secretaryPrincipalId: SECRETARY,
+      operation: "decision.draft_material",
+    });
+    expect(await isGranted(h, organizationId)).toBe(false);
   });
 });

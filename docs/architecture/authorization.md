@@ -1093,6 +1093,8 @@ organization.reactivate_member
 organization.revoke_member
 organization.assign_role
 organization.revoke_role
+organization.grant_assistance
+organization.revoke_assistance
 
 events.inspect_failed
 events.retry
@@ -1173,6 +1175,22 @@ role-to-permission map:
   rank-based, because the four roles are a set and not a ladder. Revoking one's own role
   remains permitted: stepping down is not escalation, and the Last Owner Invariant already
   refuses the only dangerous case.
+
+`organization.grant_assistance` and `organization.revoke_assistance` are catalogued by
+[ADR-0019](../adr/0019-promote-assistance-grant-management.md). `docs/product/mvp.md`
+requires both that each Organization has a Secretary and that "every invocation requires an
+active ... assistance grant", and nothing could create one — so the Secretary refused every
+request in any Organization the product itself created.
+
+Both are held by Owner and Admin. Enabling advisory drafting is administration rather than
+ownership: the Secretary gains no authority to approve, complete, or decide anything, and
+revocation is available to the same roles.
+
+A grant names an **operation**; its context and port contract version come from the
+code-declared registry, never from the caller. That keeps ADR-0011's "unknown contexts,
+operations, versions ... fail closed" true at the granting boundary as well as at
+invocation. The Secretary cannot hold either permission — `mvp.md` lists "grant or change
+permissions" among the things it must never do, and both are Human-only.
 
 These permissions govern the Organization's own lifecycle as its Owner controls it.
 Suspending an Organization *against* its Owner — for billing resolution or a security

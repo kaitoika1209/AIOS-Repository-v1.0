@@ -23,6 +23,11 @@ import {
   type OrganizationState,
 } from "@aios/domain";
 
+import {
+  ASSISTANCE_GRANTS,
+  specForOperation,
+  type AssistanceGrantSpec,
+} from "./assistance.js";
 import { recordTransition } from "./audit.js";
 import { requirePermission } from "./authorization.js";
 import {
@@ -74,7 +79,7 @@ export interface OrganizationCreator {
 export const createOrganizationUseCase = async (
   deps: UseCaseDependencies,
   creator: OrganizationCreator,
-  input: { readonly name: string },
+  input: { readonly name: string; readonly secretaryPrincipalId: string },
 ): Promise<{ organization: OrganizationState; membership: MembershipState }> => {
   const organizationId = deps.ids.organizationId();
   const membershipId = deps.ids.membershipId();
@@ -152,6 +157,30 @@ export const createOrganizationUseCase = async (
         initialRoles: ownerMembership.roles,
       },
     ]);
+
+    // The baseline assistance grants (ADR-0019). Attributed to the founding
+    // Owner, whose Membership is created in this same transaction — which is
+    // what `granted_by_membership_id` requires, and why this is the Owner's act
+    // rather than the platform granting on an Organization's behalf.
+    //
+    // `mvp.md` presents one Secretary per Organization as a property of an
+    // Organization, not an opt-in, so a new one arrives able to assist.
+    // Deny-by-default is untouched: the invocation check still demands an active
+    // grant for the exact five-field identity, and still fails closed for
+    // anything the registry does not declare.
+    for (const spec of ASSISTANCE_GRANTS) {
+      await tx.assistanceGrants.grant({
+        grantId: deps.ids.grantId(),
+        organizationId,
+        secretaryPrincipalId: input.secretaryPrincipalId,
+        contextKey: spec.contextKey,
+        assistanceOperation: spec.assistanceOperation,
+        portContractVersion: spec.portContractVersion,
+        grantedByMembershipId: membershipId,
+        reason: "Granted when the Organization was created.",
+        now: creator.now,
+      });
+    }
 
     return { organization: created.state, membership: ownerMembership };
   });
@@ -364,3 +393,117 @@ export const getOrganizationUseCase = async (
     }
     return organization;
   });
+
+/**
+ * Refused because the request named an operation the build does not declare.
+ *
+ * `422`, like every other well-formed request that violates a domain rule. The
+ * operation set is a closed vocabulary (`ASSISTANCE_OPERATIONS`), not a name a
+ * caller supplies — ADR-0011 requires unknown ones to fail closed, and this is
+ * that boundary at granting time rather than at invocation.
+ */
+export class UnknownAssistanceOperationError extends Error {
+  readonly code = "ASSISTANCE_NOT_GRANTED" as const;
+
+  constructor(operation: string) {
+    super(`No assistance port declares the operation ${operation}.`);
+    this.name = "UnknownAssistanceOperationError";
+  }
+}
+
+/**
+ * Enable one of the Secretary's advisory operations (ADR-0019).
+ *
+ * The caller names an operation. Its context and port contract version are read
+ * from the declared registry, so a caller cannot widen the grant's identity to
+ * something the ports do not own.
+ *
+ * Idempotent: granting what is already granted changes nothing and is not an
+ * error. `uq_secretary_grants_active` admits one active grant per identity, and
+ * the repository's `ON CONFLICT DO NOTHING` is what makes a repeat harmless.
+ */
+export const grantAssistanceUseCase = async (
+  deps: UseCaseDependencies,
+  ctx: WorkCommandContext,
+  input: {
+    readonly secretaryPrincipalId: string;
+    readonly operation: string;
+    readonly reason: string;
+  },
+): Promise<AssistanceGrantSpec> => {
+  requirePermission(ctx.principal, "organization.grant_assistance");
+
+  const spec = specForOperation(input.operation);
+  if (spec === null) {
+    throw new UnknownAssistanceOperationError(input.operation);
+  }
+  const principal = requireGrantingMember(ctx);
+
+  await deps.uow.transaction(async (tx) => {
+    await tx.assistanceGrants.grant({
+      grantId: deps.ids.grantId(),
+      organizationId: ctx.organizationId,
+      secretaryPrincipalId: input.secretaryPrincipalId,
+      contextKey: spec.contextKey,
+      assistanceOperation: spec.assistanceOperation,
+      portContractVersion: spec.portContractVersion,
+      grantedByMembershipId: principal.membershipId,
+      reason: input.reason,
+      now: ctx.now,
+    });
+  });
+
+  return spec;
+};
+
+/**
+ * Withdraw an advisory operation.
+ *
+ * Reported as absent when nothing was active to withdraw. Silently succeeding
+ * would tell an operator the Secretary had been stopped when it had never been
+ * started under that identity — the opposite of what they asked to confirm.
+ */
+export const revokeAssistanceUseCase = async (
+  deps: UseCaseDependencies,
+  ctx: WorkCommandContext,
+  input: { readonly secretaryPrincipalId: string; readonly operation: string },
+): Promise<AssistanceGrantSpec> => {
+  requirePermission(ctx.principal, "organization.revoke_assistance");
+
+  const spec = specForOperation(input.operation);
+  if (spec === null) {
+    throw new UnknownAssistanceOperationError(input.operation);
+  }
+  const principal = requireGrantingMember(ctx);
+
+  const revoked = await deps.uow.transaction((tx) =>
+    tx.assistanceGrants.revoke({
+      organizationId: ctx.organizationId,
+      secretaryPrincipalId: input.secretaryPrincipalId,
+      contextKey: spec.contextKey,
+      assistanceOperation: spec.assistanceOperation,
+      portContractVersion: spec.portContractVersion,
+      revokedByMembershipId: principal.membershipId,
+      now: ctx.now,
+    }),
+  );
+
+  if (!revoked) {
+    throw new NotFoundError("Assistance grant");
+  }
+  return spec;
+};
+
+/**
+ * The Member a grant is attributed to.
+ *
+ * `granted_by_membership_id` is `NOT NULL` with a composite foreign key into
+ * `memberships`, so a grant always names a Member of the same Organization —
+ * there is no shape in which the platform grants on an Organization's behalf.
+ */
+const requireGrantingMember = (ctx: WorkCommandContext) => {
+  if (!isHumanMember(ctx.principal)) {
+    throw new ValidationError("Only a Human Member may grant assistance.");
+  }
+  return ctx.principal;
+};

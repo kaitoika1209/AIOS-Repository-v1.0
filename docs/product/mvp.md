@@ -485,6 +485,13 @@ The Secretary must never:
 
 The Secretary Runtime may call only typed, context-owned AI Assistance Application Ports. Those ports expose allowlisted advisory operations and omit repositories, database access, mutable Aggregates, generic command dispatch, unrestricted queries, and Human-only or System-only commands.
 
+An Organization grants and revokes its Secretary's assistance operations, scoped by
+[ADR-0019](../adr/0019-promote-assistance-grant-management.md). Creating an Organization
+grants the baseline operations, attributed to the founding Owner, so a new Organization has
+a working Secretary without a second step; the two commands let it be turned off and back
+on. The Secretary never grants itself anything — "grant or change permissions" is on the
+list above.
+
 Every invocation requires an active Organization-, Secretary-, context-, operation-, and port-version-specific assistance grant plus an initiating Human command or separately permitted System workflow. Unknown operations fail closed before provider invocation. Generation and Human adoption are separate commands; adoption re-evaluates current authorization and domain rules.
 
 All Secretary outputs must be attributable to the Secretary and distinguishable from human-authored content. [ADR-0011](../adr/0011-bound-secretary-to-context-owned-assistance-ports.md) defines the binding implementation boundary.

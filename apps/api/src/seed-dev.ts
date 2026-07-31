@@ -120,13 +120,14 @@ export const seed = async (pool: Pool): Promise<void> => {
       );
     }
 
-    // The Secretary's assistance grant (ADR-0011). Deny-by-default means the
-    // assistance route refuses until an Organization activates one, so the seed
-    // activates it — otherwise the flow is unreachable in development and would
-    // look broken rather than ungranted.
+    // The Secretary's assistance grant (ADR-0011, ADR-0019). Written here
+    // because the seed builds its Organization with direct SQL rather than
+    // through `createOrganizationUseCase`, which is what provisions the baseline
+    // grants for an Organization created the ordinary way.
     //
-    // Granted by the Owner, because an assistance grant is Organization
-    // authority: the platform cannot grant one on an Organization's behalf.
+    // Attributed to the Owner, because an assistance grant is Organization
+    // authority: `granted_by_membership_id` is `NOT NULL` and references a
+    // Membership, so there is nobody else it could name.
     const owner = SEED.members.find((m) => m.role === "OrganizationOwner")!;
     await client.query(
       `INSERT INTO secretary_assistance_grants

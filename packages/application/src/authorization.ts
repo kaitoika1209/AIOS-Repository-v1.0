@@ -50,6 +50,10 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     "organization.revoke_member",
     "organization.assign_role",
     "organization.revoke_role",
+    // Enabling the Secretary's advisory operations (ADR-0019). Administration
+    // rather than ownership: it confers no authority to approve or decide.
+    "organization.grant_assistance",
+    "organization.revoke_assistance",
     "work.create",
     "work.edit",
     "work.start",
@@ -92,6 +96,8 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     // `OrganizationOwner` specifically.
     "organization.assign_role",
     "organization.revoke_role",
+    "organization.grant_assistance",
+    "organization.revoke_assistance",
     "work.create",
     "work.edit",
     "work.start",

@@ -994,15 +994,25 @@ export class InMemoryAssistanceGrantRepository implements AssistanceGrantReposit
     this.rows.set(InMemoryAssistanceGrantRepository.key(input), { revoked: false });
   }
 
-  /** Revoke, so a test can prove the check is consulted every time. */
-  revoke(input: {
+  /**
+   * Stamp an active grant as revoked.
+   *
+   * The row stays, as the real adapter's does — a grant that once existed is
+   * part of what an auditor needs, and the partial unique index only constrains
+   * active rows, so the same identity can be granted again afterwards.
+   */
+  async revoke(input: {
     organizationId: OrganizationId;
     secretaryPrincipalId: string;
     contextKey: string;
     assistanceOperation: string;
     portContractVersion: number;
-  }): void {
-    this.rows.set(InMemoryAssistanceGrantRepository.key(input), { revoked: true });
+  }): Promise<boolean> {
+    const key = InMemoryAssistanceGrantRepository.key(input);
+    const row = this.rows.get(key);
+    if (row === undefined || row.revoked) return false;
+    this.rows.set(key, { revoked: true });
+    return true;
   }
 }
 

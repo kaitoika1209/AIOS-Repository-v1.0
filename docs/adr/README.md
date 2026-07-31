@@ -35,6 +35,7 @@ scope. Accepted ADRs are the highest authority in this repository — see
 | [0016](0016-bind-anthropic-as-the-model-provider.md) | Bind Anthropic as the Model Provider and Call It Directly | Proposed | 2026-07-29 |
 | [0017](0017-promote-the-organization-lifecycle.md) | Promote the Owner-Held Organization Lifecycle and Defer Platform Suspension | Proposed | 2026-07-30 |
 | [0018](0018-promote-role-assignment.md) | Promote Role Assignment and Revocation, and Forbid Self-Assignment | Proposed | 2026-07-30 |
+| [0019](0019-promote-assistance-grant-management.md) | Promote Assistance Grant Management and Enable the Secretary at Bootstrap | Proposed | 2026-07-31 |
 
 ---
 
@@ -50,8 +51,8 @@ New to the architecture? Read in this order:
 6. **0007**, **0008**, **0009**, **0011**, **0012** — specific mechanisms.
 7. **0013**, **0014** — how requests enter the system: authentication and the API surface.
 8. **0015**, **0016** — what the system talks to: the database, and the model provider.
-9. **0017**, **0018** — worked examples of ADR-0010's promotion rule: what it takes to
-   move a documented capability into implementable scope, and what stays behind.
+9. **0017**, **0018**, **0019** — worked examples of ADR-0010's promotion rule: what it
+   takes to move a documented capability into implementable scope, and what stays behind.
 
 ---
 

@@ -77,6 +77,10 @@ export const ORGANIZATION_PERMISSIONS = [
   // target role decides who may act, and nobody may assign to themselves.
   "organization.assign_role",
   "organization.revoke_role",
+  // Secretary assistance (ADR-0019). The request names an operation; the
+  // context and contract version come from the registry, not the caller.
+  "organization.grant_assistance",
+  "organization.revoke_assistance",
 ] as const;
 
 /** Operational recovery permissions, restricted to Owner and Admin. */

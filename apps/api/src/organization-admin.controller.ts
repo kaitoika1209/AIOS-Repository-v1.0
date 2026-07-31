@@ -28,8 +28,11 @@ import type { Request } from "express";
 
 import { OrganizationId, type OrganizationStatus } from "@aios/types";
 import {
+  ASSISTANCE_OPERATIONS,
   archiveOrganizationUseCase,
   createOrganizationUseCase,
+  grantAssistanceUseCase,
+  revokeAssistanceUseCase,
   getOrganizationUseCase,
   reactivateOrganizationUseCase,
   renameOrganizationUseCase,
@@ -43,7 +46,8 @@ import {
   subjectOf,
   WithoutOrganizationContext,
 } from "./request-context.js";
-import { USE_CASE_DEPENDENCIES } from "./tokens.js";
+import { DECISION_ASSISTANCE, USE_CASE_DEPENDENCIES } from "./tokens.js";
+import type { DecisionAssistanceProvider } from "@aios/application";
 
 interface OrganizationResponse {
   organizationId: string;
@@ -91,6 +95,11 @@ export class OrganizationAdminController {
   constructor(
     @Inject(USE_CASE_DEPENDENCIES)
     private readonly deps: UseCaseDependencies,
+    // The Secretary a grant is issued to. Taken from the provider rather than a
+    // constant, so the identifier a grant names is the one the runtime will
+    // present at invocation.
+    @Inject(DECISION_ASSISTANCE)
+    private readonly assistance: DecisionAssistanceProvider,
   ) {}
 
   /**
@@ -122,7 +131,10 @@ export class OrganizationAdminController {
         email: context.subject.email ?? null,
         now: context.now,
       },
-      { name: requireName(body.name) },
+      {
+        name: requireName(body.name),
+        secretaryPrincipalId: this.assistance.secretaryPrincipalId,
+      },
     );
 
     return {
@@ -247,4 +259,73 @@ export class OrganizationAdminController {
       await archiveOrganizationUseCase(this.deps, context, requireReason(body.reason)),
     );
   }
+
+  /**
+   * Enable one of the Secretary's advisory operations (ADR-0019).
+   *
+   * The body names an operation and nothing else. Its context and port contract
+   * version come from the declared registry, so a caller cannot widen a grant to
+   * a context the ports do not own.
+   */
+  @Post(":organizationId/assistance-grants")
+  async grantAssistance(
+    @Req() request: Request,
+    @Param("organizationId") organizationId: string,
+    @Body() body: { operation?: unknown; reason?: unknown },
+  ): Promise<{ operation: string; contextKey: string; portContractVersion: number }> {
+    const context = contextOf(request);
+    if (context.organizationId !== organizationId) {
+      throw new NotFoundException("Organization not found.");
+    }
+
+    const spec = await grantAssistanceUseCase(this.deps, context, {
+      secretaryPrincipalId: this.assistance.secretaryPrincipalId,
+      operation: requireOperation(body.operation),
+      reason: requireReason(body.reason),
+    });
+    return {
+      operation: spec.assistanceOperation,
+      contextKey: spec.contextKey,
+      portContractVersion: spec.portContractVersion,
+    };
+  }
+
+  /** Withdraw an advisory operation. The grant row is stamped, never deleted. */
+  @Post(":organizationId/assistance-grants/revoke")
+  async revokeAssistance(
+    @Req() request: Request,
+    @Param("organizationId") organizationId: string,
+    @Body() body: { operation?: unknown },
+  ): Promise<{ operation: string; contextKey: string; portContractVersion: number }> {
+    const context = contextOf(request);
+    if (context.organizationId !== organizationId) {
+      throw new NotFoundException("Organization not found.");
+    }
+
+    const spec = await revokeAssistanceUseCase(this.deps, context, {
+      secretaryPrincipalId: this.assistance.secretaryPrincipalId,
+      operation: requireOperation(body.operation),
+    });
+    return {
+      operation: spec.assistanceOperation,
+      contextKey: spec.contextKey,
+      portContractVersion: spec.portContractVersion,
+    };
+  }
 }
+
+/**
+ * An operation name from the declared registry.
+ *
+ * Shape is checked here; whether the build declares it is checked by the use
+ * case, which owns the registry. A non-string is a `400`; an unknown name is a
+ * `422`, because it is well formed and refused by a domain rule.
+ */
+const requireOperation = (value: unknown): string => {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new BadRequestException(
+      `operation is required, and must be one of: ${ASSISTANCE_OPERATIONS.join(", ")}.`,
+    );
+  }
+  return value;
+};

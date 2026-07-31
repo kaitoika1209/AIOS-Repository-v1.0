@@ -74,6 +74,19 @@ export const findGrantSpec = (
       g.assistanceOperation === assistanceOperation,
   ) ?? null;
 
+/**
+ * The declared spec for one operation.
+ *
+ * A grant request names an operation and nothing else; the context and contract
+ * version come from here. ADR-0011 requires unknown operations to "fail closed",
+ * and letting a caller supply the context would let them name one the ports do
+ * not own.
+ */
+export const specForOperation = (
+  assistanceOperation: string,
+): AssistanceGrantSpec | null =>
+  ASSISTANCE_GRANTS.find((g) => g.assistanceOperation === assistanceOperation) ?? null;
+
 /** Refused because no active grant authorizes the invocation. */
 export class AssistanceNotGrantedError extends Error {
   readonly code = "ASSISTANCE_NOT_GRANTED" as const;
@@ -126,6 +139,23 @@ export interface AssistanceGrantRepository {
     readonly reason: string;
     readonly now: Date;
   }): Promise<void>;
+
+  /**
+   * Withdraw an active grant, identified by the same five fields.
+   *
+   * Returns false when nothing was active to withdraw, which the use case
+   * reports rather than treating as success: an operator who revokes something
+   * that was never granted should learn that, not be reassured.
+   */
+  revoke(input: {
+    readonly organizationId: OrganizationId;
+    readonly secretaryPrincipalId: string;
+    readonly contextKey: string;
+    readonly assistanceOperation: string;
+    readonly portContractVersion: number;
+    readonly revokedByMembershipId: MembershipId;
+    readonly now: Date;
+  }): Promise<boolean>;
 }
 
 export interface SecretaryContributionRepository {

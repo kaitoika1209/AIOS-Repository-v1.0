@@ -161,31 +161,6 @@ suite("Release Acceptance Criteria (mvp.md)", () => {
       .send({ token })
       .expect(201);
 
-  /**
-   * Enable the Secretary for one Organization.
-   *
-   * Written directly, because no route creates a grant. ADR-0011 requires every
-   * invocation to be authorized against an active grant and says unknown ones
-   * "fail closed"; it does not say who issues one, and the permission catalogue
-   * has no name for the act. The dev seed reaches the same conclusion and does
-   * the same thing.
-   *
-   * That gap is real — an Organization created through `POST /organizations`
-   * cannot use its Secretary — but it is not one of the criteria below. These
-   * ask what a suggestion *does*, not how the Secretary was enabled.
-   */
-  const grantAssistance = async (organizationId: string, byMembershipId: string) => {
-    await pool.query(
-      `INSERT INTO secretary_assistance_grants
-         (grant_id, organization_id, secretary_principal_id,
-          context_key, assistance_operation, port_contract_version,
-          granted_at, granted_by_membership_id, reason)
-       VALUES (gen_random_uuid(), $1, $2, 'Decision', 'decision.draft_material', 1,
-               now(), $3, 'Acceptance suite: the Owner enables Decision drafting.')`,
-      [organizationId, SECRETARY_PRINCIPAL_ID, byMembershipId],
-    );
-  };
-
   /** An Organization with a Member and a Reviewer, all through the API. */
   const organizationWithTeam = async () => {
     const org = await createOrganization();
@@ -193,7 +168,6 @@ suite("Release Acceptance Criteria (mvp.md)", () => {
     await accept(COLLEAGUE, member.token);
     const reviewer = await invite(org.organizationId, FOUNDER, REVIEWER, ["Reviewer"]);
     await accept(REVIEWER, reviewer.token);
-    await grantAssistance(org.organizationId, org.membershipId);
     return {
       organizationId: org.organizationId,
       ownerMembershipId: org.membershipId,
