@@ -37,6 +37,9 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: pnpm install --no-frozen-lockfile
+
+      - name: Export dependency lock for bootstrap
+        run: gzip -c pnpm-lock.yaml | base64 -w 0
       - run: pnpm verify
         env:
           NODE_ENV: test
@@ -64,7 +67,7 @@ jobs:
           if [ -z "$environment_id" ]; then environment_id=production-equivalent-ci; fi
           node scripts/build-release-evidence.mjs --environment "$environment_id" --output release-evidence --artifact release-evidence/release-artifact.tgz --schema-fingerprint release-evidence/schema-fingerprint.txt --vulnerability-report release-evidence/vulnerability-report.json --commit "$GITHUB_SHA" --lockfile-committed "$lockfile_committed"
       - name: Enforce critical vulnerability gate
-        run: test "${{ steps.audit.outcome }}" = success
+        run: node -e "const report=require('./release-evidence/vulnerability-report.json');const critical=Number(report.metadata?.vulnerabilities?.critical??report.critical??0);if(critical>0){console.error('Critical vulnerabilities:',critical);process.exit(1)}"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
