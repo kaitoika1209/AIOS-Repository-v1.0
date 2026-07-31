@@ -1,0 +1,39 @@
+export type MemoryStatus='Generated'|'InReview'|'Rejected'|'Approved';
+export type HumanMemoryActor={readonly actorType:'HumanMember';readonly identityId:string;readonly membershipId:string};
+export type SystemMemoryActor={readonly actorType:'System';readonly systemId:string};
+export type MemoryContent={readonly title:string;readonly summary:string;readonly outcome:string;readonly lessonsObserved:readonly string[];readonly unresolvedItems:readonly string[];readonly additionalContext:string};
+export interface MemoryProvenance{readonly sourceWorkId:string;readonly sourceSnapshotId:string;readonly sourceSnapshotHash:string;readonly generationOperationId:string;readonly providerInputHash:string;readonly provider:string;readonly model:string;readonly promptPolicyVersion:string;readonly generationPolicyVersion:string;}
+export interface MemoryRevision{readonly revisionId:string;readonly revisionNumber:number;readonly status:'Draft'|'Submitted'|'Rejected'|'Approved';readonly content:MemoryContent;readonly contentHash?:string|undefined;readonly createdBy:HumanMemoryActor|SystemMemoryActor;readonly submittedBy?:HumanMemoryActor|undefined;readonly submittedAt?:Date|undefined;}
+export interface MemoryReview{readonly reviewId:string;readonly revisionId:string;readonly outcome:'Rejected'|'Approved';readonly reviewer:HumanMemoryActor;readonly reason?:string|undefined;readonly reviewedAt:Date;}
+export interface MemoryState{readonly memoryId:string;readonly organizationId:string;readonly status:MemoryStatus;readonly provenance:MemoryProvenance;readonly revisions:readonly MemoryRevision[];readonly reviews:readonly MemoryReview[];readonly version:number;readonly createdAt:Date;readonly updatedAt:Date;readonly approvedAt?:Date|undefined;}
+export type MemoryEventType='MemoryGenerated'|'MemoryDraftEdited'|'MemorySubmittedForReview'|'MemoryRejected'|'MemoryReopened'|'MemoryApproved';
+export interface MemoryEvent{readonly eventId:string;readonly eventType:MemoryEventType;readonly memoryId:string;readonly organizationId:string;readonly sourceWorkId:string;readonly aggregateVersion:number;readonly actor:HumanMemoryActor|SystemMemoryActor;readonly occurredAt:Date;readonly payload:Readonly<Record<string,unknown>>;}
+export class MemoryInvariantViolation extends Error{}
+
+type MemoryIds={eventId:()=>string;revisionId:()=>string;reviewId:()=>string;hash:(value:unknown)=>string};
+const validContent=(content:MemoryContent):boolean=>content.title.trim().length>0&&content.title.length<=200&&content.summary.trim().length>0&&content.summary.length<=10000&&content.outcome.trim().length>0&&content.outcome.length<=10000&&content.lessonsObserved.length<=100&&content.unresolvedItems.length<=100&&content.additionalContext.length<=20000;
+
+export class Memory{
+  private events:MemoryEvent[]=[];
+  private constructor(private current:MemoryState,private readonly ids:MemoryIds){}
+  static generate(input:{memoryId:string;organizationId:string;content:MemoryContent;provenance:MemoryProvenance;actor:SystemMemoryActor;now:Date;ids:MemoryIds}):Memory{
+    if(!validContent(input.content))throw new MemoryInvariantViolation('Generated Memory content is invalid');
+    const revision:MemoryRevision={revisionId:input.ids.revisionId(),revisionNumber:1,status:'Draft',content:input.content,createdBy:input.actor};
+    const memory=new Memory({memoryId:input.memoryId,organizationId:input.organizationId,status:'Generated',provenance:input.provenance,revisions:[revision],reviews:[],version:1,createdAt:input.now,updatedAt:input.now},input.ids);
+    memory.emit('MemoryGenerated',input.actor,input.now,{revisionId:revision.revisionId,sourceSnapshotId:input.provenance.sourceSnapshotId,generationOperationId:input.provenance.generationOperationId});return memory;
+  }
+  static rehydrate(state:MemoryState,ids:MemoryIds):Memory{return new Memory(state,ids);}
+  get state():MemoryState{return this.current;}
+  pullEvents():readonly MemoryEvent[]{const result=this.events;this.events=[];return result;}
+  edit(actor:HumanMemoryActor,content:MemoryContent,now:Date):void{this.requireStatus('Generated');if(!validContent(content))throw new MemoryInvariantViolation('Memory content is invalid');const draft=this.activeRevision();this.replace({...draft,content,createdBy:actor});this.bump('MemoryDraftEdited',actor,now,{revisionNumber:draft.revisionNumber});}
+  submit(actor:HumanMemoryActor,now:Date):void{this.requireStatus('Generated');const draft=this.activeRevision();const submitted:MemoryRevision={...draft,status:'Submitted',contentHash:this.ids.hash(draft.content),submittedBy:actor,submittedAt:now};this.replace(submitted);this.current={...this.current,status:'InReview'};this.bump('MemorySubmittedForReview',actor,now,{revisionId:submitted.revisionId,revisionNumber:submitted.revisionNumber,sourceSnapshotId:this.current.provenance.sourceSnapshotId,sourceSnapshotHash:this.current.provenance.sourceSnapshotHash});}
+  reject(actor:HumanMemoryActor,reason:string,now:Date):void{if(reason.trim().length===0||reason.length>10000)throw new MemoryInvariantViolation('Rejection reason is required');this.resolve('Rejected',actor,reason,now);}
+  approve(actor:HumanMemoryActor,confirmation:string|undefined,now:Date):void{this.resolve('Approved',actor,confirmation,now);}
+  reopen(actor:HumanMemoryActor,now:Date):void{this.requireStatus('Rejected');const prior=this.activeRevision();const revision:MemoryRevision={revisionId:this.ids.revisionId(),revisionNumber:prior.revisionNumber+1,status:'Draft',content:prior.content,createdBy:actor};this.current={...this.current,status:'Generated',revisions:[...this.current.revisions,revision]};this.bump('MemoryReopened',actor,now,{revisionId:revision.revisionId,revisionNumber:revision.revisionNumber,basedOnRevisionId:prior.revisionId});}
+  private resolve(outcome:'Rejected'|'Approved',actor:HumanMemoryActor,reason:string|undefined,now:Date):void{this.requireStatus('InReview');const revision=this.activeRevision();if(revision.status!=='Submitted'||revision.contentHash===undefined)throw new MemoryInvariantViolation('Review must bind the submitted revision');const review:MemoryReview={reviewId:this.ids.reviewId(),revisionId:revision.revisionId,outcome,reviewer:actor,reason,reviewedAt:now};this.replace({...revision,status:outcome});this.current={...this.current,status:outcome,reviews:[...this.current.reviews,review],approvedAt:outcome==='Approved'?now:undefined};this.bump(outcome==='Approved'?'MemoryApproved':'MemoryRejected',actor,now,{revisionId:revision.revisionId,reviewId:review.reviewId,sourceSnapshotId:this.current.provenance.sourceSnapshotId,sourceSnapshotHash:this.current.provenance.sourceSnapshotHash,reason:reason??null});}
+  private activeRevision():MemoryRevision{const revision=this.current.revisions[this.current.revisions.length-1];if(!revision)throw new MemoryInvariantViolation('Memory must have a revision');return revision;}
+  private replace(revision:MemoryRevision):void{this.current={...this.current,revisions:this.current.revisions.map(item=>item.revisionId===revision.revisionId?revision:item)};}
+  private requireStatus(status:MemoryStatus):void{if(this.current.status!==status)throw new MemoryInvariantViolation(`Expected ${String(status)} Memory`);}
+  private bump(type:MemoryEventType,actor:HumanMemoryActor|SystemMemoryActor,now:Date,payload:Readonly<Record<string,unknown>>):void{this.current={...this.current,version:this.current.version+1,updatedAt:now};this.emit(type,actor,now,payload);}
+  private emit(type:MemoryEventType,actor:HumanMemoryActor|SystemMemoryActor,now:Date,payload:Readonly<Record<string,unknown>>):void{this.events.push({eventId:this.ids.eventId(),eventType:type,memoryId:this.current.memoryId,organizationId:this.current.organizationId,sourceWorkId:this.current.provenance.sourceWorkId,aggregateVersion:this.current.version,actor,occurredAt:now,payload});}
+}
