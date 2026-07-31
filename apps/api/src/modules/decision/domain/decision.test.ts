@@ -1,0 +1,10 @@
+import{describe,expect,it}from'vitest';
+import{Decision,DecisionInvariantViolation,type DecisionContent,type HumanDecisionActor}from'./decision.js';
+const actor:HumanDecisionActor={actorType:'HumanMember',identityId:'human-a',membershipId:'member-a'};
+const content:DecisionContent={title:'Release?',summary:'Release M3',rationale:'Tests pass',proposal:'Approve release',supportingReferences:[]};
+let sequence=0;const next=(prefix:string)=>`${prefix}-${String(++sequence)}`;const ids={eventId:()=>next('event'),revisionId:()=>next('revision'),reviewId:()=>next('review'),hash:(value:DecisionContent)=>JSON.stringify(value)};const now=new Date('2026-07-31T00:00:00Z');
+describe('Decision',()=>{
+ it('binds approval to the exact immutable submitted revision',()=>{const decision=Decision.create({decisionId:'d',organizationId:'o',relatedWorkId:'w',isBlocking:true,content,actor,now,ids});const submitted=decision.submit(actor,now);decision.approve(actor,'Approved',now);expect(decision.state).toMatchObject({status:'Approved',version:3});expect(decision.state.reviews[0]).toMatchObject({revisionId:submitted.submittedSnapshotId,outcome:'Approved'});expect(()=>{decision.editDraft(actor,content,now);}).toThrow(DecisionInvariantViolation);});
+ it('preserves rejected history and creates a new independent revision',()=>{const decision=Decision.create({decisionId:'d2',organizationId:'o',relatedWorkId:'w',isBlocking:true,content,actor,now,ids});decision.submit(actor,now);decision.reject(actor,'Change',now);decision.startRevision(actor,{...content,proposal:'Revised'},now);expect(decision.state.revisions.map(revision=>[revision.revisionNumber,revision.status])).toEqual([[1,'Rejected'],[2,'Draft']]);});
+ it.each(['approve','reject','withdraw']as const)('permits one Human review outcome: %s',(outcome)=>{const decision=Decision.create({decisionId:next('d'),organizationId:'o',relatedWorkId:'w',isBlocking:false,content,actor,now,ids});decision.submit(actor,now);decision[outcome](actor,undefined,now);expect(decision.state.status).toBe(outcome==='approve'?'Approved':outcome==='reject'?'Rejected':'Withdrawn');});
+});
