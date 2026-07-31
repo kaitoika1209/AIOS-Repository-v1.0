@@ -2,13 +2,29 @@ name: ci
 
 on:
   pull_request:
-  push:
-    branches: [main, architecture/implementation-readiness]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  infrastructure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.9.8 }
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive infra/terraform
+      - name: Validate Terraform configuration
+        working-directory: infra/terraform
+        run: terraform init -backend=false && terraform validate
+      - name: Build API image
+        run: docker build --file apps/api/Dockerfile --tag aios-api:${{ github.sha }} .
+      - name: Build Worker image
+        run: docker build --file apps/worker/Dockerfile --tag aios-worker:${{ github.sha }} .
+
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
