@@ -7,10 +7,10 @@ import { WorkConcurrencyConflict,WorkPermissionDenied,WorkService } from './work
 const principal:HumanMemberPrincipal={principalType:'HumanMember',principalId:'member-a',identityId:'human-a',membershipId:'member-a',organizationId:'org-a',roles:['Member']};
 const started:WorkState={workId:'work-a',organizationId:'org-a',creator:{actorType:'HumanMember',identityId:'human-a',membershipId:'member-a'},status:'InProgress',details:{title:'M2',description:'',intendedOutcome:'Complete safely'},assignments:[],version:2,createdAt:new Date(0),updatedAt:new Date(0),startedAt:new Date(0),startedBy:{actorType:'HumanMember',identityId:'human-a',membershipId:'member-a'}};
 
-function harness(state:WorkState|undefined=started){
+function harness(state:WorkState=started){
   let saved=state; const results=new Map<string,unknown>(); const appended:unknown[]=[];
-  const save=vi.fn((_organizationId:string,work:{state:WorkState},expected:number)=>{if(saved===undefined||saved.version!==expected)return Promise.reject(new WorkConcurrencyConflict());saved=work.state;return Promise.resolve();});
-  const repository:WorkRepository={add:(_organizationId,work)=>{saved=work.state;return Promise.resolve();},get:(organizationId,workId)=>Promise.resolve(saved!==undefined&&saved.organizationId===organizationId&&saved.workId===workId?saved:undefined),save};
+  const save=vi.fn((_organizationId:string,work:{state:WorkState},expected:number)=>{if(saved.version!==expected)return Promise.reject(new WorkConcurrencyConflict());saved=work.state;return Promise.resolve();});
+  const repository:WorkRepository={add:(_organizationId,work)=>{saved=work.state;return Promise.resolve();},get:(organizationId,workId)=>Promise.resolve(saved.organizationId===organizationId&&saved.workId===workId?saved:undefined),save};
   const commands:WorkCommandLedger={result:(commandId)=>Promise.resolve(results.get(commandId)),record:(commandId,_organizationId,_type,result)=>{results.set(commandId,result);return Promise.resolve();}};
   const events:WorkEventWriter={append:(batch)=>{appended.push(...batch);return Promise.resolve();}};
   const audit:WorkAuthorizationAudit={record:()=>Promise.resolve()};
