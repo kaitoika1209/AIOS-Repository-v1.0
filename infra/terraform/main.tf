@@ -34,7 +34,7 @@ resource "aws_subnet" "private" {
   vpc_id            = aws_vpc.main.id
   availability_zone = local.azs[count.index]
   cidr_block        = cidrsubnet(var.vpc_cidr, 8, count.index + 10)
-  tags               = { Name = "${local.name}-private-${count.index + 1}" }
+  tags              = { Name = "${local.name}-private-${count.index + 1}" }
 }
 
 resource "aws_route_table" "public" {
@@ -116,30 +116,30 @@ resource "aws_secretsmanager_secret_version" "database" {
 }
 
 resource "aws_db_instance" "main" {
-  identifier                     = local.name
-  engine                         = "postgres"
-  engine_version                 = "17"
-  instance_class                 = var.database_instance_class
-  allocated_storage              = 20
-  max_allocated_storage          = 100
-  storage_type                   = "gp3"
-  storage_encrypted              = true
-  db_name                        = var.database_name
-  username                       = "aios_admin"
-  password                       = random_password.database.result
-  db_subnet_group_name           = aws_db_subnet_group.main.name
-  vpc_security_group_ids         = [aws_security_group.database.id]
-  publicly_accessible            = false
-  backup_retention_period        = var.database_backup_retention_days
-  backup_window                  = "17:00-18:00"
-  maintenance_window             = "sun:18:00-sun:19:00"
-  auto_minor_version_upgrade     = true
-  deletion_protection            = var.deletion_protection
-  skip_final_snapshot            = var.environment != "production"
-  final_snapshot_identifier      = var.environment == "production" ? "${local.name}-final" : null
+  identifier                      = local.name
+  engine                          = "postgres"
+  engine_version                  = "17"
+  instance_class                  = var.database_instance_class
+  allocated_storage               = 20
+  max_allocated_storage           = 100
+  storage_type                    = "gp3"
+  storage_encrypted               = true
+  db_name                         = var.database_name
+  username                        = "aios_admin"
+  password                        = random_password.database.result
+  db_subnet_group_name            = aws_db_subnet_group.main.name
+  vpc_security_group_ids          = [aws_security_group.database.id]
+  publicly_accessible             = false
+  backup_retention_period         = var.database_backup_retention_days
+  backup_window                   = "17:00-18:00"
+  maintenance_window              = "sun:18:00-sun:19:00"
+  auto_minor_version_upgrade      = true
+  deletion_protection             = var.deletion_protection
+  skip_final_snapshot             = var.environment != "production"
+  final_snapshot_identifier       = var.environment == "production" ? "${local.name}-final" : null
   enabled_cloudwatch_logs_exports = ["postgresql", "upgrade"]
-  performance_insights_enabled   = true
-  apply_immediately              = false
+  performance_insights_enabled    = true
+  apply_immediately               = false
 
   lifecycle {
     prevent_destroy = true
@@ -201,4 +201,3 @@ resource "aws_cloudwatch_metric_alarm" "database_cpu" {
   alarm_actions       = [aws_sns_topic.operations.arn]
   ok_actions          = [aws_sns_topic.operations.arn]
 }
-
