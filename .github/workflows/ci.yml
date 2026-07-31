@@ -42,6 +42,8 @@ jobs:
         run: psql "$DATABASE_URL" -f db/tests/m3_decision_invariants.sql
       - name: Verify M4 Memory generation and review invariants
         run: psql "$DATABASE_URL" -f db/tests/m4_memory_invariants.sql
+      - name: Verify M5 operational recovery invariants
+        run: psql "$DATABASE_URL" -f db/tests/m5_operational_invariants.sql
       - name: Record reviewed schema fingerprint
         run: |
           psql "$DATABASE_URL" -Atc "SELECT md5(string_agg(definition, E'\\n' ORDER BY definition)) FROM (SELECT table_name||':'||ordinal_position||':'||column_name||':'||data_type||':'||is_nullable AS definition FROM information_schema.columns WHERE table_schema='public' UNION ALL SELECT conrelid::regclass::text||':'||conname||':'||pg_get_constraintdef(oid,true) FROM pg_constraint WHERE connamespace='public'::regnamespace) schema_contract" | tee m1-schema-fingerprint.txt
