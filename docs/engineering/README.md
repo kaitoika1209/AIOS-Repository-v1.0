@@ -17,6 +17,7 @@ The goal is to ensure consistency, maintainability, and high code quality as AIO
 | [git-workflow.md](git-workflow.md) | Git workflow |
 | [pull-request.md](pull-request.md) | Pull request guidelines |
 | [review-checklist.md](review-checklist.md) | Review checklist, including ADR-0010 scope verification |
+| [release-readiness.md](release-readiness.md) | What remains between the build and production, against the MVP Production Baseline |
 
 ## Related
 
