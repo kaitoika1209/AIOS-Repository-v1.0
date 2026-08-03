@@ -69,6 +69,36 @@ Before introducing new architectural patterns, create or update an ADR in:
 
 ---
 
+## Schema Changes
+
+The schema has one authority and one path to it, and both are checked mechanically
+([ADR-0015](docs/adr/0015-use-documented-ddl-and-direct-sql-for-persistence.md),
+[ADR-0020](docs/adr/0020-adopt-forward-only-migrations-checked-against-the-documented-ddl.md)).
+
+A schema change is three steps, in this order:
+
+1. **Edit the document.** `docs/architecture/persistence-and-data-model.md` is the authority
+   on what the schema *is*. `python3 scripts/extract_schema.py` regenerates
+   `build/schema.sql` from it.
+2. **Write the migration.** A new numbered file in `migrations/`, describing how a database
+   that already holds rows reaches the new shape. Never edit an applied migration — the
+   runner records a checksum and refuses to proceed when one changes, because an edited
+   migration means some databases hold one schema and some another.
+3. **Run the check.** `packages/persistence` tests compare the migration chain against the
+   documented DDL and fail on any difference, in either direction. A migration with no
+   documentation edit fails; so does a documentation edit with no migration.
+
+There are no `down` migrations. Reversing a deployment means restoring from
+point-in-time recovery, or writing a new forward migration.
+
+```bash
+python3 scripts/extract_schema.py            # documents → build/schema.sql
+pnpm --filter @aios/api migrate -- --status  # what would be applied
+pnpm --filter @aios/api migrate              # apply
+```
+
+---
+
 ## Pull Requests
 
 Before submitting a Pull Request, ensure that:

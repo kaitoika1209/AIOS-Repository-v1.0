@@ -9,7 +9,8 @@
     "seed": "tsx src/seed-dev.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "evaluate": "tsx src/evaluate-generation.ts"
+    "evaluate": "tsx src/evaluate-generation.ts",
+    "migrate": "tsx src/migrate.ts"
   },
   "dependencies": {
     "@aios/application": "workspace:*",

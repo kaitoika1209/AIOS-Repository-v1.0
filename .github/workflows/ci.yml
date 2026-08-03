@@ -77,6 +77,19 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # The command deployment actually invokes (ADR-0020), against a database
+      # the migration chain has never seen. The equivalence check that proves the
+      # chain still reproduces the documents runs with the tests below; this
+      # proves the entry point itself works and is idempotent.
+      - name: Migrate a fresh database
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/migrate_check
+          PGPASSWORD: postgres
+        run: |
+          createdb -h localhost -U postgres migrate_check
+          pnpm --filter @aios/api migrate
+          pnpm --filter @aios/api migrate -- --status
+
       # Repository and HTTP tests run against the documented schema, not a
       # hand-written fixture, so a schema change that breaks a query fails here.
       - name: Database-backed tests

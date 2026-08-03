@@ -33,10 +33,10 @@ driving the whole loop over HTTP.
 | | |
 |---|---|
 | Release Acceptance Criteria | 33 executable tests, all passing |
-| Test suite | 640 passing (types 11, domain 170, application 190, persistence 57, api 222) |
+| Test suite | 649 passing (types 11, domain 170, application 190, persistence 66, api 222) |
 | Routed permissions enforced | 43 / 43 |
-| Documentation checks | 56 files |
-| Accepted and proposed ADRs | 19 |
+| Documentation checks | 58 files |
+| Accepted and proposed ADRs | 20 |
 
 The domain loop is complete. Work → Decision → completion → generated Memory → human
 review → immutable approved Memory works end to end, with Organization isolation, an
@@ -174,26 +174,26 @@ and Stage D existing first.
 
 ## Stage C — Data durability, and the sharpest gap
 
-### C1. Schema migration has no path
+### C1. Schema migration — **done**
 
-This is the item most easily missed, because everything works today.
+Resolved by [ADR-0020](../adr/0020-adopt-forward-only-migrations-checked-against-the-documented-ddl.md).
 
-`scripts/extract_schema.py` reads the DDL out of `persistence-and-data-model.md` and emits
-`build/schema.sql`, which the test suites apply to a fresh schema. That is exactly right for
-ADR-0015's "documented DDL stays authoritative", and it works because every database it has
-ever been applied to was empty.
+Migrations are hand-written, numbered, and forward-only, in `migrations/`. Each is applied
+inside one transaction with its ledger row. `pnpm --filter @aios/api migrate` is the
+deployment command; `--status` reports without changing anything.
 
-The moment real data exists, a schema change needs a migration, and there is **no migration
-tooling, no migration history, and no ADR selecting an approach**. The generated
-`schema.sql` cannot help: it describes the destination, not the path.
+The property that keeps ADR-0015 intact is
+`packages/persistence/src/migrations.test.ts`: it builds one schema from the migration
+chain and one from the documented DDL, then compares columns, constraints, and indexes.
+The documents remain the authority on what the schema is; the migrations on how an existing
+database reaches it, and neither can drift because a divergent pair fails the check in
+either direction.
 
-This needs a decision before the first production write, not after. Options worth
-evaluating are a conventional migration tool, or generated migrations diffed against the
-documented DDL so the documents stay authoritative — the second preserves ADR-0015's
-property and is more work. Either way it is an ADR.
+Forward-only, with restore as the rollback path — the "Deployment rollback" runbook must
+say that a released migration is not un-released.
 
-The "Migration failure" runbook is listed under Production Hardening SHOULD, which is
-consistent only if migrations exist to fail.
+The "Migration failure" runbook, listed under Production Hardening SHOULD, now has
+something to describe.
 
 ### C2. Backup and recovery (item 10)
 
@@ -255,10 +255,10 @@ A before B is deliberate: telemetry designed around an application nobody can si
 measures the wrong things. C and D are largely parallel, and both must precede the runbooks
 that exercise them.
 
-The single item that can start immediately and blocks the most downstream work is **C1,
-the migration decision** — because every day of production data makes it more expensive,
-and because it is an ADR rather than an implementation, so it can proceed alongside
-Stage A.
+**C1 is done.** It was the item that could start immediately and blocked the most
+downstream work, because every day of production data would have made it more expensive.
+With the migration path settled, Stage A is the next thing to start, and C2 (backup and
+recovery) is the remaining half of Stage C.
 
 ---
 
@@ -294,7 +294,6 @@ to the MVP application; no external compatibility commitment exists.
 
 | Decision | Why it needs one |
 |---|---|
-| Schema migration approach | ADR-0015 makes the documented DDL authoritative; a migration tool introduces a second source unless the relationship is decided |
 | Worker pause and resume | New permissions and routes — ADR-0010 promotion and an ADR-0014 route entry |
 | Restricted administrative diagnostics | Same: a new permission is a scope change |
 | RPO and RTO | Named figures the baseline requires an owner to approve |
