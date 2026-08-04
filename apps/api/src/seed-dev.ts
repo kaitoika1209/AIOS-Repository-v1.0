@@ -17,7 +17,9 @@
  * Refuses to run outside development.
  */
 
-import { Pool } from "pg";
+import type { Pool } from "pg";
+
+import { createPool } from "@aios/persistence";
 
 import { SECRETARY_PRINCIPAL_ID } from "./decision-assistance-provider.js";
 
@@ -171,7 +173,7 @@ const main = async (): Promise<void> => {
     );
   }
 
-  const pool = new Pool({ connectionString });
+  const pool = createPool({ connectionString });
   try {
     await seed(pool);
     console.log(`Seeded Organization ${SEED.organizationId} (${SEED.organizationName})`);

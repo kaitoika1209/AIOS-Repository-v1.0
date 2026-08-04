@@ -9,9 +9,8 @@
  *     pnpm --filter @aios/api migrate -- --status
  */
 
-import { Pool } from "pg";
 
-import { loadMigrations, migrate, planFor } from "@aios/persistence";
+import { createPool, loadMigrations, migrate, planFor } from "@aios/persistence";
 
 const main = async (): Promise<number> => {
   const url = process.env["DATABASE_URL"];
@@ -21,7 +20,7 @@ const main = async (): Promise<number> => {
   }
 
   const statusOnly = process.argv.includes("--status");
-  const pool = new Pool({ connectionString: url });
+  const pool = createPool({ connectionString: url });
 
   try {
     if (statusOnly) {

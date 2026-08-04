@@ -20,11 +20,13 @@
 
 import "reflect-metadata";
 
-import { Pool } from "pg";
+import { createPool } from "@aios/persistence";
 
 import { chooseGenerator } from "./anthropic-memory-generator.js";
 import { SECRETARY_IDENTITY_ID, dependenciesFor } from "./app.js";
+import { loopLiveness, workerReadiness } from "./health.js";
 import { drainOutbox } from "./outbox-worker.js";
+import { startProbeServer } from "./probe-server.js";
 
 /** How long to wait after an empty drain before polling again. */
 const IDLE_INTERVAL_MS = Number.parseInt(process.env["WORKER_INTERVAL_MS"] ?? "500", 10);
@@ -38,7 +40,7 @@ const main = async (): Promise<void> => {
     throw new Error("DATABASE_URL is required.");
   }
 
-  const pool = new Pool({ connectionString });
+  const pool = createPool({ connectionString });
   const deps = dependenciesFor(pool);
 
   const { generator, reason } = chooseGenerator(process.env);
@@ -58,6 +60,35 @@ const main = async (): Promise<void> => {
   let stopping = false;
   /** Resolves once the drain in flight has finished, so shutdown can wait. */
   let inFlight: Promise<unknown> = Promise.resolve();
+
+  /**
+   * When the loop last completed a pass.
+   *
+   * The one thing Worker liveness can usefully check. A drain that is slow is
+   * alive; a loop that stopped turning is not, and only the second is repaired
+   * by a restart.
+   */
+  let lastTickAt: Date | null = null;
+
+  // Generous against the interval, because a Worker restarted for being busy is
+  // worse than one restarted late: a drain claims Outbox rows, and killing it
+  // mid-claim leaves them to expire rather than being handed back.
+  const STALL_AFTER_MS = Number.parseInt(
+    process.env["WORKER_STALL_MS"] ?? String(Math.max(IDLE_INTERVAL_MS * 20, 60_000)),
+    10,
+  );
+
+  startProbeServer({
+    port: Number.parseInt(process.env["PROBE_PORT"] ?? "3012", 10),
+    liveness: () =>
+      stopping
+        ? { status: "Unready", reasonCode: "SHUTTING_DOWN" }
+        : loopLiveness(lastTickAt, new Date(), STALL_AFTER_MS),
+    readiness: async () =>
+      stopping
+        ? { status: "Unready", reasonCode: "SHUTTING_DOWN" }
+        : workerReadiness(pool),
+  });
 
   const shutdown = (signal: string): void => {
     if (stopping) return;
@@ -100,6 +131,11 @@ const main = async (): Promise<void> => {
       });
 
     await inFlight;
+    // After the drain settles, whether it succeeded or failed. A Worker whose
+    // every drain is erroring is still turning, and a restart would not help —
+    // that is asynchronous workflow health's problem, not liveness's.
+    lastTickAt = new Date();
+
     if (!stopping) {
       await new Promise((resolve) => setTimeout(resolve, IDLE_INTERVAL_MS));
     }

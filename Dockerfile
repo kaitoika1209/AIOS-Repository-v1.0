@@ -66,8 +66,13 @@ COPY --from=build /app /app
 #
 #     node dist/migrate.js --status   # what would be applied
 #     node dist/migrate.js            # apply
+# 3001 serves traffic; 3011 answers probes. Two ports because the probe port
+# answers before authentication and need not be routed from outside — an
+# orchestrator reaches it inside the network. `PROBE_PORT` overrides.
 USER node
-EXPOSE 3001
+EXPOSE 3001 3011
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3011/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "dist/main.js"]
 
 # --- worker -----------------------------------------------------------------
@@ -77,15 +82,18 @@ ENV NODE_ENV=production
 
 COPY --from=build /app /app
 
-# No port. The Worker's liveness and readiness endpoints are baseline item 8 and
-# are not built yet; until they are, an orchestrator can only observe the
-# process, which the release-readiness document records as an open gap rather
-# than something this image quietly papers over.
+# A port, but only for probes — the Worker serves no traffic. Its liveness is
+# the drain loop's heartbeat rather than a bare "the process exists", so a loop
+# that stops turning is visible without waiting for the queue to back up.
 #
 # Give it a shutdown grace period longer than one drain. It finishes the batch in
 # flight on SIGTERM rather than abandoning claimed messages to their lease
-# timeout, which is the whole point of handling the signal.
+# timeout, which is the whole point of handling the signal — and the probe
+# reports `SHUTTING_DOWN` for the whole of it.
 USER node
+EXPOSE 3012
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3012/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "dist/worker.js"]
 
 # --- web --------------------------------------------------------------------

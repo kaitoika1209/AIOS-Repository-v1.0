@@ -61,14 +61,14 @@ Thirteen items. Assessed against the code as it stands.
 | 5 | RED metrics for HTTP traffic | **Absent** |
 | 6 | PostgreSQL, Outbox, Worker, queue-age, and Work-to-Memory workflow metrics | **Absent** |
 | 7 | Durable audit for Human-authoritative transitions and privileged operational actions | **Done** — `authorization_audit_records`, edge and use-case halves |
-| 8 | HTTP and Worker liveness/readiness, asynchronous workflow health, restricted admin diagnostics | **Absent** — no health endpoints of any kind |
+| 8 | HTTP and Worker liveness/readiness, asynchronous workflow health, restricted admin diagnostics | **Partial** — all four process probes serve; workflow health and admin diagnostics remain |
 | 9 | Bounded retry, idempotency, retry-exhaustion visibility, dead-letter handling, typed Operations commands for Worker pause/resume, replay, dead-letter retry/skip | **Partial** — everything except Worker pause/resume |
 | 10 | Continuous WAL archiving, base backup ≥ every 24h, 14-day PITR, monthly verified restore test, approved RPO and RTO | **Absent** |
 | 11 | Actionable alerts for database unavailability, authoritative-write failure, Outbox or Worker stoppage, Memory-generation failure, Organization-isolation violation | **Absent** |
 | 12 | The six MVP runbooks | **Absent** |
 | 13 | Separate Worker process | **Done** — `apps/api/src/worker.ts`; `chooseWorkerMode` refuses in-process draining outside development |
 
-Two done, three partial, eight absent. None of it is domain work.
+Two done, four partial, seven absent. None of it is domain work.
 
 ---
 
@@ -163,12 +163,54 @@ CloudWatch afterwards.
 
 ### B2. Health and metrics (items 5, 6, 8)
 
-- Separate liveness and readiness for the HTTP process and for the Worker.
-- Asynchronous workflow health: Outbox depth, queue age, dead-letter count.
+**The four process probes are done.** `GET /health/live` and `GET /health/ready` on both
+the API (`:3011`) and the Worker (`:3012`), on a probe listener separate from the
+application — the Worker has no HTTP application to host routes on, and keeping the probes
+off the API means `RequestContextGuard` still has no unauthenticated path through it, so
+"no route can be reached without a resolved principal" stays true as written.
+
+Readiness checks database reachability, that the database will accept writes, and that the
+migration chain is fully applied — the last is answerable only because C1 built the ledger,
+and it is what stops a process that shipped ahead of its migrations from joining the load
+balancer. Worker liveness is the drain loop's heartbeat rather than mere process existence,
+so a loop that stops turning is visible without waiting for the queue to back up.
+
+Verified by causing the failures rather than by reading the code: migrations withheld,
+database made read-only, database stopped under both running processes. That last one
+**found a defect that would have crash-looped production** — see the note below.
+
+Remaining:
+
+- Asynchronous workflow health: Outbox depth, queue age, dead-letter count. Derived from
+  durable facts and scoped by Organization, so it belongs on the authenticated API rather
+  than the probe port.
 - RED metrics for HTTP; the PostgreSQL, Outbox, Worker, and Work-to-Memory metrics the
   baseline names.
 - Restricted administrative diagnostics — note that these need a permission, and adding one
   is an ADR-0010 promotion, not an editing decision.
+- Worker readiness cannot yet report "administratively paused", because pause and resume do
+  not exist. That is B3's remaining half, and the probe does not pretend otherwise.
+
+#### The defect that stopping the database found
+
+Every `pg.Pool` was constructed without an `error` listener. `pg` emits that event when an
+**idle** connection dies — a PostgreSQL restart, a failover, a proxy idle-timeout,
+`pg_terminate_backend` — and in Node an `'error'` event with no listener is rethrown and
+ends the process.
+
+So a routine database restart killed the API and the Worker outright. Not degraded: gone,
+before either probe could answer. That is the precise failure the liveness surface exists to
+prevent — "a transient dependency outage must not cause a restart loop" — and no amount of
+correct probe logic would have helped, because the process being probed no longer existed.
+
+`createPool` in `@aios/persistence` now attaches the listener, and every entry point uses
+it. The handler only logs: `pg` has already discarded the broken client and the next
+checkout opens a fresh connection, so the pool heals by itself. All that was ever missing
+was someone listening.
+
+Worth noting for its own sake: this was invisible to the whole test suite, to typechecking,
+and to reading. It appeared the first time something stopped the database under a running
+process.
 
 ### B3. Worker as its own process, with pause and resume (items 9, 13)
 

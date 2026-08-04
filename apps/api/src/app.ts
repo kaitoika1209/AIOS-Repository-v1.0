@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 
 import { Module, type INestApplication } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
-import { Pool } from "pg";
+import type { Pool } from "pg";
 
 import {
   DecisionId,
@@ -22,7 +22,7 @@ import {
   WorkId,
 } from "@aios/types";
 import type { Clock, IdGenerator, UseCaseDependencies } from "@aios/application";
-import { PostgresAuditRepository, PostgresUnitOfWork } from "@aios/persistence";
+import { PostgresAuditRepository, PostgresUnitOfWork, createPool } from "@aios/persistence";
 
 import { AdminEventsController } from "./admin-events.controller.js";
 import { AuditInterceptor } from "./audit-interceptor.js";
@@ -242,7 +242,7 @@ export const chooseWorkerMode = (
 };
 
 export const buildDevApp = async (connectionString: string) => {
-  const pool = new Pool({ connectionString });
+  const pool = createPool({ connectionString });
   const { auth, reason: authReason } = chooseAuth(process.env);
   console.log(`Authentication: ${authReason}`);
   const app = await createApp({ pool, auth });

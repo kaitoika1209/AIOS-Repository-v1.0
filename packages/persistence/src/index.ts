@@ -27,3 +27,4 @@ export * from "./notification-repository.js";
 export * from "./assistance-repository.js";
 export * from "./audit-repository.js";
 export * from "./migrations.js";
+export * from "./pool.js";

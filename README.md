@@ -190,6 +190,22 @@ pnpm --filter @aios/api dev                  # API on :3001
 pnpm --filter @aios/web dev                  # UI on :3000
 ```
 
+### Health
+
+Both processes answer probes on a listener of their own, separate from the API:
+
+```bash
+curl localhost:3011/health/live    # API — should this process be restarted?
+curl localhost:3011/health/ready   # API — can it safely take traffic?
+curl localhost:3012/health/live    # Worker — is the drain loop still turning?
+curl localhost:3012/health/ready   # Worker — can it safely claim work?
+```
+
+Readiness returns `503` with a bounded reason code — `DATABASE_UNAVAILABLE`,
+`MIGRATIONS_PENDING`, `DATABASE_READ_ONLY` — and liveness deliberately checks none
+of those. A liveness probe that touched PostgreSQL would turn a brief database
+outage into every replica restarting at once.
+
 ### Containers
 
 The [`Dockerfile`](Dockerfile) builds three images from one workspace build:
