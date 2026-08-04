@@ -26,6 +26,7 @@ import { PostgresAuditRepository, PostgresUnitOfWork, createPool } from "@aios/p
 
 import { AdminEventsController } from "./admin-events.controller.js";
 import { AuditInterceptor } from "./audit-interceptor.js";
+import { correlationMiddleware } from "./correlation-middleware.js";
 import { chooseGenerator } from "./anthropic-memory-generator.js";
 import { DecisionController } from "./decision.controller.js";
 import { chooseDecisionAssistanceProvider } from "./decision-assistance-provider.js";
@@ -160,6 +161,11 @@ export const createApp = async (options: AppOptions): Promise<INestApplication> 
   class AppModule {}
 
   const app = await NestFactory.create(AppModule, { logger: false });
+
+  // Before the guard, and before everything else. Nest runs middleware first,
+  // which is what makes the guard's own refusals correlated — an interceptor
+  // would arrive after those audit rows were already written.
+  app.use(correlationMiddleware);
 
   // The guard runs before every handler, so no route can be reached without a
   // resolved principal (ADR-0013). It carries the audit store because Nest runs

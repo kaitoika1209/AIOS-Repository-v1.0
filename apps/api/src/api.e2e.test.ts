@@ -241,6 +241,96 @@ suite("AIOS API", () => {
     });
   });
 
+  describe("request correlation (baseline item 3)", () => {
+    it("ties the audit row and the Outbox event to one identifier", async () => {
+      // The property the whole item exists for, and the one that was false: the
+      // edge audit, the use-case audit, and the Outbox each minted their own
+      // `correlationId`, so a single request produced three unrelated values and
+      // nothing could be followed from the command to the event it caused.
+      const res = await request(server())
+        .post("/works")
+        .set(as(MEMBER))
+        .send({ title: "Correlated" })
+        .expect(201);
+
+      const returned = res.headers["x-correlation-id"];
+      expect(returned).toMatch(/^[0-9a-f-]{36}$/);
+
+      const audit = await pool.query(
+        `SELECT correlation_id, request_id FROM authorization_audit_records
+          WHERE permission = 'work.create' ORDER BY created_at DESC LIMIT 1`,
+      );
+      const outbox = await pool.query(
+        `SELECT correlation_id FROM outbox_messages
+          WHERE aggregate_id = $1 ORDER BY recorded_at DESC LIMIT 1`,
+        [res.body.workId],
+      );
+
+      expect(audit.rows[0]?.correlation_id).toBe(returned);
+      expect(outbox.rows[0]?.correlation_id).toBe(returned);
+    });
+
+    it("gives two requests two identifiers", async () => {
+      // Guards against the opposite failure — a constant, or a value cached
+      // across requests, would satisfy the test above and correlate nothing.
+      const first = await request(server())
+        .post("/works").set(as(MEMBER)).send({ title: "One" }).expect(201);
+      const second = await request(server())
+        .post("/works").set(as(MEMBER)).send({ title: "Two" }).expect(201);
+
+      expect(first.headers["x-correlation-id"]).not.toBe(
+        second.headers["x-correlation-id"],
+      );
+    });
+
+    it("returns its own identifier, never the caller's", async () => {
+      // "public API responses return the server-owned `correlationId`, not the
+      // caller-supplied value."
+      const res = await request(server())
+        .post("/works")
+        .set(as(MEMBER))
+        .set("x-external-correlation-id", "client-chosen-value")
+        .send({ title: "Not yours" })
+        .expect(201);
+
+      expect(res.headers["x-correlation-id"]).not.toBe("client-chosen-value");
+
+      const audit = await pool.query(
+        `SELECT correlation_id FROM authorization_audit_records
+          WHERE permission = 'work.create' ORDER BY created_at DESC LIMIT 1`,
+      );
+      expect(audit.rows[0]?.correlation_id).not.toBe("client-chosen-value");
+    });
+
+    it("correlates a refusal, which the guard writes before any interceptor runs", async () => {
+      // Why the correlation is middleware and not an interceptor. Nest runs
+      // guards before interceptors, so a refusal's audit row is written before
+      // an interceptor could establish anything — and a refused request is the
+      // one an investigation most often starts from.
+      const res = await request(server())
+        .get("/works")
+        .set({ "x-dev-subject": OUTSIDER.subject, "x-organization-id": ORG })
+        .expect(404);
+
+      expect(res.headers["x-correlation-id"]).toMatch(/^[0-9a-f-]{36}$/);
+
+      // Polled, because the guard deliberately does not await its audit write —
+      // an audit outage must not become an availability outage — so the row
+      // lands shortly after the response.
+      let denial: { correlation_id: string } | undefined;
+      for (let attempt = 0; attempt < 50 && denial === undefined; attempt += 1) {
+        const rows = await pool.query<{ correlation_id: string }>(
+          `SELECT correlation_id FROM authorization_audit_records
+            WHERE outcome = 'Deny' ORDER BY created_at DESC LIMIT 1`,
+        );
+        denial = rows.rows[0];
+        if (denial === undefined) await new Promise((r) => setTimeout(r, 10));
+      }
+
+      expect(denial?.correlation_id).toBe(res.headers["x-correlation-id"]);
+    });
+  });
+
   describe("content edits (PATCH)", () => {
     it("edits a Work's title and description", async () => {
       const work = await createWork();

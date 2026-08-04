@@ -23,6 +23,8 @@ import { randomUUID } from "node:crypto";
 
 import { OrganizationId, type HumanMemberPrincipal } from "@aios/types";
 import {
+  correlationIdForRecord,
+  requestIdForRecord,
   AUDIT_OUTCOMES,
   type AuditRepository,
 } from "@aios/application";
@@ -181,8 +183,8 @@ export class RequestContextGuard implements CanActivate {
     void this.audit
       .record({
         authorizationAuditId: randomUUID(),
-        requestId: randomUUID(),
-        correlationId: randomUUID(),
+        requestId: requestIdForRecord(),
+        correlationId: correlationIdForRecord(),
         commandId: null,
         principalId: `${subject.provider}:${subject.subject}`,
         // No Membership was resolved, so there is no principal to type. The

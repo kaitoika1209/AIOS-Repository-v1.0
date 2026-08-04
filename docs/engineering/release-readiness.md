@@ -54,9 +54,9 @@ Thirteen items. Assessed against the code as it stands.
 
 | # | Baseline requirement (MUST) | Status |
 |---|---|---|
-| 1 | Structured JSON logs with a stable base envelope and redaction | **Absent** — `console.log` only |
+| 1 | Structured JSON logs with a stable base envelope and redaction | **Partial** — envelope, redaction, and sink built; most call sites still `console.log` |
 | 2 | Bounded telemetry exporters with queue limits, timeouts, retry ceilings, loss counters, shutdown deadlines | **Absent** |
-| 3 | Server-owned request and workflow correlation | **Partial** — `correlation_id` on Outbox and audit rows; not request-scoped end to end |
+| 3 | Server-owned request and workflow correlation | **Done** — one identifier spans the response, the audit rows, and the Outbox |
 | 4 | Error capture for unhandled application and Worker failures | **Partial** — errors are mapped to status codes; nothing captures or reports them |
 | 5 | RED metrics for HTTP traffic | **Absent** |
 | 6 | PostgreSQL, Outbox, Worker, queue-age, and Work-to-Memory workflow metrics | **Absent** |
@@ -68,7 +68,7 @@ Thirteen items. Assessed against the code as it stands.
 | 12 | The six MVP runbooks | **Absent** |
 | 13 | Separate Worker process | **Done** — `apps/api/src/worker.ts`; `chooseWorkerMode` refuses in-process draining outside development |
 
-Two done, four partial, seven absent. None of it is domain work.
+Three done, four partial, six absent. None of it is domain work.
 
 ---
 
@@ -172,14 +172,42 @@ belongs in the codebase and work that belongs in infrastructure.
 
 The architecture is explicit that "Application code depends on AIOS telemetry ports and the
 versioned operational log schema. AWS SDKs, CloudWatch namespaces, and exporter
-configuration remain Infrastructure Layer details." Build the ports first; bind them to
-CloudWatch afterwards.
+configuration remain Infrastructure Layer details." The port is built; the binding to
+CloudWatch is Stage D.
 
-- A logging port emitting the documented base envelope, with redaction.
-- Request-scoped correlation established at the edge and carried into the Outbox, the
-  Worker, and the audit — the interceptor and `PostgresOutbox` already mint identifiers,
-  so this is mostly wiring rather than new machinery.
-- Unhandled-failure capture in both the HTTP process and the Worker.
+**Item 3 is done, and it was the one that was quietly false.** `correlation_id` existed on
+Outbox and audit rows, which read as partial credit — but the edge audit, the use-case
+audit, and the Outbox each called `randomUUID()` independently. One HTTP request therefore
+wrote **three unrelated correlation identifiers**, and no workflow could be followed from
+the command that started it to the event it produced. The column was populated and the
+field was useless.
+
+Correlation is now request-scoped through `AsyncLocalStorage`, established by middleware
+rather than an interceptor — Nest runs middleware before guards, and the guard writes the
+audit rows for the refusals it makes, so an interceptor would have left exactly the refused
+requests uncorrelated. Verified end to end: one request's response header, audit row, and
+Outbox event carry the same identifier, and two requests carry different ones.
+
+The trust boundary is implemented as written. A caller's `X-External-Correlation-Id` is
+retained only after bounded validation, kept under a name that cannot be mistaken for the
+server's, and is never promoted — the architecture forbids it from affecting "authorization,
+tenant selection, ownership checks, idempotency, uniqueness, database joins, routing,
+rate-limit identity, or workflow state changes."
+
+**Item 1 is partial.** The version-3 base envelope, its redaction, and a JSON stdout sink
+exist and are tested. What remains is call-site migration: most of the codebase still uses
+`console.log`, and each one is a record with no envelope, no class, and no correlation.
+Redaction is applied inside the logger rather than trusted to callers, because a rule every
+call site must remember is a rule that holds until the first person in a hurry — and a
+secret in a log is in every replica of that log permanently.
+
+Remaining:
+
+- Migrate the `console.log` and `console.error` call sites onto the port.
+- Unhandled-failure capture in both the HTTP process and the Worker (item 4).
+- Bounded exporters with queue limits, timeouts, retry ceilings, loss counters, and
+  shutdown deadlines (item 2). None of that is meaningful until there is a remote sink,
+  which is Stage D.
 
 ### B2. Health and metrics (items 5, 6, 8)
 

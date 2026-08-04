@@ -30,6 +30,11 @@
 
 import { randomUUID } from "node:crypto";
 
+import {
+  correlationIdForRecord,
+  requestIdForRecord,
+} from "./correlation.js";
+
 import type { IdentityId, MembershipId, OrganizationId } from "@aios/types";
 
 export const AUDIT_OUTCOMES = ["Allow", "Deny"] as const;
@@ -127,8 +132,11 @@ export const recordTransition = (
   void audit
     .record({
       authorizationAuditId: randomUUID(),
-      requestId: randomUUID(),
-      correlationId: randomUUID(),
+      // From the request, not minted here. Three sites used to call
+      // `randomUUID()` independently, so one HTTP request produced three
+      // unrelated correlation ids and no workflow could be followed across them.
+      requestId: requestIdForRecord(),
+      correlationId: correlationIdForRecord(),
       commandId: null,
       principalId: input.membershipId ?? "system",
       principalType: input.membershipId === null ? "System" : "HumanMember",

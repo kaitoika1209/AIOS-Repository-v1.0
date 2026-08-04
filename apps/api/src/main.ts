@@ -12,6 +12,7 @@ import { createPool } from "@aios/persistence";
 
 import { buildDevApp } from "./app.js";
 import { httpReadiness } from "./health.js";
+import { chooseLogger } from "./json-logger.js";
 import { startProbeServer } from "./probe-server.js";
 
 const main = async (): Promise<void> => {
@@ -23,7 +24,22 @@ const main = async (): Promise<void> => {
   // The adapter choice, and its refusal to run unverified outside development,
   // live in `chooseAuth` so the same rule applies to every entry point rather
   // than only to this one.
+  const { logger, reason: logReason } = chooseLogger(process.env, "aios-api");
+  console.log(`Logging: ${logReason}`);
+
   const app = await buildDevApp(connectionString);
+
+  // The first structured record, and a check that the envelope serializes at
+  // all — a logger that throws on its first real call is one that throws during
+  // an incident.
+  logger.log({
+    severity: "INFO",
+    operationalLogName: "service.started",
+    operationalLogClass: "Operations",
+    operationalLogCategory: "Operations",
+    message: "AIOS API started.",
+    outcome: "Success",
+  });
   const port = Number.parseInt(process.env["PORT"] ?? "3001", 10);
 
   // Its own pool, deliberately. Readiness exists partly to detect a saturated

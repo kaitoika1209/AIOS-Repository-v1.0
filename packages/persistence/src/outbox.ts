@@ -12,6 +12,8 @@
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 
+import { correlationIdForRecord } from "@aios/application";
+
 import type { DomainEvent } from "@aios/domain";
 import type { OutboxPort } from "@aios/application";
 
@@ -83,7 +85,12 @@ const aggregateOf = (
 export class PostgresOutbox implements OutboxPort {
   constructor(
     private readonly client: PoolClient,
-    private readonly correlationId: string = randomUUID(),
+    /**
+     * Defaults to the correlation of the request that opened this transaction,
+     * so an event can be traced back to the command that produced it. Overridable
+     * for a caller that owns a different workflow.
+     */
+    private readonly correlationId: string = correlationIdForRecord(),
   ) {}
 
   async append(events: readonly DomainEvent[]): Promise<void> {

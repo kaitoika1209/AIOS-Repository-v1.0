@@ -21,3 +21,5 @@ export * from "./groundedness.js";
 export * from "./memory-use-cases.js";
 export * from "./membership-use-cases.js";
 export * from "./notification-use-cases.js";
+export * from "./correlation.js";
+export * from "./logging.js";

@@ -24,6 +24,11 @@ import {
   type NestInterceptor,
 } from "@nestjs/common";
 import type { Request } from "express";
+
+import {
+  correlationIdForRecord,
+  requestIdForRecord,
+} from "@aios/application";
 import { catchError, from, mergeMap, tap, throwError } from "rxjs";
 
 import type { AuditRecord, AuditRepository } from "@aios/application";
@@ -89,8 +94,8 @@ export class AuditInterceptor implements NestInterceptor {
 
     const base = {
       authorizationAuditId: randomUUID(),
-      requestId: randomUUID(),
-      correlationId: randomUUID(),
+      requestId: requestIdForRecord(),
+      correlationId: correlationIdForRecord(),
       commandId: null,
       commandType: route,
       permission: permissionFor(method, request.route?.path ?? request.path),
