@@ -23,6 +23,7 @@ import {
   grantAssistanceUseCase,
   revokeAssistanceUseCase,
   getOrganizationUseCase,
+  listCallerOrganizationsUseCase,
   reactivateOrganizationUseCase,
   renameOrganizationUseCase,
   suspendOrganizationUseCase,
@@ -495,5 +496,78 @@ describe("assistance grants", () => {
       operation: "decision.draft_material",
     });
     expect(await isGranted(h, organizationId)).toBe(false);
+  });
+});
+
+describe("listing the Organizations a caller may act in", () => {
+  /** A second person, so "only mine" can mean something. */
+  const OTHER = {
+    provider: "dev",
+    issuer: "https://dev.local",
+    subject: "stranger-1",
+  };
+
+  it("returns the Organizations the caller founded", async () => {
+    const h = buildTestHarness(NOW);
+    await createOrganizationUseCase(h.deps, creator(), {
+      name: "Northwind",
+      secretaryPrincipalId: SECRETARY,
+    });
+    await createOrganizationUseCase(h.deps, creator(), {
+      name: "Acme",
+      secretaryPrincipalId: SECRETARY,
+    });
+
+    const listed = await listCallerOrganizationsUseCase(h.deps, SUBJECT);
+
+    // Sorted by name, so a client renders a stable menu rather than one that
+    // reorders whenever the underlying rows do.
+    expect(listed.map((o) => o.name)).toEqual(["Acme", "Northwind"]);
+    expect(listed.every((o) => o.roles.includes("OrganizationOwner"))).toBe(true);
+  });
+
+  it("returns nothing that belongs to someone else", async () => {
+    // The property the whole exemption rests on. This route has no Organization
+    // context to check, so isolation has to come from the query being derived
+    // from the subject — there is no header here to get wrong.
+    const h = buildTestHarness(NOW);
+    await createOrganizationUseCase(h.deps, creator(), {
+      name: "Northwind",
+      secretaryPrincipalId: SECRETARY,
+    });
+
+    expect(await listCallerOrganizationsUseCase(h.deps, OTHER)).toEqual([]);
+  });
+
+  it("is empty for a subject that belongs to nothing yet", async () => {
+    // Someone who has signed in but never accepted an invitation or created an
+    // Organization. An ordinary state with an ordinary answer — not a 404,
+    // which would suggest the route was wrong rather than the answer empty.
+    const h = buildTestHarness(NOW);
+    expect(await listCallerOrganizationsUseCase(h.deps, SUBJECT)).toEqual([]);
+  });
+
+  it("still lists a Suspended Organization, so its Owner can recover it", async () => {
+    // Reactivation is exempt from the Organization status check precisely so an
+    // Owner can bring a suspended Organization back. An Owner who cannot see it
+    // has no route to that exemption, so hiding it here would quietly make the
+    // documented recovery path unreachable from any client.
+    const h = buildTestHarness(NOW);
+    const { organization } = await createOrganizationUseCase(h.deps, creator(), {
+      name: "Northwind",
+      secretaryPrincipalId: SECRETARY,
+    });
+    await suspendOrganizationUseCase(
+      h.deps,
+      ctxFor(organization.organizationId),
+      "Billing lapsed.",
+    );
+
+    const listed = await listCallerOrganizationsUseCase(h.deps, SUBJECT);
+
+    expect(listed).toHaveLength(1);
+    // Reported with its status, so the client can show why it cannot be worked
+    // in while still offering the Owner the one command that applies.
+    expect(listed[0]?.status).toBe("Suspended");
   });
 });

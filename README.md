@@ -61,6 +61,11 @@ into existence in one transaction. That route holds no permission and needs no
 `X-Organization-Id` — the caller cannot be a Member of something that does not
 exist yet — so authority is being an authenticated, Active Human Identity.
 
+A person may belong to several Organizations, and the UI lets them choose: `GET
+/organizations` returns the ones they hold an Active Membership in, and the header
+bar switches between them. Belonging to none is an ordinary state — the home page
+offers to create one rather than reporting an error.
+
 Members then join through the invitation flow: an Owner or Admin invites an
 address, a single-use token is issued, and accepting it is what creates the
 Membership that carries authority. An Owner or Admin can also suspend,

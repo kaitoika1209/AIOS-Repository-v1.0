@@ -13,7 +13,7 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { ApiError, api, currentUser } from "../lib/api";
+import { ApiError, ORGANIZATION_COOKIE, api, currentUser } from "../lib/api";
 
 export interface ActionResult {
   error?: { code: string; message: string };
@@ -35,7 +35,61 @@ export const switchUser = async (formData: FormData): Promise<void> => {
   const subject = String(formData.get("subject") ?? "alice");
   const store = await cookies();
   store.set("aios_dev_subject", subject, { httpOnly: true, sameSite: "lax" });
+  // The Organization preference belongs to the previous person. Left in place it
+  // would name an Organization the new one may not belong to — harmless, since
+  // the client validates it against their real Memberships, but it would silently
+  // land them somewhere they did not choose.
+  store.delete(ORGANIZATION_COOKIE);
   revalidatePath("/", "layout");
+};
+
+/**
+ * Choose which Organization to act in.
+ *
+ * The cookie is a preference and is validated against the caller's real
+ * Memberships on read — see `currentOrganization`. Nothing here needs to check
+ * it, and nothing here should: a check in the setter would look like the
+ * security boundary while the real one is elsewhere.
+ */
+export const switchOrganization = async (formData: FormData): Promise<void> => {
+  const organizationId = String(formData.get("organizationId") ?? "");
+  const store = await cookies();
+  store.set(ORGANIZATION_COOKIE, organizationId, { httpOnly: true, sameSite: "lax" });
+  revalidatePath("/", "layout");
+};
+
+/**
+ * Create an Organization and switch into it.
+ *
+ * `POST /organizations` needs no Organization context and no permission — the
+ * caller is bringing one into existence (ADR-0014). Switching afterwards is the
+ * obvious thing to want, and doing it here saves a second deliberate step.
+ */
+export const createOrganization = async (
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> => {
+  const user = await currentUser();
+  const name = String(formData.get("name") ?? "").trim();
+  if (name.length === 0) {
+    return { error: { code: "VALIDATION_FAILED", message: "A name is required." } };
+  }
+
+  try {
+    const created = await api.createOrganization(user.subject, name);
+    const store = await cookies();
+    store.set(ORGANIZATION_COOKIE, created.organizationId, {
+      httpOnly: true,
+      sameSite: "lax",
+    });
+    revalidatePath("/", "layout");
+    return {};
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return { error: { code: error.code, message: error.message } };
+    }
+    throw error;
+  }
 };
 
 export const createWork = async (

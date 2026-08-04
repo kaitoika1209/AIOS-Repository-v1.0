@@ -21,6 +21,7 @@ import type {
   MembershipId,
   MembershipStatus,
   OrganizationId,
+  OrganizationStatus,
   NotificationType,
   Permission,
   Role,
@@ -197,6 +198,21 @@ export interface IdentityRepository {
   }): Promise<IdentityRecord>;
 }
 
+/**
+ * One Organization the caller belongs to. A query projection, not an Aggregate.
+ *
+ * Carries `status` and `roles` because the client has to decide what to offer:
+ * a Suspended Organization can be worked in by nobody, but an Owner can still
+ * reactivate it, and only the roles say which caller that is.
+ */
+export interface CallerOrganizationSummary {
+  readonly organizationId: OrganizationId;
+  readonly name: string;
+  readonly status: OrganizationStatus;
+  readonly membershipId: MembershipId;
+  readonly roles: readonly Role[];
+}
+
 /** One row of the member list. A query projection, not an Aggregate. */
 export interface OrganizationMemberSummary {
   readonly membershipId: MembershipId;
@@ -244,6 +260,27 @@ export interface MembershipRepository {
     organizationId: OrganizationId,
     identityId: IdentityId,
   ): Promise<MembershipState | null>;
+
+  /**
+   * Every Organization this Identity holds an Active Membership in.
+   *
+   * The second method here that is not Organization-scoped, and structural for
+   * the same reason as `findByInvitationTokenHash`: the caller is asking which
+   * Organizations they may act in, so requiring one to be chosen first would be
+   * circular. ADR-0014 records the exemption.
+   *
+   * It cannot leak across tenants because it takes no Organization at all — the
+   * result is derived entirely from the Identity, and a wider answer would need
+   * a defect in the query rather than a missing check.
+   *
+   * Suspended and Archived Organizations are included, with their status, so an
+   * Owner can find a suspended Organization and reach the one command that
+   * recovers it. Only Active *Memberships* are listed: a Suspended Member holds
+   * no authority, and offering the choice would only produce refusals.
+   */
+  listOrganizationsForIdentity(
+    identityId: IdentityId,
+  ): Promise<readonly CallerOrganizationSummary[]>;
 
   insert(membership: MembershipState): Promise<void>;
   update(membership: MembershipState, expectedVersion: number): Promise<void>;

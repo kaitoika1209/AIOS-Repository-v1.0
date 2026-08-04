@@ -24,6 +24,7 @@ import {
   type IdentityStatus,
   type InvitationStatus,
   type MembershipStatus,
+  type OrganizationStatus,
   type Role,
 } from "@aios/types";
 import {
@@ -32,6 +33,7 @@ import {
   type MembershipState,
 } from "@aios/domain";
 import type {
+  CallerOrganizationSummary,
   IdentityRecord,
   IdentityRepository,
   MembershipRepository,
@@ -359,6 +361,56 @@ export class PostgresMembershipRepository implements MembershipRepository {
         await this.insertInvitation(membership, invitation);
       }
     }
+  }
+
+  async listOrganizationsForIdentity(
+    identityId: IdentityId,
+  ): Promise<readonly CallerOrganizationSummary[]> {
+    // Note what is absent from the WHERE clause: there is no organization_id
+    // parameter, because the caller has none to give. Tenancy is enforced by
+    // the join to `memberships` on this Identity — every returned row is one
+    // the caller is a Member of, by construction rather than by a check that
+    // could be forgotten.
+    //
+    // Organization status is not filtered. A Suspended Organization must stay
+    // findable or its Owner cannot reach `organization.reactivate`, which is
+    // the whole point of that route's exemption.
+    const result = await this.client.query<{
+      organization_id: string;
+      name: string;
+      status: string;
+      membership_id: string;
+      roles: string[] | null;
+    }>(
+      `SELECT o.organization_id,
+              o.name,
+              o.status,
+              m.membership_id,
+              -- Aggregated here rather than in a second round trip: the list is
+              -- short, and one query keeps the projection consistent with the
+              -- membership rows it describes.
+              array_remove(array_agg(r.role ORDER BY r.assigned_at ASC), NULL) AS roles
+         FROM memberships m
+         JOIN organizations o
+           ON o.organization_id = m.organization_id
+         LEFT JOIN membership_role_assignments r
+           ON r.organization_id = m.organization_id
+          AND r.membership_id = m.membership_id
+          AND r.revoked_at IS NULL
+        WHERE m.identity_id = $1
+          AND m.status = 'Active'
+        GROUP BY o.organization_id, o.name, o.status, m.membership_id
+        ORDER BY o.name ASC`,
+      [identityId],
+    );
+
+    return result.rows.map((row) => ({
+      organizationId: row.organization_id as OrganizationId,
+      name: row.name,
+      status: row.status as OrganizationStatus,
+      membershipId: row.membership_id as MembershipId,
+      roles: (row.roles ?? []) as Role[],
+    }));
   }
 
   async listActiveByRole(

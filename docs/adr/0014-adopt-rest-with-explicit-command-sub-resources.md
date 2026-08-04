@@ -94,7 +94,7 @@ GET    /organizations/{organizationId}/members
 POST   /organizations/{organizationId}/members
 ```
 
-### Two routes have no Organization context
+### Three routes have no Organization context
 
 ```text
 POST /invitations/accept
@@ -130,6 +130,47 @@ before it writes anything.
 The route accepts no `organizationId`: the identifier is server-generated, so a caller
 cannot choose it or collide with an existing tenant.
 
+### Listing your own Memberships is the third
+
+```text
+GET /organizations
+```
+
+This ADR says of `X-Organization-Id` that "it selects among the caller's Memberships and
+nothing more". That sentence assumes the caller knows what there is to select among, and
+until this route nothing told them: `mvp.md` states twice that a person may belong to more
+than one Organization, and no route returned the set. The web client's single
+environment-variable Organization was the consequence, not the cause.
+
+Requiring the header here would be circular — the caller would have to name an
+Organization in order to ask which Organizations they may name. So the route is exempt from
+Organization resolution, and like `POST /organizations` it carries **no permission**:
+permissions are held through a Membership and evaluated within one Organization, and this
+route spans Memberships and precedes the choice of one. Authority is being an
+authenticated, Active Human Identity.
+
+Two properties make the exemption safe, and both are structural rather than checked:
+
+- **The route takes no parameters at all.** There is no identifier to supply and therefore
+  nothing to probe with. Compare `POST /invitations/accept`, whose safety rests on a token,
+  and `POST /organizations`, whose safety rests on generating the identifier server-side.
+  This one has no input to abuse.
+- **The result is derived from the authenticated subject.** It returns exactly the
+  Organizations in which that subject holds an `Active` Membership. A caller cannot widen
+  it, and a wider result would require a defect in the query rather than a missing check.
+
+**It returns Suspended Organizations, and this is deliberate.** Reactivation is exempt from
+the Organization status check precisely so an Owner can recover a suspended Organization —
+but an Owner who cannot *find* it has no route to that exemption, and the recovery path
+documented above would be unreachable from any client. The response carries the
+Organization's status so a client can show why one cannot be worked in and offer the Owner
+the one command that still applies. `Archived` is returned for the same reason of honesty
+and is terminal: nothing acts on it.
+
+Membership status is not treated the same way. Only `Active` Memberships are listed,
+because a Suspended or Revoked Member holds no authority in that Organization and listing
+it would offer a choice that every subsequent request refuses.
+
 ### Reactivation is exempt from the Organization *status* check
 
 ```text
@@ -151,8 +192,14 @@ for: Organization recovery."
 
 The exemption covers `Suspended` and not `Archived`. Archival is terminal.
 
-These are the only three exemptions. Any further route that claims one is a defect until
+These are the only four exemptions. Any further route that claims one is a defect until
 this ADR is amended.
+
+Three of the four are the same shape and it is worth naming: each is a step at which a
+Membership does not yet exist to resolve — becoming a Member, creating the Organization
+that will hold the first Membership, and choosing which Membership to act under. The
+fourth, reactivation, is different in kind: the Membership resolves normally and only the
+Organization's status is waived.
 
 ### State transitions are explicit command sub-resources
 
@@ -245,6 +292,11 @@ is amended.
 | `events.skip` | `POST /admin/events/dead-letters/{deadLetterId}/skip` |
 | `events.replay_domain_consumer` | `POST /admin/events/dead-letters/{deadLetterId}/reprocess` |
 | `events.replay_projection` | `POST /admin/events/replay/projection` |
+
+Three routes are absent from this table because they hold no permission, and the reasoning
+for each is above: `POST /invitations/accept`, `POST /organizations`, and
+`GET /organizations`. A permission is held through a Membership and evaluated within one
+Organization; none of the three has one to evaluate against.
 
 The `operation` value recorded for observability is the permission identifier, so
 `POST /works/{workId}/complete` reports `work.complete`. Route and telemetry cannot

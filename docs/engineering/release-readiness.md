@@ -91,35 +91,35 @@ identity switcher that sets `x-dev-subject`.
   scope. It is in `.env.example` with no endpoint behind it, which is a loose end either
   way — implement it or remove the variable.
 
-### A2. More than one Organization
+### A2. More than one Organization — done
 
-`apps/web/src/lib/api.ts` pins a single `ORGANIZATION_ID` from an environment variable.
-`mvp.md` states it twice — "A person may belong to more than one Organization" and "A
-person may have Memberships in multiple Organizations."
+`GET /organizations` returns the Organizations the caller holds an Active Membership in,
+and the web client selects among them. The environment variable is gone.
 
-**This entry previously said the gap was entirely in the client. That was wrong, and the
-error mattered**: every route is indeed scoped by `X-Organization-Id`, but *nothing tells a
-caller which Organizations they may put in that header.* There is no route that returns the
-caller's own Memberships — `GET /organizations` does not exist, and `/me` requires the
-header it would be used to choose. A client cannot offer a choice it has no way to
-enumerate, so the environment variable is not laziness in the UI, it is the only thing
-available.
+The API gap came first and carried a decision, recorded in ADR-0014 as its fourth
+exemption: listing your own Memberships cannot require an Organization to already be
+selected, because that is circular. Two properties make the exemption safe and both are
+structural rather than checked — the route takes no parameters at all, so there is nothing
+to probe with, and the result is derived from the authenticated subject, so a wider answer
+would need a defect in the query rather than a missing guard.
 
-The API work is therefore first, and it carries a decision. Listing your own Memberships
-cannot require an Organization to be selected — that is circular — so the route needs the
-`WithoutOrganizationContext` exemption, and ADR-0014 states that its three exemptions are
-the complete set and "any further route that claims one is a defect" until the ADR says
-otherwise. So this is an ADR-0014 amendment, not an implementation detail.
+One interaction was easy to miss and would have been a real defect: **the list includes
+Suspended Organizations.** Reactivation is exempt from the Organization status check
+precisely so an Owner can recover a suspended Organization — but an Owner who cannot *find*
+it has no route to that exemption, and filtering the list to Active would have quietly made
+the documented recovery path unreachable from any client. There is a test that suspends an
+Organization, finds it in the list, and reactivates it from there.
 
-It is not an ADR-0010 promotion: `authorization.md` reserves no permission for it, and
-multi-Organization membership is already inside the MVP scope. The route's authority is the
-same as `POST /organizations` — being an authenticated, Active Human Identity — and its
-results are scoped to the caller's own subject, so it can expose nothing cross-tenant.
+In the client, the selected Organization is a cookie, and the cookie is a *preference*
+rather than an authority: it is validated against the caller's real Memberships on every
+read, and a value naming an Organization they do not belong to is discarded rather than
+sent. The API would refuse it anyway with a `404`, but a client that forwards an
+unvalidated tenant identifier is one line away from being the thing that leaks. Verified by
+forging one.
 
-- Amend ADR-0014 with the route and a fourth exemption, with its reasoning.
-- `GET /organizations` returning the caller's Active Memberships.
-- Organization selection in the client, driven by that route.
-- A create-Organization flow in the UI. `POST /organizations` exists and has no UI.
+A person who belongs to no Organization now gets an offer rather than an error — create one
+and become its first Owner, or accept an invitation. That state is ordinary for someone who
+has just signed in, and it is exactly the state a real first user arrives in.
 
 ### A3. Verify the model provider for real
 

@@ -1497,6 +1497,100 @@ suite("AIOS API", () => {
         .expect(201);
     });
 
+    it("lists the caller's own Organizations, and nobody else's", async () => {
+      // The route A2 needed and the API did not have. Without it a client can
+      // be told which single Organization to use, but cannot offer a choice.
+      const first = await request(server())
+        .post("/organizations")
+        .set(asFounder())
+        .send({ name: "Zephyr" })
+        .expect(201);
+      const second = await request(server())
+        .post("/organizations")
+        .set(asFounder())
+        .send({ name: "Acme Holdings" })
+        .expect(201);
+
+      // No `x-organization-id`, deliberately: requiring it would mean naming an
+      // Organization in order to ask which Organizations may be named.
+      const mine = await request(server())
+        .get("/organizations")
+        .set(asFounder())
+        .expect(200);
+
+      expect(mine.body.organizations.map((o: { name: string }) => o.name)).toEqual([
+        "Acme Holdings",
+        "Zephyr",
+      ]);
+      expect(mine.body.organizations.map((o: { organizationId: string }) => o.organizationId))
+        .toEqual([second.body.organizationId, first.body.organizationId]);
+
+      // MEMBER is seeded into ORG by `beforeEach` and has no Membership in
+      // either of the two above. Tenant isolation on this route
+      // comes from the query being derived from the subject — there is no
+      // header here to check, so nothing else could be enforcing it.
+      const hers = await request(server())
+        .get("/organizations")
+        .set({ "x-dev-subject": MEMBER.subject })
+        .expect(200);
+
+      const ids = hers.body.organizations.map((o: { organizationId: string }) => o.organizationId);
+      expect(ids).not.toContain(first.body.organizationId);
+      expect(ids).not.toContain(second.body.organizationId);
+    });
+
+    it("is empty for an authenticated subject that belongs to nothing", async () => {
+      const res = await request(server())
+        .get("/organizations")
+        .set({ "x-dev-subject": "nobody-at-all" })
+        .expect(200);
+
+      // Empty rather than 404: belonging to nothing is an ordinary state, and a
+      // 404 would say the route was wrong rather than the answer empty.
+      expect(res.body.organizations).toEqual([]);
+    });
+
+    it("refuses an unauthenticated caller", async () => {
+      // Exempt from Organization resolution, and only from that. The route
+      // still requires a verified subject — it is the subject that scopes it.
+      await request(server()).get("/organizations").expect(401);
+    });
+
+    it("keeps a Suspended Organization listed, so its Owner can reach reactivate", async () => {
+      const created = await request(server())
+        .post("/organizations")
+        .set(asFounder())
+        .send({ name: "Northwind" })
+        .expect(201);
+
+      const scoped = {
+        "x-dev-subject": FOUNDER.subject,
+        "x-organization-id": created.body.organizationId,
+      };
+      await request(server())
+        .post(`/organizations/${created.body.organizationId}/suspend`)
+        .set(scoped)
+        .send({ reason: "Billing lapsed." })
+        .expect(201);
+
+      const listed = await request(server())
+        .get("/organizations")
+        .set(asFounder())
+        .expect(200);
+
+      const found = listed.body.organizations.find(
+        (o: { organizationId: string }) => o.organizationId === created.body.organizationId,
+      );
+      expect(found).toMatchObject({ status: "Suspended", roles: ["OrganizationOwner"] });
+
+      // And the path it exists to keep open actually works from there.
+      await request(server())
+        .post(`/organizations/${created.body.organizationId}/reactivate`)
+        .set(scoped)
+        .send({ reason: "Billing settled." })
+        .expect(201);
+    });
+
     it("creates the Human Identity, and reuses it for a second Organization", async () => {
       const first = await request(server())
         .post("/organizations")

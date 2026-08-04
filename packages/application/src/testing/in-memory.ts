@@ -38,6 +38,7 @@ import type {
   SecretaryContributionRepository,
 } from "../assistance.js";
 import type {
+  CallerOrganizationSummary,
   Clock,
   ConsumerDeliveryRepository,
   NotificationRecord,
@@ -73,7 +74,12 @@ import type {
 export class InMemoryOrganizationRepository implements OrganizationRepository {
   private readonly rows = new Map<string, OrganizationState>();
 
-  constructor(private readonly memberships: InMemoryMembershipRepository) {}
+  constructor(private readonly memberships: InMemoryMembershipRepository) {
+    // `listOrganizationsForIdentity` spans both stores, and only this one knows
+    // Organization names and statuses. Handing over a reader rather than the
+    // map keeps the membership double unable to mutate Organizations.
+    memberships.readOrganizations((id) => this.rows.get(id) ?? null);
+  }
 
   async findById(organizationId: OrganizationId): Promise<OrganizationState | null> {
     return this.rows.get(organizationId) ?? null;
@@ -395,6 +401,40 @@ export class InMemoryMembershipRepository implements MembershipRepository {
       throw new VersionConflictError(expectedVersion, existing.version);
     }
     this.rows.set(membership.membershipId, membership);
+  }
+
+  /**
+   * How this double reaches Organization names and statuses.
+   *
+   * Set by `InMemoryOrganizationRepository`'s constructor. Before it is set the
+   * list is empty rather than throwing, which is the correct answer for a test
+   * that never built an Organization repository at all.
+   */
+  private organizations: (id: OrganizationId) => OrganizationState | null = () => null;
+
+  readOrganizations(reader: (id: OrganizationId) => OrganizationState | null): void {
+    this.organizations = reader;
+  }
+
+  async listOrganizationsForIdentity(
+    identityId: IdentityId,
+  ): Promise<readonly CallerOrganizationSummary[]> {
+    return [...this.rows.values()]
+      .filter((m) => m.identityId === identityId && m.status === "Active")
+      .flatMap((m) => {
+        const organization = this.organizations(m.organizationId);
+        if (organization === null) return [];
+        return [
+          {
+            organizationId: m.organizationId,
+            name: organization.name,
+            status: organization.status,
+            membershipId: m.membershipId,
+            roles: m.roles,
+          },
+        ];
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   async listActiveByRole(

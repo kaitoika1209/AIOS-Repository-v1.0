@@ -1,15 +1,20 @@
 /**
- * Organization creation and naming.
+ * The Organization resource: finding one, creating one, and running one.
  *
- * Two routes with different authorization shapes, in one controller because they
- * are the same resource:
+ * Three authorization shapes, in one controller because they are the same
+ * resource:
  *
- * - `POST /organizations` has no permission and no Organization context. The
- *   caller is bringing the Organization into existence, so there is no
- *   Membership for a permission to attach to and nothing for
- *   `X-Organization-Id` to select among (ADR-0014).
- * - `PATCH /organizations/{organizationId}` is ordinary. By then the caller is a
- *   Member, and `organization.rename` applies.
+ * - `GET /organizations` has no permission and no Organization context. It
+ *   answers "which Organizations may I act in", so requiring the header that
+ *   names one would be circular (ADR-0014).
+ * - `POST /organizations` likewise. The caller is bringing the Organization into
+ *   existence, so there is no Membership for a permission to attach to and
+ *   nothing for `X-Organization-Id` to select among.
+ * - Everything else is ordinary. By then the caller is a Member, and the
+ *   permission applies.
+ *
+ * The first two are the reason the other routes can be strict: a client that can
+ * enumerate and create Organizations never needs one configured for it.
  */
 
 import {
@@ -28,6 +33,7 @@ import type { Request } from "express";
 
 import { OrganizationId, type OrganizationStatus } from "@aios/types";
 import {
+  listCallerOrganizationsUseCase,
   ASSISTANCE_OPERATIONS,
   archiveOrganizationUseCase,
   createOrganizationUseCase,
@@ -101,6 +107,45 @@ export class OrganizationAdminController {
     @Inject(DECISION_ASSISTANCE)
     private readonly assistance: DecisionAssistanceProvider,
   ) {}
+
+  /**
+   * The Organizations the caller may act in.
+   *
+   * Exempt from Organization resolution because requiring the header here would
+   * be circular — the caller would have to name an Organization in order to ask
+   * which ones they may name (ADR-0014).
+   *
+   * It takes no parameters at all, which is what makes the exemption safe: there
+   * is no identifier to supply and therefore nothing to probe with, and the
+   * result is derived entirely from the authenticated subject.
+   *
+   * Suspended Organizations are included. An Owner who cannot find a suspended
+   * Organization cannot reach `organization.reactivate`, and the whole point of
+   * that route's own exemption is that the recovery path stays reachable.
+   */
+  @Get()
+  @WithoutOrganizationContext()
+  async list(@Req() request: Request): Promise<{
+    organizations: readonly {
+      organizationId: string;
+      name: string;
+      status: OrganizationStatus;
+      membershipId: string;
+      roles: readonly string[];
+    }[];
+  }> {
+    const context = subjectOf(request);
+    const organizations = await listCallerOrganizationsUseCase(this.deps, {
+      provider: context.subject.provider,
+      issuer: context.subject.issuer,
+      subject: context.subject.subject,
+    });
+
+    // Wrapped in an object rather than returned as a bare array: a top-level
+    // array has nowhere to grow, and this list will want pagination before it
+    // wants anything else.
+    return { organizations };
+  }
 
   /**
    * Create an Organization with its first Owner.

@@ -32,6 +32,7 @@ import { recordTransition } from "./audit.js";
 import { requirePermission } from "./authorization.js";
 import {
   NotFoundError,
+  type CallerOrganizationSummary,
   type RepositoryBundle,
   type UseCaseDependencies,
 } from "./ports.js";
@@ -507,3 +508,41 @@ const requireGrantingMember = (ctx: WorkCommandContext) => {
   }
   return ctx.principal;
 };
+
+/**
+ * The Organizations the caller may act in.
+ *
+ * The third route with no permission check, and the reason is the same shape as
+ * the other two: a permission is held through a Membership and evaluated within
+ * one Organization, and this query spans Memberships and precedes the choice of
+ * one. ADR-0014 records the exemption.
+ *
+ * It exists because `X-Organization-Id` "selects among the caller's Memberships"
+ * and nothing enumerated them. `mvp.md` states twice that a person may belong to
+ * more than one Organization; without this, a client could only ever be told
+ * which single Organization to use, which is what the web application did.
+ *
+ * An unknown subject is an empty list, not an error. A person who has
+ * authenticated but never accepted an invitation or created an Organization
+ * belongs to nothing, and that is an ordinary state with an ordinary answer —
+ * `404` would suggest the route was wrong rather than the answer empty.
+ */
+export const listCallerOrganizationsUseCase = async (
+  deps: UseCaseDependencies,
+  caller: {
+    readonly provider: string;
+    readonly issuer: string;
+    readonly subject: string;
+  },
+): Promise<readonly CallerOrganizationSummary[]> =>
+  deps.uow.transaction(async (tx) => {
+    const identity = await tx.identities.findBySubject(caller);
+    if (identity === null) return [];
+
+    // A disabled Identity holds no authority anywhere, so it has nothing to
+    // select among. Returning its Organizations would show a menu on which
+    // every item refuses.
+    if (identity.status !== "Active") return [];
+
+    return tx.memberships.listOrganizationsForIdentity(identity.identityId);
+  });

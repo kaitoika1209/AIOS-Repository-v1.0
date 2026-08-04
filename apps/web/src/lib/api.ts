@@ -13,8 +13,9 @@
 import { cookies } from "next/headers";
 
 const API_URL = process.env["API_URL"] ?? "http://localhost:3001";
-const ORGANIZATION_ID =
-  process.env["DEV_ORGANIZATION_ID"] ?? "0a105eed-0000-4000-8000-000000000001";
+
+/** Which Organization the person is currently acting in. */
+export const ORGANIZATION_COOKIE = "aios_organization";
 
 /**
  * Development identities.
@@ -111,9 +112,18 @@ export class ApiError extends Error {
 
 const call = async <T>(
   path: string,
-  init: RequestInit & { subject: string; withoutOrganization?: boolean },
+  init: RequestInit & {
+    subject: string;
+    /**
+     * Omitted for the routes ADR-0014 exempts from Organization resolution.
+     * Supplied explicitly everywhere else rather than read from a module
+     * constant — that constant was the whole of the A2 defect.
+     */
+    organizationId?: string;
+    withoutOrganization?: boolean;
+  },
 ): Promise<T> => {
-  const { subject, withoutOrganization = false, ...rest } = init;
+  const { subject, organizationId, withoutOrganization = false, ...rest } = init;
 
   const response = await fetch(`${API_URL}${path}`, {
     ...rest,
@@ -124,9 +134,19 @@ const call = async <T>(
       // shows a name rather than a provider subject.
       "x-dev-display-name":
         DEV_USERS.find((u) => u.subject === subject)?.label ?? subject,
-      // Omitted only for invitation acceptance, the one route ADR-0014 exempts
-      // from Organization resolution — the caller is not yet a Member.
-      ...(withoutOrganization ? {} : { "x-organization-id": ORGANIZATION_ID }),
+      // Omitted for the routes ADR-0014 exempts from Organization resolution:
+      // invitation acceptance, Organization creation, and listing the caller's
+      // own Organizations.
+      //
+      // Otherwise resolved here when the caller did not supply it, so a flat
+      // resource path like `/works` is scoped as surely as an Organization one.
+      // Callers that already hold it pass it, to save a second lookup.
+      ...(withoutOrganization
+        ? {}
+        : {
+            "x-organization-id":
+              organizationId ?? (await requireOrganization(subject)).organizationId,
+          }),
       ...(rest.headers ?? {}),
     },
     cache: "no-store",
@@ -155,7 +175,72 @@ const call = async <T>(
   return (await response.json()) as T;
 };
 
-export const ORGANIZATION = ORGANIZATION_ID;
+/** One Organization the caller belongs to, as `GET /organizations` reports it. */
+export interface CallerOrganization {
+  organizationId: string;
+  name: string;
+  status: "Active" | "Suspended" | "Archived";
+  membershipId: string;
+  roles: string[];
+}
+
+/**
+ * Every Organization this person may act in.
+ *
+ * The route that made Organization selection possible at all. Before it, the
+ * client could be told which single Organization to use and had no way to offer
+ * a choice — see ADR-0014.
+ */
+export const myOrganizations = async (
+  subject: string,
+): Promise<readonly CallerOrganization[]> =>
+  (
+    await call<{ organizations: CallerOrganization[] }>("/organizations", {
+      method: "GET",
+      subject,
+      withoutOrganization: true,
+    })
+  ).organizations;
+
+/**
+ * The Organization this person is currently acting in.
+ *
+ * The cookie is a *preference*, never an authority: it is validated against the
+ * caller's real Memberships on every request, and a value naming an Organization
+ * they do not belong to is discarded rather than sent. The API would refuse it
+ * anyway with a `404`, but a client that forwards an unvalidated tenant
+ * identifier is one line away from being the thing that leaks.
+ *
+ * Falls back to the first Organization, so a person with exactly one never has
+ * to choose. Null when they belong to none — which is an ordinary state for
+ * someone who has signed in and not yet been invited anywhere.
+ */
+export const currentOrganization = async (
+  subject: string,
+): Promise<CallerOrganization | null> => {
+  const available = await myOrganizations(subject);
+  if (available.length === 0) return null;
+
+  const store = await cookies();
+  const preferred = store.get(ORGANIZATION_COOKIE)?.value;
+  return (
+    available.find((o) => o.organizationId === preferred) ?? available[0] ?? null
+  );
+};
+
+/**
+ * The Organization a scoped request acts in, or a refusal.
+ *
+ * Throws rather than returning null so a caller cannot forget the empty case
+ * and send a request with no tenant at all.
+ */
+const requireOrganization = async (subject: string): Promise<CallerOrganization> => {
+  const organization = await currentOrganization(subject);
+  if (organization === null) {
+    throw new ApiError(404, "NO_ORGANIZATION", "You do not belong to an Organization.");
+  }
+  return organization;
+};
 
 export interface Member {
   membershipId: string;
@@ -191,112 +276,166 @@ export interface AssistanceGrant {
 }
 
 export const api = {
-  listMembers: (subject: string) =>
-    call<{ items: Member[] }>(`/organizations/${ORGANIZATION_ID}/members`, {
+  listMembers: async (subject: string) => {
+    const org = await requireOrganization(subject);
+    return call<{ items: Member[] }>(`/organizations/${org.organizationId}/members`, {
       method: "GET",
       subject,
-    }),
+      organizationId: org.organizationId,
+    });
+  },
 
-  inviteMember: (subject: string, body: { email: string; roles: string[] }) =>
-    call<Invitation>(`/organizations/${ORGANIZATION_ID}/members`, {
+  inviteMember: async (subject: string, body: { email: string; roles: string[] }) => {
+    const org = await requireOrganization(subject);
+    return call<Invitation>(`/organizations/${org.organizationId}/members`, {
       method: "POST",
       subject,
+      organizationId: org.organizationId,
       body: JSON.stringify(body),
-    }),
+    });
+  },
 
-  resendInvitation: (subject: string, membershipId: string) =>
-    call<Invitation>(
-      `/organizations/${ORGANIZATION_ID}/members/${membershipId}/resend-invitation`,
-      { method: "POST", subject },
-    ),
+  resendInvitation: async (subject: string, membershipId: string) => {
+    const org = await requireOrganization(subject);
+    return call<Invitation>(
+      `/organizations/${org.organizationId}/members/${membershipId}/resend-invitation`,
+      { method: "POST", subject, organizationId: org.organizationId },
+    );
+  },
 
-  revokeInvitation: (subject: string, membershipId: string, reason: string) =>
-    call<{ membershipId: string; status: string }>(
-      `/organizations/${ORGANIZATION_ID}/members/${membershipId}/revoke-invitation`,
-      { method: "POST", subject, body: JSON.stringify({ reason }) },
-    ),
+  revokeInvitation: async (subject: string, membershipId: string, reason: string) => {
+    const org = await requireOrganization(subject);
+    return call<{ membershipId: string; status: string }>(
+      `/organizations/${org.organizationId}/members/${membershipId}/revoke-invitation`,
+      { method: "POST", subject, organizationId: org.organizationId, body: JSON.stringify({ reason }) },
+    );
+  },
 
-  suspendMember: (subject: string, membershipId: string, reason: string) =>
-    call<{ membershipId: string; status: string }>(
-      `/organizations/${ORGANIZATION_ID}/members/${membershipId}/suspend`,
-      { method: "POST", subject, body: JSON.stringify({ reason }) },
-    ),
+  suspendMember: async (subject: string, membershipId: string, reason: string) => {
+    const org = await requireOrganization(subject);
+    return call<{ membershipId: string; status: string }>(
+      `/organizations/${org.organizationId}/members/${membershipId}/suspend`,
+      { method: "POST", subject, organizationId: org.organizationId, body: JSON.stringify({ reason }) },
+    );
+  },
 
-  reactivateMember: (subject: string, membershipId: string, reason: string) =>
-    call<{ membershipId: string; status: string }>(
-      `/organizations/${ORGANIZATION_ID}/members/${membershipId}/reactivate`,
-      { method: "POST", subject, body: JSON.stringify({ reason }) },
-    ),
+  reactivateMember: async (subject: string, membershipId: string, reason: string) => {
+    const org = await requireOrganization(subject);
+    return call<{ membershipId: string; status: string }>(
+      `/organizations/${org.organizationId}/members/${membershipId}/reactivate`,
+      { method: "POST", subject, organizationId: org.organizationId, body: JSON.stringify({ reason }) },
+    );
+  },
 
-  revokeMember: (subject: string, membershipId: string, reason: string) =>
-    call<{ membershipId: string; status: string }>(
-      `/organizations/${ORGANIZATION_ID}/members/${membershipId}/revoke`,
-      { method: "POST", subject, body: JSON.stringify({ reason }) },
-    ),
+  revokeMember: async (subject: string, membershipId: string, reason: string) => {
+    const org = await requireOrganization(subject);
+    return call<{ membershipId: string; status: string }>(
+      `/organizations/${org.organizationId}/members/${membershipId}/revoke`,
+      { method: "POST", subject, organizationId: org.organizationId, body: JSON.stringify({ reason }) },
+    );
+  },
 
-  assignRole: (subject: string, membershipId: string, role: string) =>
-    call<{ membershipId: string; roles: string[] }>(
-      `/organizations/${ORGANIZATION_ID}/members/${membershipId}/assign-role`,
-      { method: "POST", subject, body: JSON.stringify({ role }) },
-    ),
+  assignRole: async (subject: string, membershipId: string, role: string) => {
+    const org = await requireOrganization(subject);
+    return call<{ membershipId: string; roles: string[] }>(
+      `/organizations/${org.organizationId}/members/${membershipId}/assign-role`,
+      { method: "POST", subject, organizationId: org.organizationId, body: JSON.stringify({ role }) },
+    );
+  },
 
-  revokeRole: (
+  revokeRole: async (
     subject: string,
     membershipId: string,
     role: string,
     reason: string,
-  ) =>
-    call<{ membershipId: string; roles: string[] }>(
-      `/organizations/${ORGANIZATION_ID}/members/${membershipId}/revoke-role`,
-      { method: "POST", subject, body: JSON.stringify({ role, reason }) },
-    ),
+  ) => {
+    const org = await requireOrganization(subject);
+    return call<{ membershipId: string; roles: string[] }>(
+      `/organizations/${org.organizationId}/members/${membershipId}/revoke-role`,
+      { method: "POST", subject, organizationId: org.organizationId, body: JSON.stringify({ role, reason }) },
+    );
+  },
 
-  organization: (subject: string) =>
-    call<Organization>(`/organizations/${ORGANIZATION_ID}`, {
+  organization: async (subject: string) => {
+    const org = await requireOrganization(subject);
+    return call<Organization>(`/organizations/${org.organizationId}`, {
       method: "GET",
       subject,
-    }),
+      organizationId: org.organizationId,
+    });
+  },
 
-  renameOrganization: (subject: string, name: string) =>
-    call<Organization>(`/organizations/${ORGANIZATION_ID}`, {
+  renameOrganization: async (subject: string, name: string) => {
+    const org = await requireOrganization(subject);
+    return call<Organization>(`/organizations/${org.organizationId}`, {
       method: "PATCH",
       subject,
+      organizationId: org.organizationId,
+      body: JSON.stringify({ name }),
+    });
+  },
+
+  suspendOrganization: async (subject: string, reason: string) => {
+    const org = await requireOrganization(subject);
+    return call<Organization>(`/organizations/${org.organizationId}/suspend`, {
+      method: "POST",
+      subject,
+      organizationId: org.organizationId,
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  reactivateOrganization: async (subject: string, reason: string) => {
+    const org = await requireOrganization(subject);
+    return call<Organization>(`/organizations/${org.organizationId}/reactivate`, {
+      method: "POST",
+      subject,
+      organizationId: org.organizationId,
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  archiveOrganization: async (subject: string, reason: string) => {
+    const org = await requireOrganization(subject);
+    return call<Organization>(`/organizations/${org.organizationId}/archive`, {
+      method: "POST",
+      subject,
+      organizationId: org.organizationId,
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  grantAssistance: async (subject: string, operation: string, reason: string) => {
+    const org = await requireOrganization(subject);
+    return call<AssistanceGrant>(`/organizations/${org.organizationId}/assistance-grants`, {
+      method: "POST",
+      subject,
+      organizationId: org.organizationId,
+      body: JSON.stringify({ operation, reason }),
+    });
+  },
+
+  revokeAssistance: async (subject: string, operation: string) => {
+    const org = await requireOrganization(subject);
+    return call<AssistanceGrant>(
+      `/organizations/${org.organizationId}/assistance-grants/revoke`,
+      { method: "POST", subject, organizationId: org.organizationId, body: JSON.stringify({ operation }) },
+    );
+  },
+
+  /**
+   * Create an Organization with its first Owner.
+   *
+   * No `x-organization-id`: the caller is bringing the Organization into
+   * existence, so there is nothing for the header to select among (ADR-0014).
+   */
+  createOrganization: (subject: string, name: string) =>
+    call<Organization & { membershipId: string }>("/organizations", {
+      method: "POST",
+      subject,
+      withoutOrganization: true,
       body: JSON.stringify({ name }),
     }),
-
-  suspendOrganization: (subject: string, reason: string) =>
-    call<Organization>(`/organizations/${ORGANIZATION_ID}/suspend`, {
-      method: "POST",
-      subject,
-      body: JSON.stringify({ reason }),
-    }),
-
-  reactivateOrganization: (subject: string, reason: string) =>
-    call<Organization>(`/organizations/${ORGANIZATION_ID}/reactivate`, {
-      method: "POST",
-      subject,
-      body: JSON.stringify({ reason }),
-    }),
-
-  archiveOrganization: (subject: string, reason: string) =>
-    call<Organization>(`/organizations/${ORGANIZATION_ID}/archive`, {
-      method: "POST",
-      subject,
-      body: JSON.stringify({ reason }),
-    }),
-
-  grantAssistance: (subject: string, operation: string, reason: string) =>
-    call<AssistanceGrant>(`/organizations/${ORGANIZATION_ID}/assistance-grants`, {
-      method: "POST",
-      subject,
-      body: JSON.stringify({ operation, reason }),
-    }),
-
-  revokeAssistance: (subject: string, operation: string) =>
-    call<AssistanceGrant>(
-      `/organizations/${ORGANIZATION_ID}/assistance-grants/revoke`,
-      { method: "POST", subject, body: JSON.stringify({ operation }) },
-    ),
 
   acceptInvitation: (subject: string, token: string) =>
     call<{ organizationId: string; membershipId: string; roles: string[] }>(

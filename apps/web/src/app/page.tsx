@@ -1,5 +1,5 @@
-import { ApiError, api, currentUser } from "../lib/api";
-import { createWork } from "./actions";
+import { ApiError, api, currentOrganization, currentUser } from "../lib/api";
+import { createOrganization, createWork } from "./actions";
 import { ActionForm } from "./ui";
 
 const statusClass = (status: string): string =>
@@ -10,6 +10,31 @@ const statusClass = (status: string): string =>
 
 export default async function Home() {
   const user = await currentUser();
+
+  // Asked before any scoped request, because someone who belongs to no
+  // Organization has nothing to be shown and every scoped route would refuse
+  // them. That is an ordinary state — a person who has signed in and not yet
+  // been invited anywhere — and it needs an offer, not an error.
+  const organization = await currentOrganization(user.subject).catch(() => null);
+
+  if (organization === null) {
+    return (
+      <>
+        <h1>No Organization yet</h1>
+        <div className="card">
+          <p className="hint">
+            You are signed in but hold no Membership anywhere. Either create an
+            Organization — you become its first Owner — or{" "}
+            <a href="/join">accept an invitation</a> to one that already exists.
+          </p>
+          <ActionForm action={createOrganization} submitLabel="Create Organization">
+            <label htmlFor="new-organization-name">Name</label>
+            <input id="new-organization-name" name="name" placeholder="Acme Product Team" />
+          </ActionForm>
+        </div>
+      </>
+    );
+  }
 
   let items: Awaited<ReturnType<typeof api.listWork>>["items"] = [];
   let loadError: string | null = null;
