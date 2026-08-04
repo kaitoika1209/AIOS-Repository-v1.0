@@ -115,3 +115,21 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
         run: pnpm --filter @aios/persistence --filter @aios/api test
+
+  restore-drill:
+    name: Point-in-time recovery drill
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The baseline requires "a documented isolated restore test at least
+      # monthly", and the architecture says why a backup job's exit code is not
+      # one: "Backup-job success is not proof of recoverability." This restores
+      # to a chosen instant and asserts the instant was honoured — rows after
+      # the target must be absent, which is the half that distinguishes a real
+      # PITR from a replay of everything.
+      #
+      # It builds its own throwaway cluster, so it needs no service container
+      # and disturbs nothing.
+      - name: Restore drill
+        run: sudo ./scripts/restore_drill.sh

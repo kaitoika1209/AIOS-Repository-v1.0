@@ -33,9 +33,9 @@ driving the whole loop over HTTP.
 | | |
 |---|---|
 | Release Acceptance Criteria | 33 executable tests, all passing |
-| Test suite | 649 passing (types 11, domain 170, application 190, persistence 66, api 222) |
+| Test suite | 715 passing (types 11, domain 170, application 215, persistence 67, api 252) |
 | Routed permissions enforced | 43 / 43 |
-| Documentation checks | 58 files |
+| Documentation checks | 59 files |
 | Accepted and proposed ADRs | 20 |
 
 The domain loop is complete. Work → Decision → completion → generated Memory → human
@@ -63,7 +63,7 @@ Thirteen items. Assessed against the code as it stands.
 | 7 | Durable audit for Human-authoritative transitions and privileged operational actions | **Done** — `authorization_audit_records`, edge and use-case halves |
 | 8 | HTTP and Worker liveness/readiness, asynchronous workflow health, restricted admin diagnostics | **Partial** — all four process probes serve; workflow health and admin diagnostics remain |
 | 9 | Bounded retry, idempotency, retry-exhaustion visibility, dead-letter handling, typed Operations commands for Worker pause/resume, replay, dead-letter retry/skip | **Partial** — everything except Worker pause/resume |
-| 10 | Continuous WAL archiving, base backup ≥ every 24h, 14-day PITR, monthly verified restore test, approved RPO and RTO | **Absent** |
+| 10 | Continuous WAL archiving, base backup ≥ every 24h, 14-day PITR, monthly verified restore test, approved RPO and RTO | **Absent** — the restore *procedure* is proven by an executable drill; no production storage, schedule, or retention exists |
 | 11 | Actionable alerts for database unavailability, authoritative-write failure, Outbox or Worker stoppage, Memory-generation failure, Organization-isolation violation | **Absent** |
 | 12 | The six MVP runbooks | **Absent** |
 | 13 | Separate Worker process | **Done** — `apps/api/src/worker.ts`; `chooseWorkerMode` refuses in-process draining outside development |
@@ -325,35 +325,37 @@ and Stage D existing first.
 
 ## Stage C — Data durability, and the sharpest gap
 
-### C1. Schema migration — **done**
-
-Resolved by [ADR-0020](../adr/0020-adopt-forward-only-migrations-checked-against-the-documented-ddl.md).
-
-Migrations are hand-written, numbered, and forward-only, in `migrations/`. Each is applied
-inside one transaction with its ledger row. `pnpm --filter @aios/api migrate` is the
-deployment command; `--status` reports without changing anything.
-
-The property that keeps ADR-0015 intact is
-`packages/persistence/src/migrations.test.ts`: it builds one schema from the migration
-chain and one from the documented DDL, then compares columns, constraints, and indexes.
-The documents remain the authority on what the schema is; the migrations on how an existing
-database reaches it, and neither can drift because a divergent pair fails the check in
-either direction.
-
-Forward-only, with restore as the rollback path — the "Deployment rollback" runbook must
-say that a released migration is not un-released.
-
-The "Migration failure" runbook, listed under Production Hardening SHOULD, now has
-something to describe.
+**C1 is done** (ADR-0020, the migration ledger).
 
 ### C2. Backup and recovery (item 10)
 
-Continuous WAL archiving, a physical base backup at least every 24 hours, a 14-day PITR
-window, a monthly verified restore test, and approved RPO and RTO figures. The RPO and RTO
-need an owner's decision; the rest is infrastructure configuration plus a scheduled drill.
+Full detail in [`backup-and-recovery.md`](backup-and-recovery.md). The short version is a
+split worth keeping visible:
 
-The restore test is the part that tends to be deferred and is the only one that proves the
-other four.
+**The recovery procedure is proven.** `scripts/restore_drill.sh` performs a real
+point-in-time recovery against a throwaway cluster and asserts the point was honoured —
+rows before the target present, rows after it **absent**, deleted rows recovered. The middle
+assertion is the one that matters: without it, "the data came back" is satisfied by a
+restore that replayed the whole WAL, which is exactly the restore that does not help when
+the thing being recovered from is a mistaken deletion. Confirmed by removing
+`recovery_target_time` and watching the drill fail.
+
+**Nothing about production storage exists.** No durable archive destination, no backup
+schedule, no retention, no deletion-resistant tier, no encryption or key custody, nothing
+scheduling the drill, and none of the nine recovery metrics. All Stage D infrastructure.
+
+So item 10 stays **Absent**, deliberately. A correct procedure with nothing to restore from
+recovers nothing, and marking it Partial on the strength of a working drill would be the
+same error the architecture warns about one line earlier — treating a green job as proof of
+recoverability.
+
+The measured `restore_test_rto_seconds: 2` is a floor and is labelled as one: a 39 MB local
+cluster, excluding object-store fetch, provisioning, and the pre-cutover validation the
+architecture requires. Quoting it as an achieved RTO would be dishonest in exactly the way
+this stage exists to prevent.
+
+Runbook 6 of the six is written, in `backup-and-recovery.md`. It is the only one of the six
+that has a rehearsal behind it.
 
 ---
 
