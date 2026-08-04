@@ -115,10 +115,50 @@ const requireText = (value: unknown, field: string): string => {
   return value;
 };
 
+/**
+ * What one generation cost, and what headroom the provider reported afterwards.
+ *
+ * Named in AIOS terms rather than the SDK's, because this crosses out of the
+ * adapter: the release-readiness document asks for cost per generation and the
+ * applicable rate limits, and neither question should require the reader to know
+ * which provider answered it.
+ */
+export interface GenerationUsage {
+  readonly model: string;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  /**
+   * How many of `outputTokens` were internal reasoning.
+   *
+   * Worth reporting separately because it is billed as output and is invisible
+   * in the draft: `claude-opus-5` thinks by default, so a policy that never sets
+   * `thinking` still pays for it.
+   */
+  readonly thinkingTokens: number | null;
+  readonly cacheReadInputTokens: number | null;
+  readonly cacheCreationInputTokens: number | null;
+  /**
+   * The provider's rate-limit headers, verbatim.
+   *
+   * Collected by pattern rather than by a fixed list of names: the question this
+   * answers is "which limits apply", and a hard-coded list can only report the
+   * limits that existed when it was written.
+   */
+  readonly rateLimits: Readonly<Record<string, string>>;
+}
+
 export interface AnthropicGeneratorOptions {
   readonly apiKey: string;
   readonly model?: string;
   readonly maxTokens?: number;
+  /**
+   * Observes what each call cost.
+   *
+   * A callback rather than a field on the returned content: `GeneratedContent`
+   * is a domain type, and what a provider charged is not part of the Memory. It
+   * is also where the Outbox metrics of baseline item 6 will attach.
+   */
+  readonly onUsage?: (usage: GenerationUsage) => void;
 }
 
 export class AnthropicMemoryGenerator implements MemoryGenerator {
@@ -129,37 +169,50 @@ export class AnthropicMemoryGenerator implements MemoryGenerator {
 
   private readonly client: Anthropic;
   private readonly maxTokens: number;
+  private readonly onUsage: ((usage: GenerationUsage) => void) | undefined;
 
   constructor(options: AnthropicGeneratorOptions) {
     this.client = new Anthropic({ apiKey: options.apiKey });
     this.modelReference = options.model ?? DEFAULT_MODEL;
     this.maxTokens = options.maxTokens ?? 8192;
+    this.onUsage = options.onUsage;
   }
 
   async generate(input: {
     providerInput: ProviderInput;
     providerInputHash: string;
   }): Promise<GeneratedContent> {
-    const response = await this.client.messages.create({
-      model: this.modelReference,
-      max_tokens: this.maxTokens,
-      system: SYSTEM_PROMPT,
-      // Restating recorded facts accurately is not an intelligence-limited
-      // task; the groundedness rules already constrain what may be said.
-      output_config: {
-        effort: "medium",
-        format: { type: "json_schema", schema: OUTPUT_SCHEMA },
-      },
-      messages: [
-        {
-          role: "user",
-          // Canonical form, so the bytes sent are the bytes hashed. Sending a
-          // re-serialized object would make the recorded provider_input_hash
-          // describe something the provider never saw.
-          content: canonicalize(input.providerInput),
+    const { data: response, response: http } = await this.client.messages
+      .create({
+        model: this.modelReference,
+        max_tokens: this.maxTokens,
+        system: SYSTEM_PROMPT,
+        // Restating recorded facts accurately is not an intelligence-limited
+        // task; the groundedness rules already constrain what may be said.
+        output_config: {
+          effort: "medium",
+          format: { type: "json_schema", schema: OUTPUT_SCHEMA },
         },
-      ],
-    });
+        messages: [
+          {
+            role: "user",
+            // Canonical form, so the bytes sent are the bytes hashed. Sending a
+            // re-serialized object would make the recorded provider_input_hash
+            // describe something the provider never saw.
+            content: canonicalize(input.providerInput),
+          },
+        ],
+      })
+      // `withResponse` rather than the body alone, because the rate limits the
+      // release-readiness document asks about are reported in headers and
+      // nowhere else.
+      .withResponse();
+
+    // Before the outcome is judged, because a refused or truncated generation
+    // costs the same as a successful one. Reporting only successes would make
+    // the recorded cost per generation an underestimate by exactly the amount
+    // that matters when generation starts failing.
+    this.reportUsage(response, http);
 
     // Checked before the body is read: on a refusal `content` is empty or
     // partial, and indexing into it would throw something unrecognizable.
@@ -216,6 +269,37 @@ export class AnthropicMemoryGenerator implements MemoryGenerator {
       // provider supplied would attest to nothing.
       contentHash: createHash("sha256").update(content).digest("hex"),
     };
+  }
+
+  /**
+   * Hands one call's cost to the observer, if there is one.
+   *
+   * Swallows its own failures. Nothing here is authoritative — a metrics sink
+   * that throws must not turn a generated draft into a failed generation.
+   */
+  private reportUsage(response: Anthropic.Message, http: Response): void {
+    if (this.onUsage === undefined) return;
+
+    const rateLimits: Record<string, string> = {};
+    http.headers.forEach((value, name) => {
+      if (/ratelimit|retry-after/i.test(name)) rateLimits[name] = value;
+    });
+
+    try {
+      this.onUsage({
+        // From the response, not from `modelReference`: the two can differ when
+        // an alias resolves, and provenance should record what answered.
+        model: response.model,
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        thinkingTokens: response.usage.output_tokens_details?.thinking_tokens ?? null,
+        cacheReadInputTokens: response.usage.cache_read_input_tokens,
+        cacheCreationInputTokens: response.usage.cache_creation_input_tokens,
+        rateLimits,
+      });
+    } catch (error) {
+      console.error("Usage observer threw; generation is unaffected.", error);
+    }
   }
 }
 

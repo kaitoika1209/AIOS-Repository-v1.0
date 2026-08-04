@@ -22,7 +22,32 @@ import {
   type ProviderInput,
 } from "@aios/application";
 
-import { AnthropicMemoryGenerator, DEFAULT_MODEL } from "./anthropic-memory-generator.js";
+import {
+  AnthropicMemoryGenerator,
+  DEFAULT_MODEL,
+  type GenerationUsage,
+} from "./anthropic-memory-generator.js";
+
+/**
+ * Published rates for the pinned model, in US dollars per million tokens.
+ *
+ * Hard-coded because a run has to produce a number, and overridable because
+ * this one will go stale — a price is a fact about a date, and this file cannot
+ * check it. `ANTHROPIC_PRICE_INPUT` and `ANTHROPIC_PRICE_OUTPUT` override.
+ *
+ * `claude-opus-5`, as published 2026-06-24. Confirm against the pricing page
+ * before quoting a cost from this harness in a decision.
+ */
+const PRICE_PER_MTOK_INPUT = Number.parseFloat(
+  process.env["ANTHROPIC_PRICE_INPUT"] ?? "5.00",
+);
+const PRICE_PER_MTOK_OUTPUT = Number.parseFloat(
+  process.env["ANTHROPIC_PRICE_OUTPUT"] ?? "25.00",
+);
+
+const costOf = (usage: GenerationUsage): number =>
+  (usage.inputTokens / 1_000_000) * PRICE_PER_MTOK_INPUT +
+  (usage.outputTokens / 1_000_000) * PRICE_PER_MTOK_OUTPUT;
 
 interface Case {
   readonly name: string;
@@ -98,7 +123,16 @@ const main = async (): Promise<void> => {
   }
 
   const model = process.env["ANTHROPIC_MODEL"] ?? DEFAULT_MODEL;
-  const generator = new AnthropicMemoryGenerator({ apiKey, model });
+
+  // One entry per provider call, including calls whose draft was rejected —
+  // those cost money too, and a cost per generation that counted only the
+  // successes would understate exactly the case worth knowing about.
+  const usages: GenerationUsage[] = [];
+  const generator = new AnthropicMemoryGenerator({
+    apiKey,
+    model,
+    onUsage: (usage) => usages.push(usage),
+  });
 
   console.log(`Model: ${model}`);
   console.log(`Policy version: ${generator.policyVersion}\n`);
@@ -139,16 +173,80 @@ const main = async (): Promise<void> => {
       failed += 1;
       console.log(`REJECTED  ${(error as Error).message}\n`);
     }
+
+    const usage = usages.at(-1);
+    if (usage !== undefined) {
+      const thinking =
+        usage.thinkingTokens === null ? "" : `, ${usage.thinkingTokens} thinking`;
+      console.log(
+        `COST      ${usage.inputTokens} in, ${usage.outputTokens} out${thinking}` +
+          `  ≈ $${costOf(usage).toFixed(4)}\n`,
+      );
+    }
   }
 
   console.log("─".repeat(72));
   console.log(`${grounded} grounded, ${failed} rejected, of ${CASES.length}`);
+
+  reportCost(usages);
+  reportRateLimits(usages);
 
   // Judgement is the reader's. Groundedness is mechanical and reported above;
   // whether a draft is fair, complete, and appropriately brief is not something
   // this script can decide, and pretending otherwise would make the number look
   // like a verdict.
   console.log("\nRead the drafts. Groundedness is checked; judgement is not.");
+};
+
+/**
+ * What a generation costs, which the release-readiness document asks for by
+ * name and which nothing else in this repository can answer.
+ */
+const reportCost = (usages: readonly GenerationUsage[]): void => {
+  if (usages.length === 0) return;
+
+  const totalIn = usages.reduce((sum, u) => sum + u.inputTokens, 0);
+  const totalOut = usages.reduce((sum, u) => sum + u.outputTokens, 0);
+  const total = usages.reduce((sum, u) => sum + costOf(u), 0);
+  const thinking = usages.reduce((sum, u) => sum + (u.thinkingTokens ?? 0), 0);
+
+  console.log(
+    `\n${usages.length} provider call(s): ${totalIn} input, ${totalOut} output tokens`,
+  );
+  if (thinking > 0) {
+    // Called out because it is invisible in the draft and is billed as output.
+    // The policy sets no `thinking`, so this is the model's default rather than
+    // something the generation policy chose — worth seeing before it is priced
+    // into a per-Memory cost estimate.
+    const share = ((thinking / totalOut) * 100).toFixed(0);
+    console.log(`  of the output, ${thinking} tokens (${share}%) were internal reasoning`);
+  }
+  console.log(
+    `Cost: $${total.toFixed(4)} total, $${(total / usages.length).toFixed(4)} per generation` +
+      `  (at $${PRICE_PER_MTOK_INPUT}/$${PRICE_PER_MTOK_OUTPUT} per Mtok)`,
+  );
+};
+
+/**
+ * The limits that actually applied, as the provider reported them.
+ *
+ * Read from the last call because these headers describe remaining headroom at
+ * a moment, not a property of the run.
+ */
+const reportRateLimits = (usages: readonly GenerationUsage[]): void => {
+  const last = usages.at(-1);
+  if (last === undefined) return;
+
+  const names = Object.keys(last.rateLimits).sort();
+  if (names.length === 0) {
+    console.log("\nThe provider reported no rate-limit headers.");
+    return;
+  }
+
+  console.log("\nRate limits after the final call:");
+  for (const name of names) {
+    console.log(`  ${name}: ${last.rateLimits[name]}`);
+  }
 };
 
 main().catch((error: unknown) => {

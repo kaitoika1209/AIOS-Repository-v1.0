@@ -107,8 +107,34 @@ every route is scoped by it. The gap is entirely in the client.
 only ever run against `DeterministicMemoryGenerator` here, because `ANTHROPIC_API_KEY` is
 unset.
 
+**The harness can now answer all three questions; only the credential is missing.** It
+previously could not: the generator discarded the provider's `usage`, so a live run would
+have produced drafts and no cost. It now reports tokens, cost, and the rate-limit headers
+the provider actually sent — collected by pattern rather than by a fixed list of names, so
+the run reports the limits that exist rather than the ones someone anticipated.
+
+```
+4 provider call(s): 4800 input, 3200 output tokens
+  of the output, 2000 tokens (63%) were internal reasoning
+Cost: $0.1040 total, $0.0260 per generation  (at $5/$25 per Mtok)
+```
+
+That figure is from a stub, not the provider — the reporting path is tested against a local
+HTTP server (`anthropic-memory-generator.test.ts`) so it runs on a machine with no
+credential. What the stub cannot tell us is what the real numbers are.
+
+One thing to look at in the first live run: **the pinned model thinks by default.** The
+generation policy sets no `thinking` parameter, so reasoning tokens are billed as output
+and are invisible in the draft. If the live run shows a share anything like the stub's, the
+cost per Memory is dominated by reasoning on a task the policy describes as "not
+intelligence-limited" — which would make `thinking: {type: "disabled"}` at the current
+`effort: "medium"` worth measuring. That is a policy-version change (ADR-0016), not a tuning
+knob, so it needs the numbers first.
+
+Remaining, all requiring the key:
+
 - Run `evaluate-generation` against the live API and record the result.
-- Establish cost per generation and the provider rate limits that apply.
+- Record the real cost per generation and the rate limits that apply.
 - Confirm the groundedness validator's behaviour on real output, not synthetic.
 
 **Stage A is done when** a person with no prior account can sign in, create an
