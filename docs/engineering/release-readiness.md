@@ -94,11 +94,31 @@ identity switcher that sets `x-dev-subject`.
 ### A2. More than one Organization
 
 `apps/web/src/lib/api.ts` pins a single `ORGANIZATION_ID` from an environment variable.
-`mvp.md` states that "A person may belong to more than one Organization", and the API
-already supports it fully — `X-Organization-Id` selects among the caller's Memberships and
-every route is scoped by it. The gap is entirely in the client.
+`mvp.md` states it twice — "A person may belong to more than one Organization" and "A
+person may have Memberships in multiple Organizations."
 
-- Organization selection driven by the caller's Memberships.
+**This entry previously said the gap was entirely in the client. That was wrong, and the
+error mattered**: every route is indeed scoped by `X-Organization-Id`, but *nothing tells a
+caller which Organizations they may put in that header.* There is no route that returns the
+caller's own Memberships — `GET /organizations` does not exist, and `/me` requires the
+header it would be used to choose. A client cannot offer a choice it has no way to
+enumerate, so the environment variable is not laziness in the UI, it is the only thing
+available.
+
+The API work is therefore first, and it carries a decision. Listing your own Memberships
+cannot require an Organization to be selected — that is circular — so the route needs the
+`WithoutOrganizationContext` exemption, and ADR-0014 states that its three exemptions are
+the complete set and "any further route that claims one is a defect" until the ADR says
+otherwise. So this is an ADR-0014 amendment, not an implementation detail.
+
+It is not an ADR-0010 promotion: `authorization.md` reserves no permission for it, and
+multi-Organization membership is already inside the MVP scope. The route's authority is the
+same as `POST /organizations` — being an authenticated, Active Human Identity — and its
+results are scoped to the caller's own subject, so it can expose nothing cross-tenant.
+
+- Amend ADR-0014 with the route and a fourth exemption, with its reasoning.
+- `GET /organizations` returning the caller's Active Memberships.
+- Organization selection in the client, driven by that route.
 - A create-Organization flow in the UI. `POST /organizations` exists and has no UI.
 
 ### A3. Verify the model provider for real
