@@ -209,27 +209,64 @@ export const chooseAuth = (
   return { auth: new DevAuthAdapter(), reason: "development stub (no verification)" };
 };
 
+/**
+ * Whether this API process also drains the Outbox.
+ *
+ * The observability baseline requires a separate Worker with its own liveness
+ * and readiness, so in production it must not. Running it in-process there is
+ * not unsafe — `FOR UPDATE SKIP LOCKED` and the per-consumer delivery claim make
+ * concurrent drains correct — but it ties generation throughput to API replica
+ * count and leaves no worker to pause independently.
+ *
+ * Shaped like `chooseAuth`: an explicit setting wins, and otherwise the
+ * environment decides, with the reason logged rather than inferred.
+ */
+export const chooseWorkerMode = (
+  env: NodeJS.ProcessEnv,
+): { inProcess: boolean; reason: string } => {
+  const explicit = env["WORKER_IN_PROCESS"];
+  if (explicit === "true") {
+    return { inProcess: true, reason: "in-process (WORKER_IN_PROCESS=true)" };
+  }
+  if (explicit === "false") {
+    return { inProcess: false, reason: "separate process (WORKER_IN_PROCESS=false)" };
+  }
+
+  const environment = env["NODE_ENV"] ?? "development";
+  return environment === "development" || environment === "test"
+    ? { inProcess: true, reason: `in-process (NODE_ENV=${environment})` }
+    : {
+        inProcess: false,
+        reason: `separate process (NODE_ENV=${environment}); run \`pnpm --filter @aios/api worker\``,
+      };
+};
+
 export const buildDevApp = async (connectionString: string) => {
   const pool = new Pool({ connectionString });
   const { auth, reason: authReason } = chooseAuth(process.env);
   console.log(`Authentication: ${authReason}`);
   const app = await createApp({ pool, auth });
 
-  // The asynchronous halves of ADR-0007 and ADR-0008. Production runs these as
-  // a separate worker; in development they poll in-process so a blocked Work
-  // unblocks and a completed Work produces its Memory draft.
-  const { generator, reason } = chooseGenerator(process.env);
-  console.log(`Memory generation: ${reason}`);
+  // The asynchronous halves of ADR-0007 and ADR-0008. One process is convenient
+  // in development and wrong in production, so the choice is explicit.
+  const { inProcess, reason: workerReason } = chooseWorkerMode(process.env);
+  console.log(`Outbox worker: ${workerReason}`);
 
-  const stop = startOutboxWorker(pool, dependenciesFor(pool), 500, {
-    memory: {
-      generator,
-      secretaryIdentityId: SECRETARY_IDENTITY_ID,
-      systemPrincipalId: "memory-generator",
-    },
-  });
   app.enableShutdownHooks();
-  process.once("beforeExit", stop);
+
+  if (inProcess) {
+    const { generator, reason } = chooseGenerator(process.env);
+    console.log(`Memory generation: ${reason}`);
+
+    const stop = startOutboxWorker(pool, dependenciesFor(pool), 500, {
+      memory: {
+        generator,
+        secretaryIdentityId: SECRETARY_IDENTITY_ID,
+        systemPrincipalId: "memory-generator",
+      },
+    });
+    process.once("beforeExit", stop);
+  }
 
   return app;
 };

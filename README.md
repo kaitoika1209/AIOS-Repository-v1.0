@@ -166,15 +166,47 @@ pnpm run check:docs
 
 Copy [`.env.example`](.env.example) to `.env` before running the applications.
 
-To run the whole slice against a local PostgreSQL database:
+### Running it
+
+With PostgreSQL running and `DATABASE_URL` pointing at an empty database:
 
 ```bash
-python3 scripts/extract_schema.py          # documented DDL → build/schema.sql
-psql "$DATABASE_URL" -f build/schema.sql
-pnpm --filter @aios/api seed               # one Organization and its Owner
-pnpm --filter @aios/api dev                # API on :3001
-pnpm --filter @aios/web dev                # UI on :3000
+pnpm start
 ```
+
+That applies migrations, seeds an Organization if the database has none, and
+starts the API on `:3001` and the UI on `:3000`. Open <http://localhost:3000>.
+
+It is a development launcher: with `NODE_ENV` unset the API picks the header
+auth adapter and drains the Outbox in its own process, which is convenient here
+and refused in production. The steps are ordinary commands and can be run
+separately:
+
+```bash
+pnpm --filter @aios/api migrate -- --status  # what would be applied
+pnpm --filter @aios/api migrate              # apply (ADR-0020, forward-only)
+pnpm --filter @aios/api seed                 # one Organization and its Owner
+pnpm --filter @aios/api dev                  # API on :3001
+pnpm --filter @aios/web dev                  # UI on :3000
+```
+
+### Containers
+
+The [`Dockerfile`](Dockerfile) builds three images from one workspace build:
+`api`, `worker`, and `web`. The Worker is separate because outside development
+the API refuses to drain the Outbox — deploying only the API leaves Memory
+generation stopped rather than tying its throughput to API replica count.
+
+```bash
+docker build --target api    -t aios-api    .
+docker build --target worker -t aios-worker .
+docker build --target web    -t aios-web    .
+```
+
+The images have not been built. They were written where no container registry
+was reachable, so what is verified is the part that was actually broken — each
+image's command run as plain `node` against PostgreSQL, outside any container —
+and not the build itself. The Dockerfile says which is which.
 
 The seed creates one Organization, its first Owner (Olivia), and the Secretary,
 so the loop is runnable immediately — the same shape `POST /organizations`

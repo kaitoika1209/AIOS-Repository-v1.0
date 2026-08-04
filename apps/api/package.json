@@ -5,12 +5,13 @@
   "type": "module",
   "scripts": {
     "build": "tsc --build",
-    "dev": "tsx src/main.ts",
-    "seed": "tsx src/seed-dev.ts",
+    "dev": "tsx --conditions=development src/main.ts",
+    "seed": "tsx --conditions=development src/seed-dev.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "evaluate": "tsx src/evaluate-generation.ts",
-    "migrate": "tsx src/migrate.ts"
+    "evaluate": "tsx --conditions=development src/evaluate-generation.ts",
+    "migrate": "tsx --conditions=development src/migrate.ts",
+    "worker": "tsx --conditions=development src/worker.ts"
   },
   "dependencies": {
     "@aios/application": "workspace:*",

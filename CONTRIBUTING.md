@@ -99,6 +99,47 @@ pnpm --filter @aios/api migrate              # apply
 
 ---
 
+## Source or Build: the `development` Condition
+
+Each workspace package exports itself twice, and which one a process gets is not
+incidental:
+
+```json
+"exports": { ".": {
+  "types":       "./src/index.ts",
+  "development": "./src/index.ts",
+  "default":     "./dist/index.js"
+} }
+```
+
+Development and the test suites must read `src`, because a package resolved to
+`dist` is a package where a stale build silently shadows the edit you just made —
+a suite can pass against code that no longer exists. A deployed process must read
+`dist`, because plain `node` cannot load TypeScript.
+
+Nothing infers this. Every runtime that should read source asks for it by name:
+
+- **Tests** — `resolve: { conditions: ["development"] }` in each `vitest.config.ts`.
+- **`tsx` scripts** — `tsx --conditions=development` in `apps/api/package.json`.
+  Without the flag tsx resolves `default` and loads `dist`; the flag is not
+  decoration, and removing it reintroduces the stale-build failure quietly.
+- **`tsc`** — reads `types`, which is source, so typechecking never consults a build.
+
+Everything else — `node dist/main.js`, `node dist/worker.js`, `node dist/migrate.js`,
+which is what the container images run — falls through to `default` and gets the
+build.
+
+The check is one command, and it is worth running after touching any manifest:
+
+```bash
+rm -rf packages/types/dist
+pnpm --filter @aios/api seed   # must still run: it reads src
+node apps/api/dist/main.js     # must fail: it reads dist
+pnpm run build                 # put it back
+```
+
+---
+
 ## Pull Requests
 
 Before submitting a Pull Request, ensure that:

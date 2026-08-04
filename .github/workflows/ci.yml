@@ -35,6 +35,25 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      # The tests and the dev server read TypeScript source; a deployed process
+      # reads `dist` with plain `node`, and for a while it could not — workspace
+      # packages exported only their source, which `node` cannot load. Nothing
+      # in a source-reading suite can catch that, so load the built graph the
+      # way a container does.
+      #
+      # `app.js` rather than `main.js`, because importing it resolves every
+      # workspace package without binding a port. The other two are run as the
+      # images run them, with `DATABASE_URL` deliberately unset: reaching their
+      # own complaint about it is proof the module graph loaded, where a broken
+      # export map would fail with ERR_MODULE_NOT_FOUND instead and the grep
+      # would not match.
+      - name: Built entry points resolve under plain node
+        working-directory: apps/api
+        run: |
+          node --input-type=module -e 'await import("./dist/app.js")'
+          node dist/worker.js  2>&1 | grep -q 'DATABASE_URL is required'
+          node dist/migrate.js 2>&1 | grep -q 'DATABASE_URL is not set'
+
   schema:
     name: Documented schema applies to PostgreSQL
     runs-on: ubuntu-latest

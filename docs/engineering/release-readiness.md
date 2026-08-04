@@ -66,9 +66,9 @@ Thirteen items. Assessed against the code as it stands.
 | 10 | Continuous WAL archiving, base backup ≥ every 24h, 14-day PITR, monthly verified restore test, approved RPO and RTO | **Absent** |
 | 11 | Actionable alerts for database unavailability, authoritative-write failure, Outbox or Worker stoppage, Memory-generation failure, Organization-isolation violation | **Absent** |
 | 12 | The six MVP runbooks | **Absent** |
-| 13 | Separate Worker process | **Absent** — the Outbox worker runs in-process (`buildDevApp`) |
+| 13 | Separate Worker process | **Done** — `apps/api/src/worker.ts`; `chooseWorkerMode` refuses in-process draining outside development |
 
-One done, three partial, nine absent. None of it is domain work.
+Two done, three partial, eight absent. None of it is domain work.
 
 ---
 
@@ -146,12 +146,21 @@ CloudWatch afterwards.
 
 ### B3. Worker as its own process, with pause and resume (items 9, 13)
 
-`startOutboxWorker` runs inside the API process today, which is correct for development and
-wrong for production. The baseline also requires typed Operations commands for Worker
-pause and resume; the replay and dead-letter commands are already built and routed.
+**Item 13 is done.** `apps/api/src/worker.ts` is the Worker's own entry point, and
+`chooseWorkerMode` decides who drains: in-process under `development` and `test`, a separate
+process otherwise, with `WORKER_IN_PROCESS` overriding either way and the reason logged at
+startup rather than inferred from behaviour. Verified by running it — with the API started
+at `WORKER_IN_PROCESS=false`, completing a Work produced no Memory until the Worker process
+was started, at which point it drained and generated one. SIGTERM finishes the batch in
+flight before exiting, so a deploy hands claimed messages back rather than leaving them to
+their lease timeout.
 
-Pause and resume need permissions and routes, so this carries an ADR under ADR-0010 and
-ADR-0014 — the same promotion path the `events.*` recovery commands followed.
+Running several is safe: the Outbox claim uses `FOR UPDATE SKIP LOCKED` and each consumer
+records its own delivery, so replicas divide the queue instead of duplicating it.
+
+**Item 9's remaining half is pause and resume**, which need permissions and routes, so that
+part carries an ADR under ADR-0010 and ADR-0014 — the same promotion path the `events.*`
+recovery commands followed. Until it exists, stopping the Worker means stopping the process.
 
 ### B4. Alerts and runbooks (items 11, 12)
 
@@ -208,16 +217,45 @@ other four.
 
 ## Stage D — Deployment
 
-The repository has no Dockerfile, no infrastructure-as-code, and no deployment pipeline.
 ADR-0003 names the target: AWS, region `ap-northeast-1`, CloudWatch Logs and Metrics,
 CloudWatch Alarms, SNS to verified operator email, CloudTrail for telemetry control-plane
 changes.
 
-- Build artifacts for the API process, the Worker process, and the web application.
+**Build artifacts: written, not built.** `Dockerfile` has three targets — `api`, `worker`,
+`web` — sharing one workspace build. It has never been through `docker build`, because it
+was written where no container registry was reachable, and the file says so at the top
+rather than implying otherwise.
+
+What *is* verified is the part that was actually broken. Each image's command was run as
+plain `node` against PostgreSQL, outside any container:
+
+| Command | Result |
+|---|---|
+| `node dist/migrate.js` | Took an empty database to the documented schema; `applied 0001_baseline` |
+| `node dist/main.js` | Started under `NODE_ENV=production` with Clerk selected, refused in-process draining, served `401` unauthenticated |
+| `node dist/worker.js` | Started, drained, and shut down on SIGTERM after finishing the batch in flight |
+
+Two defects surfaced from running them, both of which would have failed only in a container:
+
+- Workspace packages resolved to TypeScript source, which plain `node` cannot load. They
+  now export `development` (source) and `default` (build) conditions, and every runtime
+  that should read source asks for it by name. See "Source or Build" in `CONTRIBUTING.md`.
+- `pnpm exec node …` as a container command puts the package manager at PID 1, so the
+  orchestrator's SIGTERM never reaches Node and the Worker's shutdown handler never runs.
+  The `CMD`s exec `node` directly.
+
+Remaining:
+
+- Actually build the three images, which is where the layer copy, `pnpm install
+  --frozen-lockfile` under `node:22-slim`, and dev-dependency pruning get tested.
 - Infrastructure as code for those, PostgreSQL, and the telemetry resources.
 - A rollback procedure — the baseline requires only the minimum one; automation beyond it
   is Production Hardening.
 - CI already runs the documentation and route checks; extend it to build and deploy.
+
+A smaller thing to fix while doing it: `tsc --build` emits the test files into `dist/`, so
+the images carry compiled test code. Harmless, but it is dead weight in a production image
+and separating the build and typecheck configurations is the fix.
 
 ---
 

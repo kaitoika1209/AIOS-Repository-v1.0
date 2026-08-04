@@ -1,0 +1,33 @@
+# What must not enter the build context.
+#
+# `node_modules` and `dist` are the load-bearing entries. The Dockerfile installs
+# and builds in its own layers, and `COPY . .` runs after both — so a host
+# `node_modules` copied in would overwrite the container's install with one
+# resolved on a different machine, and a host `dist` would let a stale build
+# survive a source change. Neither failure announces itself.
+
+node_modules
+**/node_modules
+dist
+**/dist
+.turbo
+**/.turbo
+build
+.next
+**/.next
+
+.git
+.github
+
+# Secrets. `.env.example` is committed and carries no values; `.env` does.
+.env
+.env.*
+!.env.example
+
+# Not needed to build or run.
+docs
+scripts
+*.md
+!README.md
+Dockerfile
+.dockerignore
