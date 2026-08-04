@@ -23,6 +23,8 @@ import { randomUUID } from "node:crypto";
 
 import { OrganizationId, type HumanMemberPrincipal } from "@aios/types";
 import {
+  describeError,
+  getLogger,
   correlationIdForRecord,
   requestIdForRecord,
   AUDIT_OUTCOMES,
@@ -205,7 +207,17 @@ export class RequestContextGuard implements CanActivate {
         resultingEventId: null,
       })
       .catch((error: unknown) => {
-        console.error("Audit write failed in the request guard", { error });
+        // Not `{ error }`: a PostgreSQL error carries the conflicting value
+        // in `detail`, and this path runs on every refusal.
+        getLogger().log({
+          severity: "ERROR",
+          operationalLogName: "audit.write_failed",
+          operationalLogClass: "Authorization",
+          operationalLogCategory: "Security",
+          message: "An authorization refusal could not be audited.",
+          outcome: "Failure",
+          attributes: describeError(error),
+        });
       });
   }
 

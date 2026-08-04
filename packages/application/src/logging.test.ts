@@ -12,6 +12,7 @@ import {
   LOG_SCHEMA_VERSION,
   REDACTED,
   buildEnvelope,
+  describeError,
   newCorrelation,
   redact,
   runWithCorrelation,
@@ -155,5 +156,65 @@ describe("correlation on a record", () => {
     );
 
     expect(record.attributes["identity.correlation_id"]).toBe(correlation.correlationId);
+  });
+});
+
+describe("describing a thrown error", () => {
+  it("keeps what says the failure, and drops what says the data", () => {
+    // The concrete leak this exists to close. PostgreSQL puts the conflicting
+    // value in `detail`:
+    //
+    //   Key (email)=(alice.private@example.test) already exists.
+    //
+    // Duplicate invitations and duplicate Memberships are ordinary traffic, so
+    // `console.error("…", error)` wrote real addresses into the logs as routine
+    // behaviour. Reproduced against a live database before this was written.
+    const pgError = Object.assign(
+      new Error('duplicate key value violates unique constraint "uq_memberships_email"'),
+      {
+        code: "23505",
+        detail: "Key (primary_email_normalized)=(alice.private@example.test) already exists.",
+        table: "memberships",
+        column: "primary_email_normalized",
+        where: "SQL statement \"INSERT INTO memberships ...\"",
+        internalQuery: "INSERT INTO memberships VALUES ('alice.private@example.test')",
+      },
+    );
+
+    const described = describeError(pgError);
+    const serialized = JSON.stringify(described);
+
+    // Nothing carrying the value survives.
+    expect(serialized).not.toContain("alice.private@example.test");
+    expect(described["error.detail"]).toBeUndefined();
+    expect(described["error.internalQuery"]).toBeUndefined();
+    expect(described["error.where"]).toBeUndefined();
+    expect(described["error.table"]).toBeUndefined();
+
+    // And enough is left to diagnose it.
+    expect(described["error.code"]).toBe("23505");
+    expect(described["error.type"]).toBe("Error");
+    expect(String(described["error.message"])).toContain("duplicate key value");
+  });
+
+  it("excludes an unknown field by default rather than including it", () => {
+    // The direction that matters: a field the driver adds tomorrow is dropped
+    // without anyone updating a denylist. An allowlist fails closed.
+    const described = describeError(
+      Object.assign(new Error("boom"), { somethingAddedLater: "a user's data" }),
+    );
+    expect(JSON.stringify(described)).not.toContain("a user's data");
+  });
+
+  it("bounds the message, so one error cannot flood a sink", () => {
+    const described = describeError(new Error("x".repeat(5000)));
+    expect(String(described["error.message"]).length).toBeLessThanOrEqual(500);
+  });
+
+  it("handles a thrown non-Error without losing the record", () => {
+    // `throw "string"` is legal and happens. A serializer that assumed `Error`
+    // would throw inside the failure path and lose the report entirely.
+    expect(describeError("just a string")["error.type"]).toBe("NonError");
+    expect(describeError(undefined)["error.type"]).toBe("NonError");
   });
 });

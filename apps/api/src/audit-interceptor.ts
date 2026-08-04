@@ -26,6 +26,8 @@ import {
 import type { Request } from "express";
 
 import {
+  describeError,
+  getLogger,
   correlationIdForRecord,
   requestIdForRecord,
 } from "@aios/application";
@@ -106,7 +108,21 @@ export class AuditInterceptor implements NestInterceptor {
       this.audit.record(entry).catch((error: unknown) => {
         // Loud, and not fatal. An audit outage must not become an availability
         // outage, and the entry is reconstructable from this line.
-        console.error("Audit write failed", { entry, error });
+        // The entry is deliberately absent. It carries principal, Organization,
+        // and resource identifiers, and the error carries whatever value the
+        // database objected to.
+        getLogger().log({
+          severity: "ERROR",
+          operationalLogName: "audit.write_failed",
+          operationalLogClass: "Authorization",
+          operationalLogCategory: "Security",
+          message: "A command audit record could not be written.",
+          outcome: "Failure",
+          attributes: {
+            "authorization.permission": entry.permission,
+            ...describeError(error),
+          },
+        });
       });
 
     return next.handle().pipe(

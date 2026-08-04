@@ -31,6 +31,8 @@
 
 import { createServer, type Server } from "node:http";
 
+import { getLogger } from "@aios/application";
+
 import type { ProbeResult } from "./health.js";
 
 export interface ProbeServerOptions {
@@ -97,7 +99,15 @@ export const startProbeServer = (options: ProbeServerOptions): Server => {
   // The probe port must never be the reason the process stays alive.
   server.unref();
   server.listen(options.port, () => {
-    console.log(`Probes on :${options.port} (/health/live, /health/ready)`);
+    getLogger().log({
+      severity: "INFO",
+      operationalLogName: "probe.listening",
+      operationalLogClass: "Operations",
+      operationalLogCategory: "Operations",
+      message: "Probe listener started.",
+      outcome: "Success",
+      attributes: { "http.port": options.port },
+    });
   });
 
   return server;

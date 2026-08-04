@@ -20,6 +20,8 @@ import type { Pool, PoolClient } from "pg";
 
 import { DecisionId, IdentityId, MembershipId, OrganizationId, WorkId } from "@aios/types";
 import {
+  describeError,
+  getLogger,
   applyDecisionOutcomeUseCase,
   consumersFor,
   generateMemoryUseCase,
@@ -508,7 +510,15 @@ export const startOutboxWorker = (
     try {
       await drainOutbox(pool, deps, 20, options);
     } catch (error) {
-      console.error("Outbox worker error", error);
+      getLogger().log({
+        severity: "ERROR",
+        operationalLogName: "worker.drain_failed",
+        operationalLogClass: "Worker",
+        operationalLogCategory: "Operations",
+        message: "An Outbox drain failed; it will be retried.",
+        outcome: "Failure",
+        attributes: describeError(error),
+      });
     }
     if (!stopped) setTimeout(() => void tick(), intervalMs);
   };

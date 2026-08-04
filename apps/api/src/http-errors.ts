@@ -22,7 +22,9 @@ import {
 import type { Response } from "express";
 
 import { DomainError } from "@aios/domain";
-import { AccessDeniedError, NotFoundError } from "@aios/application";
+import {
+  describeError,
+  getLogger, AccessDeniedError, NotFoundError } from "@aios/application";
 
 export interface ErrorBody {
   readonly code: string;
@@ -180,7 +182,18 @@ export class DomainExceptionFilter implements ExceptionFilter {
 
     if (status === 500) {
       // Internal detail stays in the log; the client gets a stable envelope.
-      console.error("Unhandled error", error);
+      // The one place every unmapped failure passes through, which is why it
+      // must not spread the error object: `detail` on a unique violation is a
+      // user's value, and duplicates are ordinary traffic here.
+      getLogger().log({
+        severity: "ERROR",
+        operationalLogName: "http.unhandled_error",
+        operationalLogClass: "Request",
+        operationalLogCategory: "Application",
+        message: "A request failed with an unmapped error.",
+        outcome: "Failure",
+        attributes: describeError(error),
+      });
     }
 
     response.status(status).json(bodyFor(error));

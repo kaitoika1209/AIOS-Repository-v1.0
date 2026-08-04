@@ -22,6 +22,7 @@ import {
   WorkId,
 } from "@aios/types";
 import type { Clock, IdGenerator, UseCaseDependencies } from "@aios/application";
+import { getLogger } from "@aios/application";
 import { PostgresAuditRepository, PostgresUnitOfWork, createPool } from "@aios/persistence";
 
 import { AdminEventsController } from "./admin-events.controller.js";
@@ -250,19 +251,40 @@ export const chooseWorkerMode = (
 export const buildDevApp = async (connectionString: string) => {
   const pool = createPool({ connectionString });
   const { auth, reason: authReason } = chooseAuth(process.env);
-  console.log(`Authentication: ${authReason}`);
+  getLogger().log({
+    severity: "INFO",
+    operationalLogName: "auth.adapter_selected",
+    operationalLogClass: "Operations",
+    operationalLogCategory: "Security",
+    message: "Authentication adapter selected.",
+    attributes: { "security.auth_adapter": authReason },
+  });
   const app = await createApp({ pool, auth });
 
   // The asynchronous halves of ADR-0007 and ADR-0008. One process is convenient
   // in development and wrong in production, so the choice is explicit.
   const { inProcess, reason: workerReason } = chooseWorkerMode(process.env);
-  console.log(`Outbox worker: ${workerReason}`);
+  getLogger().log({
+    severity: "INFO",
+    operationalLogName: "worker.mode_selected",
+    operationalLogClass: "Operations",
+    operationalLogCategory: "Operations",
+    message: "Outbox worker mode selected.",
+    attributes: { "worker.mode": workerReason },
+  });
 
   app.enableShutdownHooks();
 
   if (inProcess) {
     const { generator, reason } = chooseGenerator(process.env);
-    console.log(`Memory generation: ${reason}`);
+    getLogger().log({
+      severity: "INFO",
+      operationalLogName: "ai.generator_selected",
+      operationalLogClass: "Operations",
+      operationalLogCategory: "Operations",
+      message: "Memory generator selected.",
+      attributes: { "ai.generator": reason },
+    });
 
     const stop = startOutboxWorker(pool, dependenciesFor(pool), 500, {
       memory: {

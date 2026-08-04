@@ -54,10 +54,10 @@ Thirteen items. Assessed against the code as it stands.
 
 | # | Baseline requirement (MUST) | Status |
 |---|---|---|
-| 1 | Structured JSON logs with a stable base envelope and redaction | **Partial** — envelope, redaction, and sink built; most call sites still `console.log` |
+| 1 | Structured JSON logs with a stable base envelope and redaction | **Done** — version-3 envelope, key-based redaction, allowlisted error fields, JSON to stdout |
 | 2 | Bounded telemetry exporters with queue limits, timeouts, retry ceilings, loss counters, shutdown deadlines | **Absent** |
 | 3 | Server-owned request and workflow correlation | **Done** — one identifier spans the response, the audit rows, and the Outbox |
-| 4 | Error capture for unhandled application and Worker failures | **Partial** — errors are mapped to status codes; nothing captures or reports them |
+| 4 | Error capture for unhandled application and Worker failures | **Done** — `uncaughtException` and `unhandledRejection` captured in both processes |
 | 5 | RED metrics for HTTP traffic | **Absent** |
 | 6 | PostgreSQL, Outbox, Worker, queue-age, and Work-to-Memory workflow metrics | **Absent** |
 | 7 | Durable audit for Human-authoritative transitions and privileged operational actions | **Done** — `authorization_audit_records`, edge and use-case halves |
@@ -68,7 +68,7 @@ Thirteen items. Assessed against the code as it stands.
 | 12 | The six MVP runbooks | **Absent** |
 | 13 | Separate Worker process | **Done** — `apps/api/src/worker.ts`; `chooseWorkerMode` refuses in-process draining outside development |
 
-Three done, four partial, six absent. None of it is domain work.
+Five done, three partial, five absent. None of it is domain work.
 
 ---
 
@@ -201,10 +201,36 @@ Redaction is applied inside the logger rather than trusted to callers, because a
 call site must remember is a rule that holds until the first person in a hurry — and a
 secret in a log is in every replica of that log permanently.
 
+**Items 1 and 4 are done too.** Every `console.log` and `console.error` in the API, the
+Worker, and the two libraries now goes through the port, and both processes capture
+`uncaughtException` and `unhandledRejection` — a process that dies to one used to leave
+nothing but whatever Node printed to stderr, which in a container is often the last thing
+before the log stream ends.
+
+Migrating the call sites turned up a leak worth recording, because it was not hypothetical:
+
+```
+console.error("Audit write failed", { entry, error });
+```
+
+A PostgreSQL error carries `detail`, and on a unique violation `detail` contains the
+conflicting value:
+
+```
+Key (primary_email_normalized)=(alice.private@example.test) already exists.
+```
+
+Duplicate invitations and duplicate Memberships are ordinary traffic, so that line put real
+email addresses into the logs as routine behaviour — along with `where`, `internalQuery`,
+`table`, and `column`. Reproduced against a live database before the fix was written.
+
+`describeError` therefore **allowlists** — type, bounded message, bounded code, bounded
+stack — and drops everything else. A field the driver adds tomorrow is excluded by default,
+which is the only safe direction: a denylist of known-dangerous fields fails open the day
+the driver changes.
+
 Remaining:
 
-- Migrate the `console.log` and `console.error` call sites onto the port.
-- Unhandled-failure capture in both the HTTP process and the Worker (item 4).
 - Bounded exporters with queue limits, timeouts, retry ceilings, loss counters, and
   shutdown deadlines (item 2). None of that is meaningful until there is a remote sink,
   which is Stage D.

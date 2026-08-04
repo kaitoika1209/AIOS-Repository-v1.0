@@ -19,6 +19,8 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import type { GeneratedContent } from "@aios/domain";
 import {
+  describeError,
+  getLogger,
   GenerationRejectedError,
   canonicalize,
   type MemoryGenerator,
@@ -298,7 +300,15 @@ export class AnthropicMemoryGenerator implements MemoryGenerator {
         rateLimits,
       });
     } catch (error) {
-      console.error("Usage observer threw; generation is unaffected.", error);
+      getLogger().log({
+        severity: "WARN",
+        operationalLogName: "ai.usage_observer_failed",
+        operationalLogClass: "Provider",
+        operationalLogCategory: "Operations",
+        message: "A usage observer threw; the generated draft is unaffected.",
+        outcome: "Failure",
+        attributes: describeError(error),
+      });
     }
   }
 }

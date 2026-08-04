@@ -24,6 +24,8 @@
 
 import { Pool, type PoolConfig } from "pg";
 
+import { describeError, getLogger } from "@aios/application";
+
 /**
  * A pool that logs idle-connection failures instead of exiting.
  *
@@ -38,12 +40,15 @@ export const createPool = (config: PoolConfig): Pool => {
     // Not thrown onward, and not counted as a request failure: no caller is
     // waiting on an idle client. A query that was in flight rejects through its
     // own promise and is handled where it was issued.
-    console.error(
-      JSON.stringify({
-        event: "database.idle_connection_lost",
-        reason: error.message,
-      }),
-    );
+    getLogger().log({
+      severity: "WARN",
+      operationalLogName: "database.idle_connection_lost",
+      operationalLogClass: "Operations",
+      operationalLogCategory: "Operations",
+      message: "An idle database connection was lost; the pool will reconnect.",
+      outcome: "Failure",
+      attributes: describeError(error),
+    });
   });
 
   return pool;

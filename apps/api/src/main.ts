@@ -8,10 +8,14 @@
 
 import "reflect-metadata";
 
+import {
+  describeError,
+  getLogger, setLogger } from "@aios/application";
 import { createPool } from "@aios/persistence";
 
 import { buildDevApp } from "./app.js";
 import { httpReadiness } from "./health.js";
+import { captureUnhandledFailures } from "./failure-capture.js";
 import { chooseLogger } from "./json-logger.js";
 import { startProbeServer } from "./probe-server.js";
 
@@ -25,7 +29,18 @@ const main = async (): Promise<void> => {
   // live in `chooseAuth` so the same rule applies to every entry point rather
   // than only to this one.
   const { logger, reason: logReason } = chooseLogger(process.env, "aios-api");
-  console.log(`Logging: ${logReason}`);
+  setLogger(logger);
+  // Registered immediately after the logger, so a failure during the rest of
+  // startup is captured rather than printed and lost.
+  captureUnhandledFailures();
+  logger.log({
+    severity: "INFO",
+    operationalLogName: "logging.configured",
+    operationalLogClass: "Operations",
+    operationalLogCategory: "Operations",
+    message: "Structured logging configured.",
+    attributes: { "operations.log_sink": logReason },
+  });
 
   const app = await buildDevApp(connectionString);
 
@@ -74,10 +89,30 @@ const main = async (): Promise<void> => {
   }
 
   await app.listen(port);
-  console.log(`AIOS API listening on :${port}`);
+  logger.log({
+    severity: "INFO",
+    operationalLogName: "http.listening",
+    operationalLogClass: "Operations",
+    operationalLogCategory: "Operations",
+    message: `AIOS API listening on :${port}`,
+    outcome: "Success",
+    attributes: { "http.port": port },
+  });
 };
 
 main().catch((error: unknown) => {
-  console.error(error);
+  // Startup failed. The logger may not be configured yet, so this goes through
+  // `getLogger()` — which discards when unset — and then to stderr regardless.
+  // A process that cannot start is the one case where saying it twice is right.
+  getLogger().log({
+    severity: "ERROR",
+    operationalLogName: "service.start_failed",
+    operationalLogClass: "Operations",
+    operationalLogCategory: "Operations",
+    message: "The service failed to start.",
+    outcome: "Failure",
+    attributes: describeError(error),
+  });
+  process.stderr.write(`${String(error)}\n`);
   process.exit(1);
 });

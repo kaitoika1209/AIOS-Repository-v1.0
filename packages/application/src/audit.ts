@@ -30,6 +30,7 @@
 
 import { randomUUID } from "node:crypto";
 
+import { describeError, getLogger } from "./logging.js";
 import {
   correlationIdForRecord,
   requestIdForRecord,
@@ -155,6 +156,21 @@ export const recordTransition = (
       resultingEventId: null,
     })
     .catch((error: unknown) => {
-      console.error("Audit transition write failed", { input, error });
+      // Never `{ input, error }`. The input carries principal and Organization
+      // identifiers, and a PostgreSQL error's `detail` carries the conflicting
+      // value — on a duplicate that is a real email address.
+      getLogger().log({
+        severity: "ERROR",
+        operationalLogName: "audit.write_failed",
+        operationalLogClass: "Authorization",
+        operationalLogCategory: "Security",
+        message: "A transition audit record could not be written.",
+        outcome: "Failure",
+        attributes: {
+          "authorization.permission": input.permission,
+          "domain.command_type": input.commandType,
+          ...describeError(error),
+        },
+      });
     });
 };

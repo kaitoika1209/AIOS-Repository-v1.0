@@ -20,11 +20,18 @@
 
 import "reflect-metadata";
 
+import {
+  describeError,
+  getLogger,
+  setLogger,
+} from "@aios/application";
 import { createPool } from "@aios/persistence";
 
 import { chooseGenerator } from "./anthropic-memory-generator.js";
 import { SECRETARY_IDENTITY_ID, dependenciesFor } from "./app.js";
+import { captureUnhandledFailures } from "./failure-capture.js";
 import { loopLiveness, workerReadiness } from "./health.js";
+import { chooseLogger } from "./json-logger.js";
 import { drainOutbox } from "./outbox-worker.js";
 import { startProbeServer } from "./probe-server.js";
 
@@ -43,8 +50,20 @@ const main = async (): Promise<void> => {
   const pool = createPool({ connectionString });
   const deps = dependenciesFor(pool);
 
+  const { logger, reason: logReason } = chooseLogger(process.env, "aios-worker");
+  setLogger(logger);
+  captureUnhandledFailures();
+
   const { generator, reason } = chooseGenerator(process.env);
-  console.log(`Outbox worker starting. Memory generation: ${reason}`);
+  logger.log({
+    severity: "INFO",
+    operationalLogName: "worker.started",
+    operationalLogClass: "Worker",
+    operationalLogCategory: "Operations",
+    message: "Outbox worker started.",
+    outcome: "Success",
+    attributes: { "worker.memory_generation": reason, "worker.logging": logReason },
+  });
 
   const options = {
     memory: {
@@ -93,7 +112,14 @@ const main = async (): Promise<void> => {
   const shutdown = (signal: string): void => {
     if (stopping) return;
     stopping = true;
-    console.log(`Received ${signal}; finishing the drain in flight.`);
+    getLogger().log({
+      severity: "INFO",
+      operationalLogName: "worker.shutdown_started",
+      operationalLogClass: "Worker",
+      operationalLogCategory: "Operations",
+      message: "Finishing the drain in flight before exiting.",
+      attributes: { "worker.signal": signal },
+    });
     // Waited on rather than cut short: a drain killed midway leaves claimed
     // messages to time out rather than being handed back, which delays exactly
     // the work a deploy was trying not to disrupt.
@@ -109,16 +135,21 @@ const main = async (): Promise<void> => {
     inFlight = drainOutbox(pool, deps, BATCH_SIZE, options)
       .then((result) => {
         if (result.applied > 0 || result.failed > 0 || result.notified > 0) {
-          console.log(
-            JSON.stringify({
-              event: "outbox.drain",
-              claimed: result.claimed,
-              applied: result.applied,
-              alreadyApplied: result.alreadyApplied,
-              failed: result.failed,
-              notified: result.notified,
-            }),
-          );
+          logger.log({
+            severity: result.failed > 0 ? "WARN" : "INFO",
+            operationalLogName: "worker.drain_completed",
+            operationalLogClass: "Worker",
+            operationalLogCategory: "Operations",
+            message: "An Outbox drain applied work.",
+            outcome: result.failed > 0 ? "Failure" : "Success",
+            attributes: {
+              "worker.claimed": result.claimed,
+              "worker.applied": result.applied,
+              "worker.already_applied": result.alreadyApplied,
+              "worker.failed": result.failed,
+              "worker.notified": result.notified,
+            },
+          });
         }
         return result;
       })
@@ -126,7 +157,15 @@ const main = async (): Promise<void> => {
         // Logged and retried on the next tick. A worker that exits on the first
         // transient database error is a worker that needs a supervisor to do
         // what the loop can do itself.
-        console.error("Outbox worker error", error);
+        logger.log({
+          severity: "ERROR",
+          operationalLogName: "worker.drain_failed",
+          operationalLogClass: "Worker",
+          operationalLogCategory: "Operations",
+          message: "An Outbox drain failed; it will be retried.",
+          outcome: "Failure",
+          attributes: describeError(error),
+        });
         return null;
       });
 
@@ -143,6 +182,18 @@ const main = async (): Promise<void> => {
 };
 
 main().catch((error: unknown) => {
-  console.error(error);
+  // Startup failed. The logger may not be configured yet, so this goes through
+  // `getLogger()` — which discards when unset — and then to stderr regardless.
+  // A process that cannot start is the one case where saying it twice is right.
+  getLogger().log({
+    severity: "ERROR",
+    operationalLogName: "service.start_failed",
+    operationalLogClass: "Operations",
+    operationalLogCategory: "Operations",
+    message: "The service failed to start.",
+    outcome: "Failure",
+    attributes: describeError(error),
+  });
+  process.stderr.write(`${String(error)}\n`);
   process.exit(1);
 });
