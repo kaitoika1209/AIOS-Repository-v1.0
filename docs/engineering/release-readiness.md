@@ -43,6 +43,11 @@ review → immutable approved Memory works end to end, with Organization isolati
 eight-step authorization model, a transactional Outbox with typed recovery, and an
 authorization audit that records denials as well as approvals.
 
+**Every check in this document now runs in CI.** It did not before: `ci.yml` and
+`docs.yml` both triggered only on `main` and on pull requests, so no commit on a
+working branch had ever been through either. The container image builds on every
+push too, which it had never done at all.
+
 **What is missing is almost entirely operational.** That is the honest shape of the
 remaining work, and it is why the stages below are ordered the way they are.
 

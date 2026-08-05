@@ -53,7 +53,39 @@ These block specific phases and only a human can settle them.
 
 ---
 
-## Phase 0 — Prove the container (no AWS, no cost)
+## Phase 0 — Prove the container (no AWS, no cost) — **done**
+
+Both images build, both start, and CI now does it on every push
+(run `115`, 2026-08-05). Two things came out of it that are worth keeping.
+
+**The `Dockerfile` had never been built** — this container cannot reach a
+registry — and it built first time. `docker build --target api` takes about 45
+seconds; the Worker target is effectively free because it shares the `build`
+stage. Both start and fail correctly with no `DATABASE_URL`, which is what
+exercises the workspace packaging split where production resolves to `dist` and
+development to `src`.
+
+**CI had never run on this branch at all.** `ci.yml` triggered on `push` to
+`main` and on `pull_request`; a long-lived working branch is neither. Every check
+in it had passed only where someone ran it by hand. `docs.yml` — which holds
+`check_docs.py`, `check_routes.py`, and `check_audit.py`, the three checks that
+catch documentation drifting from code — had the same trigger and its first run
+ever was after the fix. Both now include `claude/**`.
+
+That is the Phase 0 lesson generalised: a check that does not run is not a check,
+and the same question is worth asking of every alarm added in Phase 4.
+
+### What it looked like, for reference
+
+The PostgreSQL service-container log is unexpectedly good evidence. Every
+deliberate negative test fired on a real runner: `ck_workflow_health_status`
+refusing the renamed `Critical`, the composite foreign key refusing a
+cross-Organization Membership, `ck_worker_pause_type` refusing
+`ConsumerDelivery`, and the migration runner refusing an edited applied
+migration. Those are the constraints the design leans on, confirmed somewhere
+other than the machine that wrote them.
+
+### The original note, kept because it is still the reason
 
 **The `Dockerfile` has never been built.** It was written with three targets and a
 direct `CMD ["node", "dist/main.js"]` — deliberately not `pnpm exec`, because a
@@ -289,7 +321,7 @@ Also settle D6 here: implement the profile webhook or remove the variable.
 ## The order, and why
 
 ```
-Phase 0  container            ← free, and everything else assumes it
+Phase 0  container            ← DONE
 Phase 1  account, CloudTrail  ← painful to retrofit
 Phase 2  RDS, secrets, S3     ← closes most of item 10; protects data first
 Phase 3  ECS, ALB, CloudFront ← first time it is reachable by a person
