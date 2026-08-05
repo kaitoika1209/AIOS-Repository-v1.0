@@ -71,6 +71,55 @@ const subjectOf = (request: Request) => {
   };
 };
 
+/**
+ * Whether the system refused the caller, or broke.
+ *
+ * `Deny` is a decision: a permission not held, a resource in another
+ * Organization, a transition the Aggregate rejected, a request the edge would
+ * not parse. Every one of those is the model working.
+ *
+ * `Failed` is everything else — an unhandled error after the caller was allowed
+ * through. Recording those as denials was a real defect: runbook 4 reads
+ * `outcome = 'Deny'` to find authority violations and probing, and an internal
+ * error counted as a refusal is a false finding in the one place false findings
+ * are most expensive.
+ *
+ * Classified by what Nest already decided rather than by matching error classes.
+ * The exception filter maps every refusal to a 4xx and everything else to a 500,
+ * so the status is the classification — and a new refusal type added later
+ * inherits the right outcome instead of quietly landing in `Failed`.
+ */
+const outcomeOf = (error: unknown): "Deny" | "Failed" => {
+  const status =
+    typeof error === "object" && error !== null && "status" in error
+      ? Number((error as { status: unknown }).status)
+      : undefined;
+
+  if (status !== undefined && status >= 400 && status < 500) return "Deny";
+  // Not an HTTP exception at all: a domain refusal or an authorization error on
+  // its way to the filter, which will map it to a 4xx.
+  if (status === undefined && isRefusal(error)) return "Deny";
+  return "Failed";
+};
+
+/**
+ * A refusal that has not yet been mapped to a status.
+ *
+ * The interceptor wraps the handler and the filter runs after it, so a domain
+ * rejection arrives here as itself. Matched on the `code` the domain sets rather
+ * than on the class, because the classes live in three packages and an
+ * `instanceof` across a workspace boundary is a bug waiting for a duplicated
+ * dependency.
+ */
+const isRefusal = (error: unknown): boolean => {
+  if (typeof error !== "object" || error === null || !("code" in error)) return false;
+  const code = String((error as { code: unknown }).code);
+  return code === "PERMISSION_DENIED" || code === "NOT_FOUND" || DOMAIN_CODE.test(code);
+};
+
+/** `WORK_INVALID_TRANSITION`, `VALIDATION_FAILED`, `VERSION_CONFLICT`, … */
+const DOMAIN_CODE = /^[A-Z][A-Z_]+$/;
+
 const codeOf = (error: unknown): string =>
   typeof error === "object" && error !== null && "code" in error
     ? String((error as { code: unknown }).code)
@@ -162,7 +211,7 @@ export class AuditInterceptor implements NestInterceptor {
             ...subject,
             resourceType: resource.type,
             resourceId: resource.id,
-            outcome: "Deny",
+            outcome: outcomeOf(error),
             // The refusal's own code — `PERMISSION_DENIED`, `NOT_FOUND`,
             // `WORK_INVALID_TRANSITION`. This is the record that would not exist
             // at all without this interceptor.

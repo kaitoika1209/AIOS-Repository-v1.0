@@ -33,7 +33,12 @@ import type {
 } from "./assistance.js";
 import type { AuditRepository } from "./audit.js";
 import type { PausableWorkerType, WorkerPause } from "./worker-pause.js";
-import type { WorkflowCounts, WorkflowType } from "./workflow-health.js";
+import type { DiagnosticsFacts } from "./diagnostics.js";
+import type {
+  WorkflowCounts,
+  WorkflowHealthRow,
+  WorkflowType,
+} from "./workflow-health.js";
 import type {
   DecisionState,
   DomainEvent,
@@ -86,17 +91,25 @@ export interface IdGenerator {
 }
 
 /**
- * Asynchronous workflow health, read from the durable facts (ADR-0021).
+ * The Organization workflow-health projection (ADR-0021, ADR-0023).
  *
- * A query port rather than a repository: it owns no Aggregate and writes
- * nothing. Organization-scoped by signature like everything else here, and for
- * a sharper reason — the answer is per-Organization by definition, and one
- * that aggregated across tenants would be an isolation break rather than a
- * merely wrong number.
+ * Both halves of it: `countsFor` derives from the source tables and is what the
+ * reconcile reads, `readFor` returns what the projection currently holds and is
+ * what the route reads. Keeping them on one port is deliberate — they are the
+ * two ends of one derivation, and separating them would let a future caller read
+ * the source directly and quietly reintroduce the second source of truth
+ * ADR-0023 removed.
+ *
+ * Organization-scoped by signature like everything else here, and for a sharper
+ * reason: the answer is per-Organization by definition, and one that aggregated
+ * across tenants would be an isolation break rather than a merely wrong number.
+ * `organizationsToObserve` is the one exception, and it returns identifiers to
+ * iterate rather than anyone's data — the scheduled reconcile has no principal
+ * and no Organization of its own.
  */
 export interface WorkflowHealthQuery {
   /**
-   * One row per workflow type.
+   * One row per workflow type, derived live from the source tables.
    *
    * A workflow whose query could not be answered is **absent from the map**
    * rather than present with zeroes, so the caller reports `Unknown` instead of
@@ -105,6 +118,55 @@ export interface WorkflowHealthQuery {
   countsFor(
     organizationId: OrganizationId,
   ): Promise<Readonly<Partial<Record<WorkflowType, WorkflowCounts>>>>;
+
+  /**
+   * What the projection holds for this Organization.
+   *
+   * An empty result is a real answer — the reconcile has never observed this
+   * Organization — and the caller reports `NoData`, never `Healthy`.
+   */
+  readFor(organizationId: OrganizationId): Promise<readonly WorkflowHealthRow[]>;
+
+  /** Replace this Organization's rows with the reconcile's result. */
+  upsert(
+    organizationId: OrganizationId,
+    rows: readonly WorkflowHealthRow[],
+  ): Promise<void>;
+
+  /** Every Organization the reconcile should observe. */
+  organizationsToObserve(): Promise<readonly OrganizationId[]>;
+
+  /**
+   * Drop rows for Organizations outside the given set.
+   *
+   * How a projection row stops outliving what it described. Returns how many,
+   * because a non-zero count is a reconciliation finding rather than routine.
+   */
+  removeOthers(keep: readonly OrganizationId[]): Promise<number>;
+}
+
+/**
+ * Correlated operational evidence for one Organization (ADR-0023).
+ *
+ * A query port that writes nothing and owns nothing. Every method takes the
+ * Organization explicitly — "repository methods require explicit organization
+ * scope unless the caller has an audited platform-wide capability", and no such
+ * capability exists in the MVP.
+ */
+export interface DiagnosticsQueryPort {
+  /**
+   * Everything the diagnostic response needs, in one round trip.
+   *
+   * `limit` caps every list the result contains, and `since` bounds every
+   * time-ranged count. Both are enforced here rather than trusted from the
+   * caller, because a bound applied at the edge is a bound a second caller
+   * forgets.
+   */
+  gather(
+    organizationId: OrganizationId,
+    since: Date,
+    limit: number,
+  ): Promise<DiagnosticsFacts>;
 }
 
 /**
@@ -625,6 +687,7 @@ export interface RepositoryBundle {
   readonly identities: IdentityRepository;
   readonly workflowHealth: WorkflowHealthQuery;
   readonly workerPauses: WorkerPauseRepository;
+  readonly diagnostics: DiagnosticsQueryPort;
   readonly outbox: OutboxPort;
 }
 

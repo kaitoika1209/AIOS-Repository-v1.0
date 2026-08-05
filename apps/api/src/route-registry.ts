@@ -73,6 +73,7 @@ const ROUTES: Readonly<Record<string, string>> = {
   // failures is a privileged access whether or not it changes anything.
   "GET /admin/workflow-health": "operations.read_workflow_health",
   "GET /admin/events/failed": "events.inspect_failed",
+  "GET /admin/diagnostics": "operations.read_diagnostics",
 };
 
 /**

@@ -290,6 +290,7 @@ is amended.
 | `operations.read_workflow_health` | `GET /admin/workflow-health` |
 | `operations.pause_worker` | `POST /admin/workers/{workerType}/pause` |
 | `operations.resume_worker` | `POST /admin/workers/{workerType}/resume` |
+| `operations.read_diagnostics` | `GET /admin/diagnostics` |
 | `events.inspect_failed` | `GET /admin/events/failed` |
 | `events.retry` | `POST /admin/events/{eventId}/retry` |
 | `events.skip` | `POST /admin/events/dead-letters/{deadLetterId}/skip` |

@@ -21,8 +21,10 @@
 import "reflect-metadata";
 
 import {
+  RECONCILE_INTERVAL_SECONDS,
   describeError,
   getLogger,
+  reconcileWorkflowHealthUseCase,
   setLogger,
 } from "@aios/application";
 import { createPool } from "@aios/persistence";
@@ -118,6 +120,17 @@ const main = async (): Promise<void> => {
    */
   let lastTickAt: Date | null = null;
 
+  /**
+   * When the workflow-health projection was last reconciled (ADR-0023).
+   *
+   * On its own schedule rather than every drain: the drain runs every 500ms when
+   * idle, and a full recompute at that rate would be the projection costing more
+   * than the workflows it describes. Never at all is the other failure — the
+   * projection goes `Stale` and every read says so, which is the design working
+   * rather than an outage, but it is still an outage of the answer.
+   */
+  let lastReconcileAt = 0;
+
   // Generous against the interval, because a Worker restarted for being busy is
   // worse than one restarted late: a drain claims Outbox rows, and killing it
   // mid-claim leaves them to expire rather than being handed back.
@@ -199,6 +212,28 @@ const main = async (): Promise<void> => {
       });
 
     await inFlight;
+
+    // After the drain, so the projection observes the work this pass finished
+    // rather than the state before it. Failure is logged and the loop continues:
+    // a reconcile that cannot run leaves the projection stale, and stale is a
+    // reported condition rather than a reason to stop draining.
+    if (Date.now() - lastReconcileAt >= RECONCILE_INTERVAL_SECONDS * 1000) {
+      lastReconcileAt = Date.now();
+      try {
+        await reconcileWorkflowHealthUseCase(deps);
+      } catch (error) {
+        logger.log({
+          severity: "ERROR",
+          operationalLogName: "workflow_health.reconcile_failed",
+          operationalLogClass: "Worker",
+          operationalLogCategory: "Operations",
+          message: "The workflow-health projection could not be reconciled.",
+          outcome: "Failure",
+          attributes: describeError(error),
+        });
+      }
+    }
+
     // After the drain settles, whether it succeeded or failed. A Worker whose
     // every drain is erroring is still turning, and a restart would not help —
     // that is asynchronous workflow health's problem, not liveness's.

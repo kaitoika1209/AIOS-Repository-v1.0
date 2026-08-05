@@ -88,6 +88,11 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     // Owner can stop only their own Organization's processing.
     "operations.pause_worker",
     "operations.resume_worker",
+    // ADR-0023, and Owner-only. Every other permission in this family is held by
+    // the Admin as well; this one is not, because the architecture asks the
+    // diagnostic surface for "an explicit operational role" and the narrowest
+    // role that exists is the closest the MVP can come to one.
+    "operations.read_diagnostics",
   ],
   OrganizationAdmin: [
     "notification.read",
@@ -137,6 +142,11 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     "operations.read_workflow_health",
     "operations.pause_worker",
     "operations.resume_worker",
+    // `operations.read_diagnostics` is absent deliberately, the same shape as
+    // `events.replay_domain_consumer` above. The observability architecture asks
+    // the diagnostic surface — and only that surface — for "an authenticated
+    // operator with an explicit operational role", so ADR-0023 keeps it Owner-only
+    // rather than inventing a role for it.
   ],
   Member: [
     "notification.read",

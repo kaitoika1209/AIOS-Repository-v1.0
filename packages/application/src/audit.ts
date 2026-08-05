@@ -38,7 +38,21 @@ import {
 
 import type { IdentityId, MembershipId, OrganizationId } from "@aios/types";
 
-export const AUDIT_OUTCOMES = ["Allow", "Deny"] as const;
+/**
+ * What the audit says happened to a command.
+ *
+ * `Failed` is separate from `Deny`, and the distinction is not cosmetic. `Deny`
+ * means the system refused: a permission the caller does not hold, a resource in
+ * another Organization, an invalid transition. `Failed` means the system broke —
+ * the caller was allowed through and something after that threw.
+ *
+ * They were the same value until an internal error was found recorded as a
+ * denial, which matters because runbook 4 reads denials to find authority
+ * violations and probing. A `500` counted as a refusal is a false finding in the
+ * one place false findings are most expensive, and enough of them make a real
+ * security signal unreadable.
+ */
+export const AUDIT_OUTCOMES = ["Allow", "Deny", "Failed"] as const;
 export type AuditOutcome = (typeof AUDIT_OUTCOMES)[number];
 
 /**

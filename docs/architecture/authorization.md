@@ -1105,6 +1105,7 @@ events.replay_projection
 operations.read_workflow_health
 operations.pause_worker
 operations.resume_worker
+operations.read_diagnostics
 ```
 
 Membership invitation is split into one permission per command rather than a single
@@ -1132,6 +1133,14 @@ They are two permissions rather than one because pausing and resuming are not th
 authority. Pausing stops work; resuming asserts that the condition which caused the pause is
 over. A future policy that lets an Admin pause and requires an Owner to resume is
 expressible only if they are separate.
+
+`operations.read_diagnostics` is the one permission in the family an Admin does not hold
+([ADR-0023](../adr/0023-build-the-workflow-health-projection-and-promote-diagnostics.md)).
+The diagnostic surface is the only one the observability architecture requires "an
+authenticated operator with an explicit operational role" for, and the MVP models no
+operational role — so it is granted to the narrowest role that exists rather than to a role
+invented for it. Cross-Organization diagnostics need the same deferred principal as a global
+Worker pause.
 
 The permission gates *requesting* assistance and reading what it produced. It grants no
 authority over Decision content: adoption is the Human's own `decision.edit_draft`,
@@ -1564,6 +1573,7 @@ Canonical permissions and default role policy are:
 | Read asynchronous workflow health | `operations.read_workflow_health` | Allow | Allow |
 | Pause a Worker type for this Organization | `operations.pause_worker` | Allow | Allow |
 | Resume a Worker type for this Organization | `operations.resume_worker` | Allow | Allow |
+| Read restricted administrative diagnostics | `operations.read_diagnostics` | Allow | Deny |
 | Inspect redacted failed-event metadata | `events.inspect_failed` | Allow | Allow |
 | Validate a Failed delivery without effects | `events.retry` | Allow | Allow |
 | RetryOriginal for a Failed delivery | `events.retry` | Allow | Allow |

@@ -5249,6 +5249,8 @@ CREATE TABLE authorization_audit_records (
 );
 ```
 
+
+
 `identity_id`, `membership_id`, and `organization_id` are all nullable, and each
 null is a real case rather than laxity. A request refused at Organization
 resolution — steps 2 to 4 of the Policy Evaluation Algorithm — has no Membership
@@ -5291,9 +5293,29 @@ Supported values:
 Allow
 
 Deny
+
+Failed
 ```
 
-Recommended constraint:
+`Deny` means the system refused: a permission the caller does not hold, a resource
+in another Organization, a transition the Aggregate rejected, a request the edge
+would not parse. Every one of those is the model working.
+
+`Failed` means the caller was allowed through and something after that broke.
+
+They were one value until an internal error was found recorded as a denial, and
+the difference is not cosmetic. The incident runbook for an Organization isolation
+or Human authority violation reads `outcome = 'Deny'` to find violations and
+probing; a `500` counted as a refusal is a false finding in the one place false
+findings are most expensive, and enough of them make a real security signal
+unreadable.
+
+`ck_authorization_audit_denial` and `ck_authorization_audit_allow_state` both read
+`outcome = 'Allow' OR ...`, so they already treat `Failed` exactly as they treat
+`Deny`: a reason code is required, and no state transition may be claimed. That is
+correct — a command that threw changed nothing it is entitled to report.
+
+Constraint:
 
 ```sql
 ALTER TABLE authorization_audit_records
@@ -5301,7 +5323,8 @@ ADD CONSTRAINT ck_authorization_audit_outcome
 CHECK (
     outcome IN (
         'Allow',
-        'Deny'
+        'Deny',
+        'Failed'
     )
 );
 ```
@@ -6307,6 +6330,84 @@ Immediately before execution, current Identity, Membership, Organization, permis
 - immutable operational error detail in restricted storage.
 
 They are not free-form declarations of success.
+
+---
+
+## Organization Workflow Health Projection
+
+The rebuildable projection the observability architecture requires for Organization-specific
+asynchronous workflow health
+([ADR-0023](../adr/0023-build-the-workflow-health-projection-and-promote-diagnostics.md)).
+
+It is operational metadata, not a Domain Aggregate: it authorizes no command and is
+authoritative for nothing. "Rebuilding or deleting it does not change the underlying
+business or delivery truth."
+
+```sql
+CREATE TABLE organization_workflow_health (
+    organization_id          uuid NOT NULL,
+    workflow_type            text NOT NULL,
+
+    status                   text NOT NULL,
+    reason_code              text NOT NULL,
+
+    pending_count            integer NOT NULL DEFAULT 0,
+    oldest_pending_at        timestamptz NULL,
+    last_attempt_at          timestamptz NULL,
+    last_success_at          timestamptz NULL,
+    consecutive_failures     integer NOT NULL DEFAULT 0,
+    terminal_failure_count   integer NOT NULL DEFAULT 0,
+    last_error_code          text NULL,
+
+    source_high_water_mark   timestamptz NOT NULL,
+    projection_version       integer NOT NULL,
+    updated_at               timestamptz NOT NULL,
+
+    PRIMARY KEY (organization_id, workflow_type),
+
+    CONSTRAINT ck_workflow_health_status CHECK (
+        status IN ('Healthy', 'Degraded', 'Blocked', 'Stale', 'NoData', 'Unknown')
+    ),
+
+    CONSTRAINT ck_workflow_health_type CHECK (
+        workflow_type IN (
+            'OutboxPublication', 'ConsumerDelivery', 'DeadLetter', 'MemoryGeneration'
+        )
+    ),
+
+    FOREIGN KEY (organization_id)
+        REFERENCES organizations (organization_id)
+);
+
+CREATE INDEX ix_workflow_health_stale
+ON organization_workflow_health (
+    updated_at
+);
+```
+
+`source_high_water_mark` is the instant the reconcile observed, and `updated_at` is when it
+wrote. Both are needed and they answer different questions: the first is how current the
+*evidence* is, the second is whether the projection is still running at all. A reconcile
+that keeps writing while reading nothing new advances one and not the other, which is the
+"source high-water mark that stops advancing" the architecture requires reconciliation to
+detect.
+
+`projection_version` versions the derivation, not the row. A change to the thresholds or to
+what a status means makes previously written rows incomparable, and the version is what says
+so — "Thresholds are versioned configuration by workflow type. A threshold change MUST NOT
+alter historical source records."
+
+`Stale` is stored as a status the reconcile can write, but it is also *derived at read time*
+from `updated_at` against the freshness threshold. A projection that has stopped refreshing
+cannot write its own staleness, which is exactly the case the status exists for.
+
+`ix_workflow_health_stale` supports the freshness sweep rather than any per-Organization
+read; the primary key already serves those.
+
+The foreign key to `organizations` is what makes "duplicate rows or cross-Organization
+references" undetectable-by-construction rather than a reconciliation check that has to
+guess. There is no foreign key to a Membership because nothing here is attributed to a
+person: the projection is written by a scheduled job, not by a command.
 
 ---
 

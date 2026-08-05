@@ -31,11 +31,26 @@ interface WorkflowHealthResponse {
   organizationId: string;
   observedAt: string;
   status: WorkflowHealthReport["status"];
+  /**
+   * How current the projection is (ADR-0023).
+   *
+   * Part of the answer rather than metadata beside it. A projection that has
+   * stopped refreshing reports `Stale` per workflow *and* the age here, so an
+   * operator can see both that the numbers are untrustworthy and by how much.
+   */
+  freshness: {
+    ageSeconds: number | null;
+    stale: boolean;
+    staleAfterSeconds: number;
+    sourceHighWaterMark: string | null;
+    projectionVersion: number | null;
+  };
   workflows: {
     workflowType: string;
     status: string;
     pending: number;
     oldestPendingSeconds: number | null;
+    terminalFailures: number;
     reasonCode: string;
     paused: boolean;
   }[];
@@ -58,18 +73,27 @@ export class WorkflowHealthController {
       // The worst of the four, so an alert can read one field rather than
       // reimplementing the ranking.
       status: report.status,
+      freshness: {
+        ageSeconds: report.freshness.ageSeconds,
+        stale: report.freshness.stale,
+        staleAfterSeconds: report.freshness.staleAfterSeconds,
+        sourceHighWaterMark:
+          report.freshness.sourceHighWaterMark?.toISOString() ?? null,
+        projectionVersion: report.freshness.projectionVersion,
+      },
       workflows: report.workflows.map((w) => ({
         workflowType: w.workflowType,
         status: w.status,
         pending: w.pending,
         oldestPendingSeconds: w.oldestPendingSeconds,
+        terminalFailures: w.terminalFailures,
         // A bounded code, never free text — the same rule the diagnostic
         // surface has, and for the same reason: unbounded error text is how
         // internals reach a caller.
         reasonCode: w.reasonCode,
         // Reported beside the status, not folded into it (ADR-0022). A paused
         // workflow really is accumulating a backlog; this says the operator
-        // chose that, so `Critical` reads as containment rather than a new
+        // chose that, so `Blocked` reads as containment rather than a new
         // incident.
         paused: w.paused,
       })),

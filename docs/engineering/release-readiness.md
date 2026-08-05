@@ -33,10 +33,10 @@ driving the whole loop over HTTP.
 | | |
 |---|---|
 | Release Acceptance Criteria | 33 executable tests, all passing |
-| Test suite | 777 passing (types 11, domain 170, application 246, persistence 74, api 276) |
-| Routed permissions enforced | 46 / 46 |
-| Documentation checks | 62 files |
-| Accepted and proposed ADRs | 22 |
+| Test suite | 828 passing (types 11, domain 170, application 269, persistence 89, api 289) |
+| Routed permissions enforced | 47 / 47 |
+| Documentation checks | 64 files |
+| Accepted and proposed ADRs | 23 |
 
 The domain loop is complete. Work → Decision → completion → generated Memory → human
 review → immutable approved Memory works end to end, with Organization isolation, an
@@ -61,14 +61,18 @@ Thirteen items. Assessed against the code as it stands.
 | 5 | RED metrics for HTTP traffic | **Absent** |
 | 6 | PostgreSQL, Outbox, Worker, queue-age, and Work-to-Memory workflow metrics | **Absent** |
 | 7 | Durable audit for Human-authoritative transitions and privileged operational actions | **Done** — `authorization_audit_records`, edge and use-case halves |
-| 8 | HTTP and Worker liveness/readiness, asynchronous workflow health, restricted admin diagnostics | **Partial** — four process probes and asynchronous workflow health serve; the health projection and admin diagnostics remain |
+| 8 | HTTP and Worker liveness/readiness, asynchronous workflow health, restricted admin diagnostics | **Done** — four process probes, the rebuildable health projection with freshness, and the Owner-only diagnostic surface (ADR-0023) |
 | 9 | Bounded retry, idempotency, retry-exhaustion visibility, dead-letter handling, typed Operations commands for Worker pause/resume, replay, dead-letter retry/skip | **Done** — pause and resume land as ADR-0022, alongside replay and dead-letter retry/skip |
 | 10 | Continuous WAL archiving, base backup ≥ every 24h, 14-day PITR, monthly verified restore test, approved RPO and RTO | **Absent** — the restore *procedure* is proven by an executable drill; no production storage, schedule, or retention exists |
 | 11 | Actionable alerts for database unavailability, authoritative-write failure, Outbox or Worker stoppage, Memory-generation failure, Organization-isolation violation | **Absent** |
-| 12 | The six MVP runbooks | **Partial** — Worker containment and PostgreSQL recovery are written; four remain |
+| 12 | The six MVP runbooks | **Partial** — all six are written, plus two for Worker containment; none of the five new ones has been executed against a staging environment |
 | 13 | Separate Worker process | **Done** — `apps/api/src/worker.ts`; `chooseWorkerMode` refuses in-process draining outside development |
 
-Six done, three partial, four absent. None of it is domain work.
+Seven done, two partial, four absent. None of it is domain work.
+
+Item 12 is the one where "Partial" means something different from the rest: the
+deliverable exists and the *verification* does not. A runbook that has never been run is a
+draft, and five of the eight have never been run.
 
 ---
 
@@ -268,19 +272,61 @@ item stuck for two hours is not.
 three healthy workflows would reasonably conclude the fourth was fine, so a workflow that
 failed to measure appears and says so.
 
-Remaining:
+**The projection and the diagnostic surface are done** (ADR-0023), which completes item 8.
 
-- The `organization_workflow_health` projection. The architecture requires a rebuildable
-  projection with its own freshness; health is derived live from the source tables instead.
-  ADR-0021 records why live derivation came first — a projection cannot be designed before
-  the query it precomputes exists — and that this is why item 8 is still Partial.
-- Restricted administrative diagnostics. A different surface with different rules: it
-  correlates evidence across components, needs an explicit operational role, and audits
-  cross-Organization access separately.
+`GET /admin/workflow-health` now reads the rebuildable `organization_workflow_health`
+projection rather than deriving live, and the answer carries the projection's own freshness.
+That is a smaller-sounding change than it is. A live query is always current, which sounds
+like an advantage and is exactly why the failure it lacks — no answer at all — was
+invisible. Now "the numbers look fine" and "the numbers are current" are two facts an
+operator can read separately.
+
+**There is deliberately no fallback to a live query when the projection is stale.** The
+architecture: "When the projection becomes `Stale`, operators must not infer that
+Organizations are `Healthy`." A fallback would hide the exact failure the freshness field
+exists to expose, and would hide it most reliably at the moment it mattered most. There is a
+test that makes the source tables and a frozen projection disagree and asserts the answer is
+`Stale` rather than either.
+
+Reconciliation is one mechanism doing three jobs, which is why it was worth building before
+the optional per-transition update: it is the scheduled reconcile the architecture requires,
+it is the rebuild ("Rebuilding or deleting it does not change the underlying business or
+delivery truth" — there is a test that deletes every row and asserts byte-identical
+recovery), and it is the drift detector. A recompute cannot drift from its own source, so
+rather than a check that cannot fail, the reconcile **reports what it corrected**. Zero is
+what "already correct" looks like.
+
+**The status vocabulary changed**, and ADR-0023 explains why at length. ADR-0021 had used
+`Critical` for what the architecture calls `Blocked`, and had no `Stale` or `NoData` — a
+conflict it created without noticing, because it never addressed the projection's status
+set. The architecture's names win: item 11's alerts are written against them ("a new
+**Blocked** transition creates a High alert"), and a translation layer between an alert rule
+and the status it fires on is where alerts silently stop matching. `Unknown` is kept, because
+`Stale` says the projection is behind and `NoData` says there is nothing to report, and
+neither says *the query did not run*.
+
+**`GET /admin/diagnostics` is Owner-only**, and that is a narrowing recorded as one. The
+architecture asks this surface — and only this surface — for "an authenticated operator with
+an explicit operational role". The MVP models four roles and none is operational; inventing
+one is an identity and role-matrix change, not a permission grant. So it goes to the
+narrowest role that exists rather than to a role that does not.
+
+It correlates the projection's freshness, the four workflows, the Outbox, consumer
+deliveries and dead letters, generation operations, administrative pauses, and the applied
+migration in one response. Every rule attached to it is structural rather than remembered:
+the SQL never selects a message column, so there is nothing to redact; the window is clamped
+to seven days and every list capped; and it is on the authenticated API rather than the probe
+port, so an orchestrator has no credential to misconfigure it with.
+
+Remaining for the observability stages:
+
 - RED metrics for HTTP; the PostgreSQL, Outbox, Worker, and Work-to-Memory metrics the
-  baseline names.
-- Restricted administrative diagnostics — note that these need a permission, and adding one
-  is an ADR-0010 promotion, not an editing decision.
+  baseline names. The projection's own series —
+  `organization_workflow_health_organizations`, `_projection_age_seconds`, and
+  `_transition_total` — are among them: ADR-0023 delivers the durable state they will be
+  computed from and the status names they will be labelled by, not the series.
+- Cross-Organization diagnostics, which need the same deferred principal as a global Worker
+  pause — the third ADR running to hit that wall.
 Worker readiness now reports `ADMINISTRATIVELY_PAUSED`, which it could not before pause
 existed. The remaining probe gap is a different one: both Worker types share a process, so a
 deployment pause of either makes that process unready, while the architecture asks that "one

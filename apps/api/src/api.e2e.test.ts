@@ -21,6 +21,7 @@ import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { SECRETARY_IDENTITY_ID, createApp, dependenciesFor } from "./app.js";
+import { reconcileWorkflowHealthUseCase } from "@aios/application";
 import { drainOutbox } from "./outbox-worker.js";
 import { DeterministicMemoryGenerator } from "./deterministic-memory-generator.js";
 import { DEV_ISSUER, DEV_PROVIDER, DevAuthAdapter } from "./dev-auth.js";
@@ -99,7 +100,7 @@ suite("AIOS API", () => {
                   notifications,
                   decision_secretary_contributions, secretary_assistance_grants,
                   dead_letter_events, event_replays, processed_events,
-                  worker_pauses,
+                  worker_pauses, organization_workflow_health,
                   consumer_ordering_state,
                   memory_revisions, memories,
                   membership_role_assignments, memberships,
@@ -334,6 +335,11 @@ suite("AIOS API", () => {
 
   describe("asynchronous workflow health (ADR-0021)", () => {
     it("reports every workflow type for the acting Organization", async () => {
+      // Reconciled first: the route reads the projection rather than deriving
+      // live (ADR-0023), so an Organization the reconcile has not reached
+      // reports `NoData` — which is the honest answer, not this test's subject.
+      await reconcileWorkflowHealthUseCase(dependenciesFor(pool));
+
       const res = await request(server())
         .get("/admin/workflow-health")
         .set(as(OWNER))
@@ -345,8 +351,14 @@ suite("AIOS API", () => {
       );
       // Every workflow reports a bounded reason code, never free text.
       for (const w of res.body.workflows) {
-        expect(["OK", "PENDING_OVER_THRESHOLD", "UNRESOLVED_FAILURE", "QUERY_FAILED"])
-          .toContain(w.reasonCode);
+        expect([
+          "OK",
+          "PENDING_OVER_THRESHOLD",
+          "UNRESOLVED_FAILURE",
+          "QUERY_FAILED",
+          "PROJECTION_STALE",
+          "NOT_OBSERVED",
+        ]).toContain(w.reasonCode);
       }
     });
 
@@ -354,6 +366,7 @@ suite("AIOS API", () => {
       // The gap this closes. Both probes stay green while the Outbox backs up —
       // "Worker readiness does not prove progress" — so an Outbox row that was
       // never published has to show up here or nowhere.
+      await reconcileWorkflowHealthUseCase(dependenciesFor(pool));
       const before = await request(server())
         .get("/admin/workflow-health").set(as(OWNER)).expect(200);
       const beforeOutbox = before.body.workflows.find(
@@ -361,6 +374,7 @@ suite("AIOS API", () => {
       );
 
       await createWork("Something that emits an event");
+      await reconcileWorkflowHealthUseCase(dependenciesFor(pool));
 
       const after = await request(server())
         .get("/admin/workflow-health").set(as(OWNER)).expect(200);
@@ -384,6 +398,7 @@ suite("AIOS API", () => {
       // The isolation property. "Global metrics can remain healthy while one
       // Organization is permanently blocked" is why this is scoped, and a query
       // that forgot the scope would report another tenant's backlog here.
+      await reconcileWorkflowHealthUseCase(dependenciesFor(pool));
       const mine = await request(server())
         .get("/admin/workflow-health").set(as(OWNER)).expect(200);
       const minePending = mine.body.workflows.find(
@@ -2826,6 +2841,46 @@ suite("AIOS API", () => {
       });
     });
 
+    it("records a system failure as Failed, not as a denial", async () => {
+      // Found by running it: a `500` was audited as `Deny`, which matters because
+      // runbook 4 reads denials to find isolation and Human authority violations
+      // and to spot probing. An internal error counted as a refusal is a false
+      // finding exactly where false findings are most expensive.
+      //
+      // The failure is forced by taking away a column the handler needs, which is
+      // how the original one arrived: a query naming a column that is not there.
+      const client = await pool.connect();
+      try {
+        await client.query(`ALTER TABLE notifications RENAME COLUMN acknowledged_at TO acknowledged_at_moved`);
+      } finally {
+        client.release();
+      }
+
+      try {
+        await request(server())
+          .post(`/notifications/${randomUUID()}/acknowledge`)
+          .set(as(MEMBER))
+          .expect(500);
+
+        const [row] = await auditRows("notification.acknowledge");
+        expect(row).toMatchObject({ outcome: "Failed" });
+        // Still attributed, and still carrying a reason. A failure that recorded
+        // neither would be worse than one recorded under the wrong name.
+        expect(row?.["membership_id"]).toBe(MEMBER.membership);
+        expect(row?.["reason_code"]).not.toBeNull();
+        expect(row?.["next_state"]).toBeNull();
+      } finally {
+        const repair = await pool.connect();
+        try {
+          await repair.query(
+            `ALTER TABLE notifications RENAME COLUMN acknowledged_at_moved TO acknowledged_at`,
+          );
+        } finally {
+          repair.release();
+        }
+      }
+    });
+
     it("records a Deny row naming why, for a command that is refused", async () => {
       const work = await createWork();
       // A Reviewer reviews; the matrix gives them no `work.start`.
@@ -3566,6 +3621,235 @@ suite("AIOS API", () => {
       );
       expect(ordinary.rowCount).toBe(0);
     });
+  });
+
+
+  /**
+   * The workflow-health projection and the diagnostic surface (ADR-0023).
+   *
+   * Against the real schema, because the value of both is entirely in the SQL:
+   * the projection's constraints and the diagnostic queries' column names are
+   * the parts that can be wrong, and neither is visible to a double.
+   */
+  describe("workflow health and diagnostics", () => {
+    const health = (who = OWNER) =>
+      request(server()).get("/admin/workflow-health").set(as(who));
+
+    const diagnostics = (who = OWNER, query = "") =>
+      request(server()).get(`/admin/diagnostics${query}`).set(as(who));
+
+    it("reports NoData before the reconcile has ever run", async () => {
+      const response = await health().expect(200);
+
+      // Never `Healthy`. An empty projection is the absence of an answer, and
+      // presenting it as good news is the failure the status vocabulary exists
+      // to prevent.
+      expect(
+        (response.body.workflows as { status: string }[]).every(
+          (w) => w.status === "NoData",
+        ),
+      ).toBe(true);
+      expect(response.body.status).toBe("NoData");
+      expect(response.body.freshness.ageSeconds).toBeNull();
+    });
+
+    it("reports the workflows once the reconcile has run", async () => {
+      await reconcileWorkflowHealthUseCase(dependenciesFor(pool));
+
+      const response = await health().expect(200);
+
+      expect(response.body.status).toBe("Healthy");
+      expect(response.body.freshness.stale).toBe(false);
+      expect(response.body.freshness.projectionVersion).toBe(1);
+      expect((response.body.workflows as { workflowType: string }[]).map((w) => w.workflowType))
+        .toEqual([
+          "OutboxPublication",
+          "ConsumerDelivery",
+          "DeadLetter",
+          "MemoryGeneration",
+        ]);
+    });
+
+    it("reports Stale once the projection stops refreshing", async () => {
+      await reconcileWorkflowHealthUseCase(dependenciesFor(pool));
+
+      // Aged by hand rather than by waiting: the threshold is a minute, and a
+      // test that slept for it would be a test nobody runs.
+      const client = await pool.connect();
+      try {
+        await client.query(
+          `UPDATE organization_workflow_health
+              SET updated_at = now() - interval '10 minutes'`,
+        );
+      } finally {
+        client.release();
+      }
+
+      const response = await health().expect(200);
+
+      expect(response.body.freshness.stale).toBe(true);
+      expect(response.body.status).toBe("Stale");
+      expect(
+        (response.body.workflows as { reasonCode: string }[]).every(
+          (w) => w.reasonCode === "PROJECTION_STALE",
+        ),
+      ).toBe(true);
+    });
+
+    it("does not fall back to a live query when stale", async () => {
+      // The property ADR-0023 turns on. A fallback would report fresh-looking
+      // numbers at exactly the moment the projection had stopped, which is the
+      // one moment the operator needs to know it had.
+      await completeWorkForHealth();
+      await reconcileWorkflowHealthUseCase(dependenciesFor(pool));
+
+      const client = await pool.connect();
+      try {
+        await client.query(
+          `UPDATE organization_workflow_health
+              SET updated_at = now() - interval '10 minutes',
+                  status = 'Healthy', reason_code = 'OK', pending_count = 0`,
+        );
+      } finally {
+        client.release();
+      }
+
+      const response = await health().expect(200);
+
+      // The source tables say there is pending work; the projection says
+      // Healthy; the answer says Stale rather than either.
+      expect(response.body.status).toBe("Stale");
+    });
+
+    it("keeps one Organization's projection out of another's answer", async () => {
+      await reconcileWorkflowHealthUseCase(dependenciesFor(pool));
+
+      const response = await request(server())
+        .get("/admin/workflow-health")
+        .set(as(OUTSIDER, OTHER_ORG))
+        .expect(403);
+
+      expect(response.body.code).toBe("PERMISSION_DENIED");
+    });
+
+    it("serves diagnostics to an Owner", async () => {
+      await completeWorkForHealth();
+      await reconcileWorkflowHealthUseCase(dependenciesFor(pool));
+
+      const response = await diagnostics().expect(200);
+
+      expect(response.body.organizationId).toBe(ORG);
+      expect(response.body.outbox.pending).toBeGreaterThan(0);
+      expect(response.body.workflows).toHaveLength(4);
+      // Null here rather than a migration identifier: this suite builds its
+      // schema from the documented DDL, so the migration runner's ledger does
+      // not exist. Reporting one absent section beats returning nothing, which
+      // is what a diagnostic surface that threw on it would do.
+      expect(response.body.schemaVersion).toBeNull();
+    });
+
+    it("refuses diagnostics to an Admin", async () => {
+      // The one permission in the operations family an Admin does not hold.
+      await request(server())
+        .post(`/organizations/${ORG}/members/${STRANGER.membership}/assign-role`)
+        .set(as(OWNER))
+        .send({ role: "OrganizationAdmin" })
+        .expect(201);
+
+      await diagnostics(STRANGER).expect(403);
+    });
+
+    it("refuses diagnostics to a Member", async () => {
+      await diagnostics(MEMBER).expect(403);
+    });
+
+    it("clamps the window rather than refusing it", async () => {
+      const wide = await diagnostics(OWNER, "?windowSeconds=999999999").expect(200);
+      expect(wide.body.windowSeconds).toBe(7 * 24 * 60 * 60);
+
+      const garbage = await diagnostics(OWNER, "?windowSeconds=banana").expect(200);
+      expect(garbage.body.windowSeconds).toBe(24 * 60 * 60);
+    });
+
+    it("reports a pause, by code and not by the operator's words", async () => {
+      await request(server())
+        .post("/admin/workers/MemoryGeneration/pause")
+        .set(as(OWNER))
+        .send({ reasonCode: "PROVIDER_UNSAFE", reason: "secret operator prose" })
+        .expect(201);
+
+      const response = await diagnostics().expect(200);
+
+      expect(response.body.pauses).toEqual([
+        {
+          workerType: "MemoryGeneration",
+          pausedAtSeconds: expect.any(Number),
+          reasonCode: "PROVIDER_UNSAFE",
+        },
+      ]);
+      expect(JSON.stringify(response.body)).not.toContain("secret operator prose");
+    });
+
+    it("carries no error message, prompt, or business content", async () => {
+      // Written as a property over the whole response rather than a field-by-
+      // field check, so a field added later without thinking is caught here.
+      const work = await completeWorkForHealth();
+      const client = await pool.connect();
+      try {
+        await client.query(
+          `UPDATE outbox_messages
+              SET status = 'Failed',
+                  last_error_code = 'PROVIDER_TIMEOUT',
+                  last_error_message = 'connection to secret-host:5432 failed for user bob@example.test',
+                  last_attempt_at = now()
+            WHERE organization_id = $1`,
+          [ORG],
+        );
+      } finally {
+        client.release();
+      }
+
+      const response = await diagnostics().expect(200);
+      const body = JSON.stringify(response.body);
+
+      expect(response.body.outbox.errorCodes).toContainEqual({
+        errorCode: "PROVIDER_TIMEOUT",
+        count: expect.any(Number),
+      });
+      expect(body).not.toContain("secret-host");
+      expect(body).not.toContain("bob@example.test");
+      // The Work title is business content, and the diagnostic surface has no
+      // business knowing it.
+      expect(body).not.toContain("Ship the beta");
+      expect(body).not.toContain(work.workId);
+    });
+
+    it("leaves an audit row, being a privileged operational read", async () => {
+      await diagnostics().expect(200);
+
+      const rows = await auditRows("operations.read_diagnostics");
+      expect(rows[0]).toMatchObject({
+        outcome: "Allow",
+        membership_id: OWNER.membership,
+        organization_id: ORG,
+      });
+    });
+
+    const completeWorkForHealth = async () => {
+      const created = await request(server())
+        .post("/works")
+        .set(as(MEMBER))
+        .send({ title: "Ship the beta", description: "d" })
+        .expect(201);
+      const work = created.body as { workId: string };
+      await request(server()).post(`/works/${work.workId}/start`).set(as(MEMBER)).expect(201);
+      await request(server())
+        .post(`/works/${work.workId}/complete`)
+        .set(as(MEMBER))
+        .send({ completionSummary: "done" })
+        .expect(201);
+      return work;
+    };
   });
 
   describe("operational recovery (events.*)", () => {

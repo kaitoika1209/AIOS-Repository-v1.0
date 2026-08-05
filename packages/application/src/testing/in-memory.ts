@@ -37,9 +37,15 @@ import type {
   SecretaryContribution,
   SecretaryContributionRepository,
 } from "../assistance.js";
+import type { DiagnosticsFacts } from "../diagnostics.js";
 import type { PausableWorkerType, WorkerPause } from "../worker-pause.js";
-import type { WorkflowCounts, WorkflowType } from "../workflow-health.js";
 import type {
+  WorkflowCounts,
+  WorkflowHealthRow,
+  WorkflowType,
+} from "../workflow-health.js";
+import type {
+  DiagnosticsQueryPort,
   WorkerPauseRepository,
   WorkflowHealthQuery,
   CallerOrganizationSummary,
@@ -83,6 +89,9 @@ import type {
  */
 export class InMemoryWorkflowHealthQuery implements WorkflowHealthQuery {
   private readonly counts = new Map<WorkflowType, WorkflowCounts>();
+  /** The projection, keyed the way the table is. */
+  private readonly projection = new Map<string, WorkflowHealthRow>();
+  private readonly organizations = new Set<OrganizationId>();
   /**
    * Workflows this double reports as unanswerable.
    *
@@ -103,6 +112,20 @@ export class InMemoryWorkflowHealthQuery implements WorkflowHealthQuery {
     }
   }
 
+  /** Declare an Organization the reconcile should observe. */
+  observe(organizationId: OrganizationId): void {
+    this.organizations.add(organizationId);
+  }
+
+  /** Drop every projected row, so a test can prove the reconcile rebuilds it. */
+  clearProjection(): void {
+    this.projection.clear();
+  }
+
+  private static key(organizationId: string, workflowType: string): string {
+    return `${organizationId}:${workflowType}`;
+  }
+
   async countsFor(): Promise<Readonly<Partial<Record<WorkflowType, WorkflowCounts>>>> {
     const empty: WorkflowCounts = {
       pending: 0,
@@ -120,6 +143,92 @@ export class InMemoryWorkflowHealthQuery implements WorkflowHealthQuery {
       result[workflowType] = this.counts.get(workflowType) ?? empty;
     }
     return result;
+  }
+
+  async readFor(organizationId: OrganizationId): Promise<readonly WorkflowHealthRow[]> {
+    return [...this.projection.entries()]
+      .filter(([key]) => key.startsWith(`${organizationId}:`))
+      .map(([, row]) => row)
+      .sort((a, b) => a.workflowType.localeCompare(b.workflowType));
+  }
+
+  async upsert(
+    organizationId: OrganizationId,
+    rows: readonly WorkflowHealthRow[],
+  ): Promise<void> {
+    for (const row of rows) {
+      this.projection.set(
+        InMemoryWorkflowHealthQuery.key(organizationId, row.workflowType),
+        row,
+      );
+    }
+    this.organizations.add(organizationId);
+  }
+
+  async organizationsToObserve(): Promise<readonly OrganizationId[]> {
+    return [...this.organizations];
+  }
+
+  async removeOthers(keep: readonly OrganizationId[]): Promise<number> {
+    const kept = new Set<string>(keep);
+    let removed = 0;
+    for (const key of [...this.projection.keys()]) {
+      const organizationId = key.slice(0, key.lastIndexOf(":"));
+      if (!kept.has(organizationId)) {
+        this.projection.delete(key);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+}
+
+/**
+ * Correlated operational evidence, with nothing correlated.
+ *
+ * Zeroes by default and settable, because the diagnostic use case's job is
+ * shaping and bounding rather than counting — the counting is SQL, and it is
+ * tested against a real database where it can be wrong.
+ */
+export class InMemoryDiagnosticsQuery implements DiagnosticsQueryPort {
+  private facts: DiagnosticsFacts = {
+    outbox: {
+      pending: 0,
+      failed: 0,
+      claimExpired: 0,
+      oldestPendingSeconds: null,
+      errorCodes: [],
+    },
+    deliveries: {
+      processing: 0,
+      failed: 0,
+      blockedOrderingKeys: 0,
+      deadLettersByStatus: {},
+      errorCodes: [],
+    },
+    generation: {
+      byStatus: {},
+      leaseExpired: 0,
+      oldestPendingSeconds: null,
+      errorCodes: [],
+    },
+    schemaVersion: null,
+  };
+
+  /** What the last call was asked for, so a test can check the bounds applied. */
+  lastQuery: { organizationId: string; since: Date; limit: number } | null = null;
+
+  set(facts: DiagnosticsFacts): void {
+    this.facts = facts;
+  }
+
+  async gather(
+    organizationId: OrganizationId,
+    since: Date,
+    limit: number,
+  ): Promise<DiagnosticsFacts> {
+    this.lastQuery = { organizationId, since, limit };
+    return this.facts;
   }
 }
 
@@ -1361,6 +1470,7 @@ export const buildTestHarness = (now = new Date("2026-07-28T10:00:00Z")) => {
   const replays = new InMemoryReplayRepository();
   const workflowHealth = new InMemoryWorkflowHealthQuery();
   const workerPauses = new InMemoryWorkerPauseRepository();
+  const diagnostics = new InMemoryDiagnosticsQuery();
   const memberships = new InMemoryMembershipRepository();
   const organizations = new InMemoryOrganizationRepository(memberships);
   const notifications = new InMemoryNotificationRepository();
@@ -1385,6 +1495,7 @@ export const buildTestHarness = (now = new Date("2026-07-28T10:00:00Z")) => {
     identities,
     workflowHealth,
     workerPauses,
+    diagnostics,
     outbox,
   };
 

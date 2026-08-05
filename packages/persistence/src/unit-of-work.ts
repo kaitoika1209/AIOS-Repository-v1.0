@@ -18,6 +18,7 @@ import {
   PostgresSecretaryContributionRepository,
 } from "./assistance-repository.js";
 import { PostgresConsumerDeliveryRepository } from "./consumer-delivery-repository.js";
+import { PostgresDiagnosticsQuery } from "./diagnostics-query.js";
 import { PostgresWorkerPauseRepository } from "./worker-pause-repository.js";
 import { PostgresWorkflowHealthQuery } from "./workflow-health-query.js";
 import { PostgresDecisionRepository } from "./decision-repository.js";
@@ -59,6 +60,7 @@ export class PostgresUnitOfWork implements UnitOfWork {
         identities: new PostgresIdentityRepository(client),
         workflowHealth: new PostgresWorkflowHealthQuery(client),
         workerPauses: new PostgresWorkerPauseRepository(client),
+        diagnostics: new PostgresDiagnosticsQuery(client),
         outbox: new PostgresOutbox(client),
       });
 

@@ -796,9 +796,12 @@ Asynchronous workflow progress is readable by an Owner or Admin, scoped to their
 Organization ([ADR-0021](../adr/0021-promote-asynchronous-workflow-health.md)). Process
 liveness and readiness do not cover this: a Worker can be ready and still make no progress,
 so "retry with observable failure handling" needs a surface that reports whether committed
-work is actually moving. The `organization_workflow_health` projection the observability
-architecture describes is not built — health is derived live from the durable tables — so
-the operational baseline's item 8 remains incomplete.
+work is actually moving. Progress is read from the rebuildable `organization_workflow_health` projection, and the
+answer carries the projection's own freshness
+([ADR-0023](../adr/0023-build-the-workflow-health-projection-and-promote-diagnostics.md)):
+a projection that has stopped refreshing reports `Stale` rather than reporting the last
+numbers it had. An Owner can also read a restricted diagnostic view that correlates the
+Outbox, deliveries, dead letters, generation attempts, and pauses in one response.
 
 An Owner or Admin can also pause and resume asynchronous processing for their own
 Organization ([ADR-0022](../adr/0022-promote-worker-pause-and-resume.md)), which is what

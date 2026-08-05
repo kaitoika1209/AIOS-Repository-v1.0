@@ -20,6 +20,7 @@ import {
   resumeWorkerUseCase,
 } from "./worker-pause.js";
 import { readWorkflowHealthUseCase } from "./workflow-health.js";
+import { reconcileWorkflowHealthUseCase } from "./workflow-health-reconcile.js";
 
 const ORG = OrganizationId("11111111-1111-4111-8111-111111111111");
 const OTHER_ORG = OrganizationId("22222222-2222-4222-8222-222222222222");
@@ -31,7 +32,7 @@ const contextFor = (
   ],
 ) => ({
   organizationId,
-  now: new Date("2026-08-05T09:00:00Z"),
+  now: NOW,
   principal: {
     type: "HumanMember" as const,
     identityId: IdentityId("0a105eed-0000-4000-8000-000000000001"),
@@ -40,6 +41,8 @@ const contextFor = (
     roles,
   },
 });
+
+const NOW = new Date("2026-08-05T09:00:00Z");
 
 const COMMAND = {
   workerType: "MemoryGeneration" as const,
@@ -216,25 +219,29 @@ describe("resuming", () => {
 
 describe("the health report", () => {
   it("says a paused workflow is paused, and still says it is degrading", async () => {
-    const h = buildTestHarness();
+    const h = buildTestHarness(NOW);
+    h.workflowHealth.observe(ORG);
     h.workflowHealth.set("MemoryGeneration", {
       pending: 4,
       oldestPendingSeconds: 3600,
       unresolvedFailures: 0,
     });
+    await reconcileWorkflowHealthUseCase(h.deps);
     await pauseWorkerUseCase(h.deps, contextFor(), COMMAND);
 
     const report = await readWorkflowHealthUseCase(h.deps, contextFor());
     const memory = report.workflows.find((w) => w.workflowType === "MemoryGeneration");
 
     // Both facts, because they are different questions. The backlog is real, and
-    // an operator reading `Critical` needs to see that they are looking at their
+    // an operator reading `Blocked` needs to see that they are looking at their
     // own containment rather than a new incident.
-    expect(memory).toMatchObject({ status: "Critical", paused: true });
+    expect(memory).toMatchObject({ status: "Blocked", paused: true });
   });
 
   it("reports the workflows that cannot be paused as not paused", async () => {
-    const h = buildTestHarness();
+    const h = buildTestHarness(NOW);
+    h.workflowHealth.observe(ORG);
+    await reconcileWorkflowHealthUseCase(h.deps);
     await pauseWorkerUseCase(h.deps, contextFor(), COMMAND);
 
     const report = await readWorkflowHealthUseCase(h.deps, contextFor());

@@ -104,14 +104,21 @@ export const EVENT_PERMISSIONS = [
  * permissions can express a future policy where an Admin may pause and an Owner
  * must resume.
  *
- * All three authorize an action **within the caller's own Organization**. Pausing
+ * All four authorize an action **within the caller's own Organization**. Pausing
  * a Worker type for every Organization has no permission because the MVP models
  * no principal who could hold one; it is a deployment control instead.
+ *
+ * `operations.read_diagnostics` is the one an Admin does not hold (ADR-0023).
+ * The architecture requires that surface, and only that surface, to have "an
+ * authenticated operator with an explicit operational role"; the MVP models no
+ * operational role, so it goes to the narrowest role that exists rather than to
+ * one invented for it.
  */
 export const OPERATIONS_PERMISSIONS = [
   "operations.read_workflow_health",
   "operations.pause_worker",
   "operations.resume_worker",
+  "operations.read_diagnostics",
 ] as const;
 
 export const PERMISSIONS = [
