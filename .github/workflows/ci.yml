@@ -133,3 +133,44 @@ jobs:
       # and disturbs nothing.
       - name: Restore drill
         run: sudo ./scripts/restore_drill.sh
+
+  image:
+    name: Container image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The Dockerfile was written and never built — the container this
+      # repository was developed in cannot reach a registry, so `docker build`
+      # has never run against it. That is the single riskiest untested artifact
+      # here, because every deployment path starts with it and the first attempt
+      # would otherwise happen on the day AWS is also new.
+      #
+      # Two targets, because the Worker is its own process (baseline item 13)
+      # and `chooseWorkerMode` refuses to drain in-process outside development.
+      - name: Build the API image
+        run: docker build --target api --tag aios-api:ci .
+
+      - name: Build the Worker image
+        run: docker build --target worker --tag aios-worker:ci .
+
+      # A built image that cannot start is a built image. `CMD` is
+      # `node dist/main.js` rather than a pnpm wrapper on purpose — a wrapper at
+      # PID 1 swallows SIGTERM, and the Worker's graceful drain depends on
+      # receiving it — and production resolves the workspace packages to `dist`
+      # while development resolves them to `src`. Only a real container
+      # exercises that resolution.
+      - name: The API image starts and reports a reason it cannot serve
+        run: |
+          set -o pipefail
+          # No DATABASE_URL, so it must fail fast and say so rather than hang.
+          output=$(docker run --rm aios-api:ci 2>&1 || true)
+          echo "$output"
+          echo "$output" | grep -q "DATABASE_URL is required"
+
+      - name: The Worker image starts and reports the same
+        run: |
+          set -o pipefail
+          output=$(docker run --rm aios-worker:ci 2>&1 || true)
+          echo "$output"
+          echo "$output" | grep -q "DATABASE_URL is required"

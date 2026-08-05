@@ -680,9 +680,9 @@ to the MVP application; no external compatibility commitment exists.
 
 | Decision | Why it needs one |
 |---|---|
-| Restricted administrative diagnostics | Same: a new permission is a scope change |
 | The status of ADRs 0017, 0018, and 0019 | They promote permissions that are catalogued and implemented, and each still reads `Proposed`. ADR-0010's rule is that promotion requires an **accepted** ADR *and* a scope-document update — so either the status is stale or the implementation went ahead of the decision. Only the architecture owner can say which |
-| RPO and RTO | Named figures the baseline requires an owner to approve |
+| The RPO and RTO **owner** | The figures are not open — `observability-and-operations.md` states RPO ≤ 15 min, RTO ≤ 4 h, and asynchronous workflow recovery ≤ 8 h. What is missing is the architecture owner's acceptance, which the baseline requires and which is a signature rather than a number |
+| ECS launch type, RDS engine, Multi-AZ | Infrastructure choices the documents leave open; see [`infrastructure-roadmap.md`](infrastructure-roadmap.md) D1–D3 |
 | Clerk profile webhook | In scope or out; `.env.example` currently implies in |
 
 ---
