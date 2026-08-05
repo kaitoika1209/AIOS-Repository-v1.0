@@ -11,9 +11,15 @@ AWSTemplateFormatVersion: "2010-09-09"
 # The bind is the part worth getting right, and it is the part most commonly got
 # wrong. A trust policy that matches `repo:owner/name:*` on the `sub` claim
 # trusts **every workflow in the repository, including one running from a pull
-# request opened by a stranger**. The condition below names the branch. Widen it
-# only to add another named ref, never to a wildcard — `check_infra.py` fails the
-# build if a bare `*` appears in the subject condition.
+# request opened by a stranger**. The condition below names the branch.
+#
+# It is guarded in two places, and the second one exists because the first was
+# not enough. `check_infra.py` refuses a literal `*` in the subject condition —
+# but the condition is `repo:${GitHubRepository}:ref:${DeployRef}`, so a
+# wildcard never appears there at all; it arrives through a parameter, and the
+# check passed on a role that trusted everything. The parameters below therefore
+# carry `AllowedPattern`s that a wildcard fails, so **CloudFormation refuses it
+# at deploy time** rather than deferring to a script that runs somewhere else.
 
 Description: AIOS deployment identity — GitHub Actions OIDC, no stored keys
 
@@ -21,14 +27,25 @@ Parameters:
   GitHubRepository:
     Type: String
     Default: kaitoika1209/aios-repository-v1.0
+    AllowedPattern: "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$"
+    ConstraintDescription: One repository, as owner/name. No wildcard, no list.
     Description: owner/name, matched exactly in the trust policy subject.
   DeployRef:
     Type: String
     Default: refs/heads/main
+    # CloudFormation refuses a wildcard itself, at deploy time, rather than
+    # leaving it to review. Found by breaking it: `check_infra.py` looked for a
+    # `*` inside the trust policy and did not find one, because the policy only
+    # ever contains `${DeployRef}` — the wildcard arrives through the parameter.
+    # A check that inspects the template text cannot see a value supplied later,
+    # so the constraint has to be on the input.
+    AllowedPattern: "^refs/(heads|tags)/[A-Za-z0-9._/-]+$"
+    ConstraintDescription: >-
+      A single exact ref, such as refs/heads/main. A wildcard would let any
+      workflow run in the repository, including from a fork's pull request,
+      obtain deployment credentials.
     Description: >-
-      The one ref permitted to assume this role. A wildcard here would let any
-      workflow run in the repository — including one from a fork's pull
-      request — obtain deployment credentials. To permit a second ref, add a
+      The one ref permitted to assume this role. To permit a second ref, add a
       second Statement rather than loosening this one.
 
 Resources:

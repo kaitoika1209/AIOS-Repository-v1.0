@@ -68,15 +68,25 @@ Thirteen items. Assessed against the code as it stands.
 | 7 | Durable audit for Human-authoritative transitions and privileged operational actions | **Done** — `authorization_audit_records`, edge and use-case halves |
 | 8 | HTTP and Worker liveness/readiness, asynchronous workflow health, restricted admin diagnostics | **Done** — four process probes, the rebuildable health projection with freshness, and the Owner-only diagnostic surface (ADR-0023) |
 | 9 | Bounded retry, idempotency, retry-exhaustion visibility, dead-letter handling, typed Operations commands for Worker pause/resume, replay, dead-letter retry/skip | **Done** — pause and resume land as ADR-0022, alongside replay and dead-letter retry/skip |
-| 10 | Continuous WAL archiving, base backup ≥ every 24h, 14-day PITR, monthly verified restore test, approved RPO and RTO | **Absent** — the restore *procedure* is proven by an executable drill; no production storage, schedule, or retention exists |
-| 11 | Actionable alerts for database unavailability, authoritative-write failure, Outbox or Worker stoppage, Memory-generation failure, Organization-isolation violation | **Absent** — the series the rules attach to now exist; the rules need a backend to evaluate them |
+| 10 | Continuous WAL archiving, base backup ≥ every 24h, 14-day PITR, monthly verified restore test, approved RPO and RTO | **Absent** — the restore *procedure* is proven by an executable drill that now records its result, and the ten recovery metrics publish; the storage, schedule, and retention are written in `infra/02-data.yaml` and unapplied |
+| 11 | Actionable alerts for database unavailability, authoritative-write failure, Outbox or Worker stoppage, Memory-generation failure, Organization-isolation violation | **Absent** — the transport, the series, and the alarm definitions all exist; nothing has evaluated one. The isolation alert is the exception and is not merely unapplied: it cannot be built as specified, and `authorization_denied_total` replaces it |
 | 12 | The six MVP runbooks | **Partial** — all six written, plus two for Worker containment, and all executed; runbooks 1–5 against a live local environment rather than staging |
 | 13 | Separate Worker process | **Done** — `apps/api/src/worker.ts`; `chooseWorkerMode` refuses in-process draining outside development |
 
-Ten done, one partial, two absent. What remains needs infrastructure this
-repository does not have: a metrics backend to evaluate alert rules against, an
-object store to hold backups in, and a staging environment to rehearse the
-runbooks in.
+Ten done, one partial, two absent — unchanged, and deliberately so.
+
+Items 10 and 11 now have everything a repository can hold: the CloudWatch
+transport publishes, the ten recovery metrics publish, the drill records what it
+measured, and `infra/` carries the RDS instance, the locked backup vault, the log
+groups, and every alarm. **None of it has been applied.** Promoting either item
+on the strength of unapplied templates would be the same error the architecture
+warns about one row up — treating a green artifact as proof of the thing it
+describes. `scripts/check_infra.py` narrows the gap by 96 assertions and does not
+close it.
+
+What remains needs an AWS account: a metrics backend to evaluate an alarm
+against, an object store to hold backups in, and a staging environment to
+rehearse the runbooks in.
 
 Item 12 stays Partial for a narrower reason than before: every runbook has now been
 executed, but runbooks 1–5 were executed against a **live local environment**, not a staging

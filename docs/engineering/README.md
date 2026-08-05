@@ -20,6 +20,7 @@ The goal is to ensure consistency, maintainability, and high code quality as AIO
 | [release-readiness.md](release-readiness.md) | What remains between the build and production, against the MVP Production Baseline |
 | [infrastructure-roadmap.md](infrastructure-roadmap.md) | How to provision the environment the remaining baseline items need |
 | [runbooks.md](runbooks.md) | The MVP operational runbooks 1–5 |
+| [../../infra/README.md](../../infra/README.md) | The CloudFormation stacks, in deployment order, and what remains unverified |
 | [backup-and-recovery.md](backup-and-recovery.md) | What recovery is proven, what is not, and runbook 6 |
 | [worker-containment.md](worker-containment.md) | Pausing and resuming asynchronous processing — runbooks 7 and 8 |
 

@@ -367,6 +367,47 @@ else:
                 "StringEquals so the ref is exact.",
             )
 
+            # The check above is not enough on its own, and finding that out is
+            # the reason this exists. The subject is
+            # `repo:${GitHubRepository}:ref:${DeployRef}` — a template — so a
+            # wildcard never appears in the policy text at all. It arrives
+            # through a parameter, and a parameter defaulting to `*` produces a
+            # role that trusts every workflow in the repository while this file
+            # still reads as though it names one. The first version of this
+            # check passed on exactly that.
+            #
+            # So every parameter feeding the subject must carry an
+            # AllowedPattern that a wildcard fails, which makes CloudFormation
+            # refuse the value at deploy time rather than deferring to a check
+            # that runs somewhere else entirely.
+            declared = role_template.get("Parameters", {})
+            for parameter in re.findall(r"\$\{(\w+)\}", subject):
+                spec = declared.get(parameter)
+                if spec is None:
+                    continue
+                default = str(spec.get("Default", ""))
+                check(
+                    "*" not in default,
+                    f"01-deployment-role.yaml: parameter {parameter} defaults to {default!r}, which "
+                    "makes the trust policy match every workflow in the repository.",
+                )
+                pattern = spec.get("AllowedPattern")
+                check(
+                    pattern is not None,
+                    f"01-deployment-role.yaml: parameter {parameter} feeds the OIDC subject with no "
+                    "AllowedPattern, so a wildcard can be supplied at deploy time and nothing refuses it.",
+                )
+                if pattern is not None:
+                    admits_wildcard = any(
+                        re.fullmatch(pattern, candidate) is not None
+                        for candidate in ("*", "refs/heads/*", "*/*", "aios/*")
+                    )
+                    check(
+                        not admits_wildcard,
+                        f"01-deployment-role.yaml: parameter {parameter}'s AllowedPattern {pattern!r} "
+                        "still admits a wildcard.",
+                    )
+
 # --- The deploy workflow -----------------------------------------------------
 deploy = WORKFLOWS / "deploy.yml"
 if not deploy.exists():

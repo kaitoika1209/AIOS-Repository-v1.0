@@ -136,8 +136,10 @@ Nothing here serves traffic. It is the part that is painful to retrofit.
    into a role is the shape, and it means no AWS secret ever exists in the repo.
 
 **Decisions:** none blocking.
-**I can:** write the OIDC trust policy and the deployment role, and the CI
-workflow that assumes it.
+**Written:** [`infra/00-network.yaml`](../../infra/00-network.yaml) and
+[`infra/01-deployment-role.yaml`](../../infra/01-deployment-role.yaml), plus
+[`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml). Neither has
+been applied.
 
 ---
 
@@ -176,9 +178,13 @@ Also here:
   reach it.
 
 **Decisions:** D2 (engine), D3 (Multi-AZ), D4 (RPO/RTO owner).
-**I can:** write the restore-drill job against a real RDS snapshot, publish the
-ten recovery metrics through the exporter that already exists, and write the
-CloudWatch alarm definitions.
+**Written:** [`infra/02-data.yaml`](../../infra/02-data.yaml) — RDS with a
+14-day window enforced by `MinValue`, KMS, Secrets Manager, a locked backup
+vault, and the evidence bucket.
+**Built and running:** the ten recovery metrics, and `restore_drill.sh` now
+records its result to `recovery_control_events`, so the age of the last test is
+a fact rather than a memory. Six publish on any cluster; the other two need
+`RDS_DB_INSTANCE_IDENTIFIER` and a real instance.
 
 **Rough cost:** `db.t4g.small`, single-AZ, 14-day retention ≈ **$40–60/month** in
 Tokyo. Multi-AZ roughly doubles it.
@@ -218,9 +224,12 @@ Points where this application has an opinion, and getting them wrong wastes a da
 Also: ALB with ACM certificate, CloudFront for the web client, and the API's
 `WEB_ORIGIN` set to the real origin.
 
-**Decisions:** D1 (launch type).
-**I can:** write the task definitions, the ECS service definitions, the
-migration task, and the deploy workflow.
+**Decisions:** D1 (launch type) — the template answers Fargate.
+**Written:** [`infra/03-compute.yaml`](../../infra/03-compute.yaml) and the
+deploy workflow, which runs the migration task and checks its exit code before
+rolling either service. `check_infra.py` asserts every opinion listed above —
+probe paths, ports, the Worker's stop timeout, secrets never passed as
+environment variables — against the code that serves them.
 
 **Rough cost:** two Fargate tasks at 0.5 vCPU / 1 GB ≈ **$35/month** each, ALB
 ≈ **$25/month**. Call it **$100/month** for compute and networking.
@@ -257,8 +266,25 @@ resolves through the Operations Application Service" rather than a tenant name.
 
 **Decisions:** who receives the SNS email, and what "actionable" means for each —
 an alert nobody acts on trains people to ignore the ones that matter.
-**I can:** write the CloudWatch transport, the alarm definitions, the metric
-filters, the dashboards, and the saved Logs Insights queries the runbooks cite.
+**Built:** the CloudWatch transport
+([`cloudwatch-transport.ts`](../../apps/api/src/cloudwatch-transport.ts)).
+`METRICS_SINK=cloudwatch` now publishes; `AWS_REGION` is required and not
+defaulted, because ADR-0003 pins the Region and an SDK fallback would decide
+where a production Organization's operational metrics live.
+**Written:** [`infra/04-telemetry.yaml`](../../infra/04-telemetry.yaml) — log
+groups at ADR-0003's retentions, the alarms, the dashboard, and the saved Logs
+Insights queries.
+
+**One alert in the table above cannot be built as written, and this is the
+correction.** The Organization-isolation row called for a metric filter on the
+log group. There is nothing to filter: authorization denials are Class B audit
+rows in PostgreSQL and are never written to a log — and a cross-Organization
+access returns 404 by design, indistinguishable from a genuine miss, so no
+signal at that boundary can isolate one. What exists instead is
+`authorization_denied_total`, emitted at the audit interceptor with a bounded
+reason code and alarmed on rate: that is the *probing* signal. The isolation
+*finding* stays runbook 4's query against the audit table, where the identifiers
+live and where they can be deleted.
 
 **Rough cost:** metrics ≈ **$30/month** at a hundred series; logs depend on
 volume, ≈ **$10–30/month** at MVP traffic.
@@ -342,17 +368,34 @@ staging, $270–330.
 
 ## What I can do without an AWS account
 
-- Everything in Phase 0, once there is a Docker daemon.
-- The CloudWatch metric transport (Phase 4), behind the bounds that already exist.
-- The ten recovery metrics (Phase 2), published through the same exporter.
-- Infrastructure-as-code for all of it — task definitions, service definitions,
-  RDS parameters, alarms, metric filters, dashboards, the OIDC deployment role.
-- The deploy workflow and the migration task.
-- The saved Logs Insights queries each runbook cites.
+All of it is now done, and the distinction between the two halves matters.
 
-None of it can be *applied* from here, and none of it is verified until it is.
-Written-but-unapplied infrastructure has the same status as an unexecuted
-runbook, and this document should not pretend otherwise.
+**Executed here, and therefore proven:** Phase 0's image build; the CloudWatch
+transport's aggregation, unit derivation, chunking, retry ceiling and abort
+plumbing; and the ten recovery metrics end to end — the drill wrote its row, the
+Worker read it, and `restore_test_age_seconds` advanced between flushes while the
+four unknown metrics were named in a WARN rather than published as zero.
+
+**Written and not applied:** every template in [`infra/`](../../infra), the
+deploy workflow, the alarms, the metric filter, the dashboard, and the saved
+queries. `scripts/check_infra.py` runs in CI and makes 96 assertions comparing
+them against the code and the ADRs — an alarm threshold against the constant in
+`recovery.ts`, a probe path against what the process serves, a retention against
+ADR-0003's table. Each was proved by breaking it and reading the message that
+named it.
+
+**That is still not verification.** The check catches a template that is wrong
+about *this application*; it cannot tell you CloudFormation accepts it, that the
+resources come up, or that they can reach one another. Written-but-unapplied
+infrastructure has the same status as an unexecuted runbook, and this document
+should not pretend otherwise.
+
+The check itself is the clearest illustration. Its OIDC assertion refused a
+literal `*` in the trust policy — and passed a role that trusted every workflow
+in the repository, because the wildcard arrived through a parameter and the
+policy only ever contained `${DeployRef}`. That was found by breaking it, not by
+reading it, and there is no reason to think an unapplied template holds no more
+of the same.
 
 **What I cannot do:** create any AWS resource, hold a credential, verify a
 deployment, or run a failover. Those need an account and a person.
