@@ -2,7 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # `main` and the long-lived working branches. Restricting this to `main`
+    # meant a branch could accumulate weeks of work without a single CI run —
+    # every check in this file passed only where someone happened to run it by
+    # hand, which is the state the checks exist to make unnecessary.
+    branches: [main, "claude/**"]
   pull_request:
 
 concurrency:

@@ -21,9 +21,12 @@ runbooks 2 and 3 reach for them, so they are written and executable.
 These runbooks name detection signals that **exist today**, and they say so where a signal
 does not.
 
-Baseline items 2, 5, 6, and 11 are absent: there is no metric backend, no RED metrics, no
-Outbox or Worker metric series, and no alerting. So nothing here pages anyone. Detection
-today means an operator looking, using:
+The metrics of baseline items 5 and 6 now exist, and item 2's exporter carries them — but
+**item 11 is still absent and that is what decides how detection works today.** There is no
+metric backend to evaluate an alarm and no SNS topic to deliver one, so nothing here pages
+anyone. A metric that nobody is watching is not a detection signal.
+
+Until an alarm exists, detection means an operator looking, using:
 
 | Surface | What it answers |
 |---|---|
@@ -102,7 +105,9 @@ The architecture asks every runbook to carry `owner`, `reviewDate`, `lastTestedA
 - `DATABASE_READ_ONLY` specifically means the process reached a replica or a cluster in
   recovery. Reads work; every authoritative write will fail.
 
-*Not yet available:* the HTTP RED metrics of baseline item 5 and the alerts of item 11.
+*Available but not yet alerting:* `http_server_requests_total{outcome_class="5xx"}` rises
+during this, and `METRICS_SINK` has to be configured for anything to receive it. The alarm
+that would page someone is baseline item 11, which is absent.
 
 ### Safe containment
 
