@@ -2,7 +2,10 @@ name: Docs
 
 on:
   push:
-    branches: [main]
+    # Same reason as `ci.yml`: restricted to `main`, none of the three checks
+    # below ran on a working branch, so the drift they exist to catch could
+    # accumulate for as long as the branch lived.
+    branches: [main, "claude/**"]
   pull_request:
 
 jobs:
