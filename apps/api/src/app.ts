@@ -30,6 +30,7 @@ import { DiagnosticsController } from "./diagnostics.controller.js";
 import { WorkersController } from "./workers.controller.js";
 import { WorkflowHealthController } from "./workflow-health.controller.js";
 import { AuditInterceptor } from "./audit-interceptor.js";
+import { metricsMiddleware } from "./metrics-middleware.js";
 import { correlationMiddleware } from "./correlation-middleware.js";
 import { chooseGenerator } from "./anthropic-memory-generator.js";
 import { DecisionController } from "./decision.controller.js";
@@ -173,6 +174,10 @@ export const createApp = async (options: AppOptions): Promise<INestApplication> 
   // which is what makes the guard's own refusals correlated — an interceptor
   // would arrive after those audit rows were already written.
   app.use(correlationMiddleware);
+  // Also middleware, and after correlation so a metric and a log line describe
+  // the same request. It must run before the guard: a guard refusal never
+  // reaches an interceptor, and those are the denials most worth counting.
+  app.use(metricsMiddleware);
 
   // The guard runs before every handler, so no route can be reached without a
   // resolved principal (ADR-0013). It carries the audit store because Nest runs

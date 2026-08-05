@@ -40,6 +40,7 @@ scope. Accepted ADRs are the highest authority in this repository — see
 | [0021](0021-promote-asynchronous-workflow-health.md) | Promote Asynchronous Workflow Health | Accepted | 2026-08-04 |
 | [0022](0022-promote-worker-pause-and-resume.md) | Promote Worker Pause and Resume | Accepted | 2026-08-05 |
 | [0023](0023-build-the-workflow-health-projection-and-promote-diagnostics.md) | Build the Workflow-Health Projection and Promote Administrative Diagnostics | Accepted | 2026-08-05 |
+| [0024](0024-bound-metrics-at-the-call-site.md) | Bound Metrics at the Call Site, and the Export Queue at the Process Edge | Accepted | 2026-08-05 |
 
 ---
 

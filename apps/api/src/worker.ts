@@ -24,6 +24,7 @@ import {
   RECONCILE_INTERVAL_SECONDS,
   describeError,
   getLogger,
+  getMetrics,
   reconcileWorkflowHealthUseCase,
   setLogger,
 } from "@aios/application";
@@ -35,6 +36,7 @@ import { captureUnhandledFailures } from "./failure-capture.js";
 import { loopLiveness, workerReadiness } from "./health.js";
 import { chooseLogger } from "./json-logger.js";
 import { drainOutbox } from "./outbox-worker.js";
+import { startMetrics } from "./metrics-setup.js";
 import { startProbeServer } from "./probe-server.js";
 import { readDeploymentPause } from "./worker-pause-config.js";
 
@@ -52,6 +54,7 @@ const main = async (): Promise<void> => {
 
   const pool = createPool({ connectionString });
   const deps = dependenciesFor(pool);
+  const metrics = startMetrics(process.env, "aios-worker", pool);
 
   const { logger, reason: logReason } = chooseLogger(process.env, "aios-worker");
   setLogger(logger);
@@ -165,8 +168,11 @@ const main = async (): Promise<void> => {
     // Waited on rather than cut short: a drain killed midway leaves claimed
     // messages to time out rather than being handed back, which delays exactly
     // the work a deploy was trying not to disrupt.
+    metrics.stop();
     void inFlight.finally(() => {
-      void pool.end().finally(() => process.exit(0));
+      void metrics.sink.shutdown().finally(() => {
+        void pool.end().finally(() => process.exit(0));
+      });
     });
   };
 
@@ -174,8 +180,29 @@ const main = async (): Promise<void> => {
   process.once("SIGINT", () => shutdown("SIGINT"));
 
   while (!stopping) {
+    const drainStartedAt = process.hrtime.bigint();
+    getMetrics().count("worker_jobs_started_total", { worker_type: "OutboxPublication" });
+
     inFlight = drainOutbox(pool, deps, BATCH_SIZE, options)
       .then((result) => {
+        // Counted per drain rather than per message: a drain is the unit the
+        // Worker claims, retries, and can be killed in the middle of, so it is
+        // the unit whose duration and failure rate mean something.
+        const metrics = getMetrics();
+        metrics.observe(
+          "worker_duration_seconds",
+          Number(process.hrtime.bigint() - drainStartedAt) / 1e9,
+          { worker_type: "OutboxPublication" },
+        );
+        metrics.count("worker_jobs_completed_total", { worker_type: "OutboxPublication" });
+        if (result.failed > 0) {
+          metrics.count(
+            "worker_jobs_failed_total",
+            { worker_type: "OutboxPublication" },
+            result.failed,
+          );
+        }
+
         if (result.applied > 0 || result.failed > 0 || result.notified > 0) {
           logger.log({
             severity: result.failed > 0 ? "WARN" : "INFO",
@@ -196,6 +223,9 @@ const main = async (): Promise<void> => {
         return result;
       })
       .catch((error: unknown) => {
+        getMetrics().count("worker_jobs_failed_total", {
+          worker_type: "OutboxPublication",
+        });
         // Logged and retried on the next tick. A worker that exits on the first
         // transient database error is a worker that needs a supervisor to do
         // what the loop can do itself.

@@ -18,10 +18,16 @@ import { resolve } from "node:path";
 import type { INestApplication } from "@nestjs/common";
 import { Pool } from "pg";
 import request from "supertest";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { SECRETARY_IDENTITY_ID, createApp, dependenciesFor } from "./app.js";
-import { reconcileWorkflowHealthUseCase } from "@aios/application";
+import {
+  Metrics,
+  nullSink,
+  reconcileWorkflowHealthUseCase,
+  setMetrics,
+  type MetricSample,
+} from "@aios/application";
 import { drainOutbox } from "./outbox-worker.js";
 import { DeterministicMemoryGenerator } from "./deterministic-memory-generator.js";
 import { DEV_ISSUER, DEV_PROVIDER, DevAuthAdapter } from "./dev-auth.js";
@@ -180,7 +186,11 @@ suite("AIOS API", () => {
    * outage — so the row lands shortly after the request resolves.
    */
   const auditRows = async (permission: string, expected = 1) => {
-    for (let attempt = 0; attempt < 50; attempt += 1) {
+    // 3s rather than 500ms. The interceptor deliberately does not await its
+    // write — an audit outage must not become an availability outage — so the
+    // row lands some time after the response. 500ms was enough until the
+    // machine was busy, and then it was a flake that looked like a defect.
+    for (let attempt = 0; attempt < 300; attempt += 1) {
       const result = await pool.query(
         `SELECT * FROM authorization_audit_records
           WHERE permission = $1 ORDER BY evaluated_at, created_at`,
@@ -189,7 +199,7 @@ suite("AIOS API", () => {
       if (result.rows.length >= expected) return result.rows;
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
-    throw new Error(`no audit row for ${permission} after 500ms`);
+    throw new Error(`no audit row for ${permission} after 3s`);
   };
 
   const createWork = async (title = "Ship the MVP") => {
@@ -3850,6 +3860,114 @@ suite("AIOS API", () => {
         .expect(201);
       return work;
     };
+  });
+
+
+  /**
+   * RED metrics (baseline item 5), against the real pipeline.
+   *
+   * The interesting cases are the ones an interceptor could not see, which is
+   * why this is middleware — and why the test issues a guard denial and an
+   * unmatched path rather than only a happy request.
+   */
+  describe("HTTP RED metrics", () => {
+    /** Captures samples in place of the exporter. */
+    const capture = () => {
+      const samples: MetricSample[] = [];
+      setMetrics(
+        new Metrics(
+          {
+            emit: (batch) => samples.push(...batch),
+            shutdown: async () => true,
+          },
+          "aios-api",
+        ),
+      );
+      return samples;
+    };
+
+    afterEach(() => {
+      setMetrics(new Metrics(nullSink, "aios-api"));
+    });
+
+    const requestsIn = (samples: MetricSample[]) =>
+      samples
+        .filter((s) => s.name === "http_server_requests_total")
+        .map((s) => s.dimensions);
+
+    it("counts a successful request with its route template and permission", async () => {
+      const samples = capture();
+
+      await request(server()).get("/works").set(as(MEMBER)).expect(200);
+
+      expect(requestsIn(samples)).toContainEqual({
+        service: "aios-api",
+        route_template: "/works",
+        http_method: "GET",
+        operation: "none",
+        outcome_class: "2xx",
+      });
+    });
+
+    it("counts a refusal the guard made, which no interceptor would see", async () => {
+      // Guards run before interceptors, so a request rejected for a missing
+      // Membership never reaches one. These are the most security-relevant
+      // denials there are.
+      const samples = capture();
+
+      await request(server())
+        .get("/works")
+        // 401: an unknown subject fails authentication, which the guard also
+        // refuses before any interceptor runs.
+        .set({ "x-dev-subject": "nobody-at-all", "x-organization-id": ORG })
+        .expect(401);
+
+      expect(requestsIn(samples)).toContainEqual(
+        expect.objectContaining({ route_template: "/works", outcome_class: "4xx" }),
+      );
+    });
+
+    it("never puts an identifier in a dimension", async () => {
+      const samples = capture();
+      const work = await createWork();
+
+      await request(server()).get(`/works/${work.workId}`).set(as(MEMBER)).expect(200);
+
+      // The whole cardinality rule, as a property over everything emitted. A
+      // dimension carrying this identifier would outlive AIOS's own retention
+      // inside a provider's rollups.
+      expect(JSON.stringify(samples)).not.toContain(work.workId);
+      expect(JSON.stringify(samples)).not.toContain(ORG);
+      expect(requestsIn(samples)).toContainEqual(
+        expect.objectContaining({ route_template: "/works/:workId" }),
+      );
+    });
+
+    it("reports an unmatched path as a bounded literal", async () => {
+      const samples = capture();
+
+      await request(server()).get("/no-such-route-at-all").expect(404);
+
+      // Not the path. `request.route` is undefined when nothing matched, and
+      // falling back to the path would let a caller choose a dimension value.
+      expect(requestsIn(samples)).toContainEqual(
+        expect.objectContaining({ route_template: "unmatched" }),
+      );
+      expect(JSON.stringify(samples)).not.toContain("no-such-route-at-all");
+    });
+
+    it("records duration for every request, without splitting it by outcome", async () => {
+      const samples = capture();
+
+      await request(server()).get("/works").set(as(MEMBER)).expect(200);
+
+      const durations = samples.filter(
+        (s) => s.name === "http_server_request_duration_seconds",
+      );
+      expect(durations).toHaveLength(1);
+      expect(durations[0]?.value).toBeGreaterThan(0);
+      expect(durations[0]?.dimensions).not.toHaveProperty("outcome_class");
+    });
   });
 
   describe("operational recovery (events.*)", () => {

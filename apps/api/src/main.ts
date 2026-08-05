@@ -17,6 +17,7 @@ import { buildDevApp } from "./app.js";
 import { httpReadiness } from "./health.js";
 import { captureUnhandledFailures } from "./failure-capture.js";
 import { chooseLogger } from "./json-logger.js";
+import { startMetrics } from "./metrics-setup.js";
 import { startProbeServer } from "./probe-server.js";
 
 const main = async (): Promise<void> => {
@@ -61,6 +62,11 @@ const main = async (): Promise<void> => {
   // request pool, and a probe drawing from that pool would be unable to report
   // the exhaustion it is meant to catch — it would simply block.
   const probePool = createPool({ connectionString, max: 2 });
+
+  // On the probe pool rather than the request pool, for the same reason the
+  // probes are: a collector that competed for request connections would report
+  // the pool exhaustion it had helped cause.
+  const metrics = startMetrics(process.env, "aios-api", probePool);
   let shuttingDown = false;
 
   startProbeServer({
@@ -82,8 +88,14 @@ const main = async (): Promise<void> => {
   for (const signal of ["SIGTERM", "SIGINT"] as const) {
     process.once(signal, () => {
       shuttingDown = true;
+      metrics.stop();
+      // Flushed inside its own deadline, so a hung telemetry backend cannot
+      // hold the process past its termination grace period. The exporter
+      // returns false and counts the timeout rather than waiting.
       void app.close().finally(() => {
-        void probePool.end().finally(() => process.exit(0));
+        void metrics.sink.shutdown().finally(() => {
+          void probePool.end().finally(() => process.exit(0));
+        });
       });
     });
   }

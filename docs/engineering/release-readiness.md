@@ -33,10 +33,10 @@ driving the whole loop over HTTP.
 | | |
 |---|---|
 | Release Acceptance Criteria | 33 executable tests, all passing |
-| Test suite | 842 passing (types 11, domain 170, application 269, persistence 89, api 303) |
+| Test suite | 873 passing (types 11, domain 170, application 295, persistence 89, api 308) |
 | Routed permissions enforced | 47 / 47 |
-| Documentation checks | 64 files |
-| Accepted and proposed ADRs | 23 |
+| Documentation checks | 65 files |
+| Accepted and proposed ADRs | 24 |
 
 The domain loop is complete. Work → Decision → completion → generated Memory → human
 review → immutable approved Memory works end to end, with Organization isolation, an
@@ -55,20 +55,23 @@ Thirteen items. Assessed against the code as it stands.
 | # | Baseline requirement (MUST) | Status |
 |---|---|---|
 | 1 | Structured JSON logs with a stable base envelope and redaction | **Done** — version-3 envelope, key-based redaction, allowlisted error fields, JSON to stdout |
-| 2 | Bounded telemetry exporters with queue limits, timeouts, retry ceilings, loss counters, shutdown deadlines | **Absent** |
+| 2 | Bounded telemetry exporters with queue limits, timeouts, retry ceilings, loss counters, shutdown deadlines | **Done** — every bound built and tested against a backend that misbehaves (ADR-0024) |
 | 3 | Server-owned request and workflow correlation | **Done** — one identifier spans the response, the audit rows, and the Outbox |
 | 4 | Error capture for unhandled application and Worker failures | **Done** — `uncaughtException` and `unhandledRejection` captured in both processes |
-| 5 | RED metrics for HTTP traffic | **Absent** |
-| 6 | PostgreSQL, Outbox, Worker, queue-age, and Work-to-Memory workflow metrics | **Absent** |
+| 5 | RED metrics for HTTP traffic | **Done** — `http_server_requests_total` and `_duration_seconds`, recorded in middleware so guard refusals are counted |
+| 6 | PostgreSQL, Outbox, Worker, queue-age, and Work-to-Memory workflow metrics | **Done** — sampled levels, no Organization dimension |
 | 7 | Durable audit for Human-authoritative transitions and privileged operational actions | **Done** — `authorization_audit_records`, edge and use-case halves |
 | 8 | HTTP and Worker liveness/readiness, asynchronous workflow health, restricted admin diagnostics | **Done** — four process probes, the rebuildable health projection with freshness, and the Owner-only diagnostic surface (ADR-0023) |
 | 9 | Bounded retry, idempotency, retry-exhaustion visibility, dead-letter handling, typed Operations commands for Worker pause/resume, replay, dead-letter retry/skip | **Done** — pause and resume land as ADR-0022, alongside replay and dead-letter retry/skip |
 | 10 | Continuous WAL archiving, base backup ≥ every 24h, 14-day PITR, monthly verified restore test, approved RPO and RTO | **Absent** — the restore *procedure* is proven by an executable drill; no production storage, schedule, or retention exists |
-| 11 | Actionable alerts for database unavailability, authoritative-write failure, Outbox or Worker stoppage, Memory-generation failure, Organization-isolation violation | **Absent** |
+| 11 | Actionable alerts for database unavailability, authoritative-write failure, Outbox or Worker stoppage, Memory-generation failure, Organization-isolation violation | **Absent** — the series the rules attach to now exist; the rules need a backend to evaluate them |
 | 12 | The six MVP runbooks | **Partial** — all six written, plus two for Worker containment, and all executed; runbooks 1–5 against a live local environment rather than staging |
 | 13 | Separate Worker process | **Done** — `apps/api/src/worker.ts`; `chooseWorkerMode` refuses in-process draining outside development |
 
-Seven done, two partial, four absent. None of it is domain work.
+Ten done, one partial, two absent. What remains needs infrastructure this
+repository does not have: a metrics backend to evaluate alert rules against, an
+object store to hold backups in, and a staging environment to rehearse the
+runbooks in.
 
 Item 12 stays Partial for a narrower reason than before: every runbook has now been
 executed, but runbooks 1–5 were executed against a **live local environment**, not a staging
@@ -447,6 +450,52 @@ right for `GET /notifications` and wrong for a privileged operational read, whic
 architecture requires to be audited. The interceptor now audits `GET` for the `events.*` and
 `operations.*` families only, `check_audit.py` enforces the rule in both directions, and
 `GET /admin/events/failed` gained the trace it should always have had.
+
+### B5. Telemetry, metrics, and the exporter (items 2, 5, 6) — done
+
+Three baseline items with one shape, and ADR-0003 had already decided the
+destination and attached the two limits that decide everything else: a hundred
+active time series, and no tenant identifier in a dimension.
+
+**The cardinality rule is enforced in code** (ADR-0024). A closed catalogue of
+metric names and a closed allowlist of dimension names, both checked on every
+sample. That is not fastidiousness — ADR-0003 explains that provider rollups
+outlive the 30-day query window, so an identifier reaching a dimension is a
+tenant-data retention path *no deletion request can reach*, created by a line of
+instrumentation nobody thought was a data-handling decision. A review cannot be
+the only thing standing between a call site and that.
+
+A refused sample is **dropped loudly, never thrown**: telemetry must not be able
+to fail a request. Export limits are the exception and throw at startup, because
+a process configured to buffer without limit should not start.
+
+**RED is middleware, and getting there took two live failures.** As an
+interceptor it recorded every refusal as `2xx` — Nest runs interceptors before
+exception filters, so the status was still the default when the sample was taken.
+And it never saw a guard's refusal at all, because guards run before
+interceptors. Those are the most security-relevant denials there are.
+`response.on("finish")` in middleware sees every request once, with its real
+outcome, including the ones nothing else in the pipeline observes. Verified by
+issuing a success, a 400, a 404, a guard denial, and an unmatched path, and
+reading what came out.
+
+**The exporter is bounded at every edge**, and each bound is tested against a
+transport that misbehaves on purpose: a queue that cannot grow, an admission
+policy that evicts by priority without growing, a per-request deadline that
+aborts, a retry ceiling that discards rather than requeuing, and a shutdown that
+returns `false` rather than hanging. That last one was wrong when written —
+`shutdown` reported success because the queue had emptied, while the batch was
+still in flight to a backend that never answered — and the test is what found it.
+
+Item 6's levels are sampled rather than counted, and carry **no Organization
+dimension**: "Metric backends receive only bounded aggregate status counts;
+Organization identifiers remain in PostgreSQL, logs, traces, and authorized
+diagnostic results." The per-Organization answer is the authorized health route.
+
+Not built, and named rather than implied: **the CloudWatch transport**.
+`METRICS_SINK=cloudwatch` is accepted and says so in the startup log rather than
+discarding silently, because an operator who configured it and got nothing should
+be told why rather than find out from an empty dashboard mid-incident.
 
 ### B4. Alerts and runbooks (items 11, 12)
 
