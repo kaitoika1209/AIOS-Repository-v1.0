@@ -31,3 +31,4 @@ export * from "./pool.js";
 export * from "./diagnostics-query.js";
 export * from "./worker-pause-repository.js";
 export * from "./workflow-health-query.js";
+export * from "./recovery-status-query.js";

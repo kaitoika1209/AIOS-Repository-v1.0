@@ -25,6 +25,7 @@ import {
   describeError,
   getLogger,
   getMetrics,
+  nullSink,
   reconcileWorkflowHealthUseCase,
   setLogger,
 } from "@aios/application";
@@ -37,6 +38,7 @@ import { loopLiveness, workerReadiness } from "./health.js";
 import { chooseLogger } from "./json-logger.js";
 import { drainOutbox } from "./outbox-worker.js";
 import { startMetrics } from "./metrics-setup.js";
+import { startRecoveryReporting } from "./recovery-setup.js";
 import { startProbeServer } from "./probe-server.js";
 import { readDeploymentPause } from "./worker-pause-config.js";
 
@@ -62,6 +64,14 @@ const main = async (): Promise<void> => {
 
   const { generator, reason } = chooseGenerator(process.env);
 
+  // After `startMetrics`, because the reporter publishes through the metrics
+  // facade that call installs, and skipped entirely when nothing is publishing.
+  const recovery = startRecoveryReporting(
+    process.env,
+    pool,
+    metrics.sink !== nullSink,
+  );
+
   // Read once, at startup. A deployment pause that could change under a running
   // loop would let the readiness answer and the claim behaviour disagree for as
   // long as the process lived (ADR-0022).
@@ -78,6 +88,7 @@ const main = async (): Promise<void> => {
       "worker.memory_generation": reason,
       "worker.logging": logReason,
       "worker.pause": deploymentPause.reason,
+      "worker.recovery": recovery.reason,
     },
   });
 
@@ -168,6 +179,7 @@ const main = async (): Promise<void> => {
     // Waited on rather than cut short: a drain killed midway leaves claimed
     // messages to time out rather than being handed back, which delays exactly
     // the work a deploy was trying not to disrupt.
+    recovery.stop();
     metrics.stop();
     void inFlight.finally(() => {
       void metrics.flush().finally(() => {

@@ -551,7 +551,8 @@ the thing being recovered from is a mistaken deletion. Confirmed by removing
 
 **Nothing about production storage exists.** No durable archive destination, no backup
 schedule, no retention, no deletion-resistant tier, no encryption or key custody, nothing
-scheduling the drill, and none of the nine recovery metrics. All Stage D infrastructure.
+scheduling the drill, and four of the ten recovery metrics still unpublishable without a
+managed provider. All Stage D infrastructure.
 
 So item 10 stays **Absent**, deliberately. A correct procedure with nothing to restore from
 recovers nothing, and marking it Partial on the strength of a working drill would be the

@@ -163,7 +163,7 @@ What RDS does **not** give you, and the baseline still requires:
 |---|---|
 | A monthly *verified* restore test | Schedule `scripts/restore_drill.sh`'s real equivalent: restore to a new instance at a chosen timestamp, assert, tear down. "Backup-job success is not proof of recoverability" |
 | Deletion-resistant storage | Backups live in the same account as the thing being backed up. A copy to a separate account or a Vault Lock is what survives a compromised credential |
-| The nine recovery metrics | `latest_restorable_point_age_seconds`, `restore_test_age_seconds`, and the rest — publishable now from `RDS DescribeDBInstances` plus the drill's own result |
+| The ten recovery metrics | **Built.** Eight come from PostgreSQL and the drill's recorded result; `latest_restorable_point_age_seconds` and `pitr_window_days` need `RDS_DB_INSTANCE_IDENTIFIER` and a real instance |
 | The RPO alarm | "Operations MUST alert before the 15-minute RPO is consumed" |
 
 Also here:
@@ -177,7 +177,7 @@ Also here:
 
 **Decisions:** D2 (engine), D3 (Multi-AZ), D4 (RPO/RTO owner).
 **I can:** write the restore-drill job against a real RDS snapshot, publish the
-nine recovery metrics through the exporter that already exists, and write the
+ten recovery metrics through the exporter that already exists, and write the
 CloudWatch alarm definitions.
 
 **Rough cost:** `db.t4g.small`, single-AZ, 14-day retention ≈ **$40–60/month** in
@@ -344,7 +344,7 @@ staging, $270–330.
 
 - Everything in Phase 0, once there is a Docker daemon.
 - The CloudWatch metric transport (Phase 4), behind the bounds that already exist.
-- The nine recovery metrics (Phase 2), published through the same exporter.
+- The ten recovery metrics (Phase 2), published through the same exporter.
 - Infrastructure-as-code for all of it — task definitions, service definitions,
   RDS parameters, alarms, metric filters, dashboards, the OIDC deployment role.
 - The deploy workflow and the migration task.

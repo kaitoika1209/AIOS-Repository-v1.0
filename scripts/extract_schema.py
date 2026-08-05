@@ -56,6 +56,7 @@ TABLE_ORDER = [
     "event_replays",
     "worker_pauses",
     "organization_workflow_health",
+    "recovery_control_events",
 ]
 
 SQL_BLOCK = re.compile(r"```sql\n(.*?)```", re.S)

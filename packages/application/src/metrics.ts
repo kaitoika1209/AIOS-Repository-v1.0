@@ -136,6 +136,22 @@ export const METRIC_CATALOGUE = {
   db_pool_connections_total: "Gauge",
   db_pool_idle_total: "Gauge",
   db_pool_waiting_total: "Gauge",
+  // --- Recovery capability (item 10) ---------------------------------------
+  // The ten `observability-and-operations.md` names, all gauges: each is a
+  // current fact about recoverability read from the provider, the archiver, or
+  // the drill's own record. The three ending `_total` are cumulative counts
+  // read from a store rather than incremented here, so publishing them as
+  // Counters would double-count every one on each sample.
+  wal_archive_lag_seconds: "Gauge",
+  latest_restorable_point_age_seconds: "Gauge",
+  pitr_window_days: "Gauge",
+  backup_integrity_failure_total: "Gauge",
+  restore_test_failure_total: "Gauge",
+  restore_test_rpo_seconds: "Gauge",
+  restore_test_rto_seconds: "Gauge",
+  restore_test_age_seconds: "Gauge",
+  disaster_recovery_exercise_age_seconds: "Gauge",
+  recovery_external_effect_unknown_total: "Gauge",
   // --- The exporter's own health (item 2) ----------------------------------
   telemetry_export_attempt_total: "Counter",
   telemetry_export_failure_total: "Counter",

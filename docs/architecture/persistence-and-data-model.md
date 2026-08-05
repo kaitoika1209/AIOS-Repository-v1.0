@@ -6469,6 +6469,85 @@ operator believe processing had stopped when it had not.
 
 ---
 
+## Recovery Control Evidence
+
+`observability-and-operations.md` requires a documented isolated restore test at least
+monthly and a full disaster-recovery exercise at least quarterly, and it requires the
+result of each to be observable independently of whether the backup *job* succeeded:
+"Backup-job success is not proof of recoverability."
+
+An exercise that leaves no durable record cannot be observed at all. The age of the latest
+restore test is a required metric, and an age is computable only from a timestamp somebody
+stored.
+
+```sql
+CREATE TABLE recovery_control_events (
+    recovery_control_event_id uuid PRIMARY KEY,
+
+    control_type            text NOT NULL,
+    outcome                 text NOT NULL,
+    performed_at            timestamptz NOT NULL,
+
+    achieved_rpo_seconds    integer NULL,
+    achieved_rto_seconds    integer NULL,
+
+    evidence_reference      text NULL,
+    performed_by            text NOT NULL,
+    recorded_at             timestamptz NOT NULL,
+
+    CONSTRAINT ck_recovery_control_type CHECK (
+        control_type IN ('RestoreTest', 'DisasterRecoveryExercise', 'BackupIntegrityCheck')
+    ),
+
+    CONSTRAINT ck_recovery_control_outcome CHECK (
+        outcome IN ('Passed', 'Failed')
+    ),
+
+    CONSTRAINT ck_recovery_control_achieved CHECK (
+        (control_type = 'RestoreTest' AND outcome = 'Passed')
+        = (achieved_rpo_seconds IS NOT NULL AND achieved_rto_seconds IS NOT NULL)
+    ),
+
+    CONSTRAINT ck_recovery_control_achieved_sign CHECK (
+        (achieved_rpo_seconds IS NULL OR achieved_rpo_seconds >= 0)
+        AND (achieved_rto_seconds IS NULL OR achieved_rto_seconds >= 0)
+    )
+);
+
+CREATE INDEX ix_recovery_control_latest
+    ON recovery_control_events (control_type, performed_at DESC);
+```
+
+The table carries no `organization_id`. Recovery is a property of the cluster, not of a
+tenant: a restore returns every Organization or none, and an exercise attributed to one
+Organization would imply the others were not covered.
+
+It is **insert-only**. A control event is evidence, and evidence that can be edited after
+an audit asks for it is not evidence. A restore test whose result was wrong is corrected by
+recording the later test that supersedes it, which is also what actually happened.
+
+`ck_recovery_control_achieved` is the constraint worth stating in the schema rather than
+trusting to the writer: **exactly a passing restore test carries achieved figures.** A
+failed restore measured no RPO — it produced no restored database to measure against — and
+a row claiming both a failure and a four-minute achieved RPO is the shape of the false
+reassurance this whole section exists to prevent. Equally, a passing test that recorded
+neither figure would satisfy "a test ran" while answering none of the questions the test
+was for.
+
+`performed_by` is free text naming a human or an automated job rather than a foreign key to
+a Membership, because a scheduled drill has no Membership and platform operations are not
+Organization authority — the MVP models no cross-Organization Human principal
+(`authorization.md`).
+
+`evidence_reference` is an opaque pointer to the artifacts — an object key, a workflow run
+identifier — and never the artifacts themselves. It is read only by an operator who already
+has access to the store it names.
+
+`ix_recovery_control_latest` serves the only read there is: the newest row of a given
+control type.
+
+---
+
 ## Reconciliation Finding Persistence
 
 Recommended table:

@@ -56,7 +56,49 @@ PORT_RESTORED=54331
 RUNAS="${DRILL_USER:-postgres}"
 
 step() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
-fail() { printf '\033[31mFAILED: %s\033[0m\n' "$1" >&2; exit 1; }
+
+# Record the drill's outcome where the recovery metrics can find it.
+#
+# `restore_test_age_seconds` and `restore_test_failure_total` are required
+# metrics, and an age is computable only from a timestamp somebody stored. Until
+# this existed the drill printed its result and exited, so a drill that ran last
+# week and a drill that has never run were indistinguishable from outside — which
+# is the same failure as trusting a backup job's exit code, one level up.
+#
+# Optional and non-fatal. The drill's job is to prove the procedure; it must not
+# start failing because an unrelated database is unreachable.
+#
+#   record_result <outcome> [rpo_seconds] [rto_seconds]
+record_result() {
+  [ -n "${RECOVERY_EVIDENCE_DATABASE_URL:-}" ] || return 0
+  _outcome="$1"
+  _rpo="${2:-NULL}"
+  _rto="${3:-NULL}"
+  # Quoted here rather than interpolated as a bare token: an unquoted
+  # substitution would be read as SQL, and an evidence reference is an object key
+  # that arrives from the environment.
+  _ref="NULL"
+  [ -n "${EVIDENCE_REFERENCE:-}" ] && _ref="\$aios\$${EVIDENCE_REFERENCE}\$aios\$"
+  psql "$RECOVERY_EVIDENCE_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "
+    INSERT INTO recovery_control_events (
+      recovery_control_event_id, control_type, outcome, performed_at,
+      achieved_rpo_seconds, achieved_rto_seconds,
+      evidence_reference, performed_by, recorded_at
+    ) VALUES (
+      gen_random_uuid(), 'RestoreTest', '${_outcome}', now(),
+      ${_rpo}, ${_rto}, ${_ref}, '${DRILL_PERFORMED_BY:-restore-drill}', now()
+    )" >/dev/null 2>&1 ||
+    printf '\033[33m  (could not record the result: %s)\033[0m\n' "$RECOVERY_EVIDENCE_DATABASE_URL" >&2
+}
+
+# A failed drill is recorded before exiting. A control failure that leaves no
+# trace is a control failure nobody counts, and `restore_test_failure_total`
+# exists precisely to count it.
+fail() {
+  printf '\033[31mFAILED: %s\033[0m\n' "$1" >&2
+  record_result Failed
+  exit 1
+}
 
 cleanup() {
   su "$RUNAS" -c "$BIN/pg_ctl -D '$PRIMARY' -m immediate stop" >/dev/null 2>&1 || true
@@ -184,8 +226,17 @@ step "Result"
 RTO=$((RESTORE_FINISHED - RESTORE_STARTED))
 WINDOW=$((RESTORE_STARTED - BACKUP_STARTED))
 
+# The instant was honoured exactly — the assertions above are what proves it —
+# so no committed data inside the window was lost and the achieved RPO for this
+# drill is zero. That is a claim about the *procedure*, not about production:
+# the production figure is bounded by `archive_timeout` and by how much WAL the
+# real archive destination is holding, neither of which exists here.
+RPO=0
+record_result Passed "$RPO" "$RTO"
+
 cat <<SUMMARY
   restore_test_result        : pass
+  restore_test_rpo_seconds   : ${RPO}
   restore_test_rto_seconds   : ${RTO}
   recovery_target            : ${TARGET}
   base_backup_age_seconds    : ${WINDOW}

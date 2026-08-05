@@ -25,6 +25,7 @@ export * from "./correlation.js";
 export * from "./logging.js";
 export * from "./metrics.js";
 export * from "./telemetry-export.js";
+export * from "./recovery.js";
 export * from "./diagnostics.js";
 export * from "./worker-pause.js";
 export * from "./workflow-health.js";

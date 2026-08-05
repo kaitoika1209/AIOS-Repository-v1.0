@@ -67,7 +67,7 @@ Everything about production *storage*, as opposed to the recovery *procedure*:
 | Backup encryption at rest, and its key custody | Not configured |
 | Monthly restore test | The drill exists; nothing schedules it |
 | Quarterly disaster-recovery exercise | Not performed |
-| The nine recovery metrics | Not emitted |
+| The ten recovery metrics | Six emitted; four need a managed provider or a first exercise |
 
 The `restore_test_rto_seconds` above is **a floor, not the production number**. It measures
 a local restore of a 39 MB cluster and excludes fetching a backup from an object store,
@@ -77,6 +77,47 @@ backup job's exit code as proof of recoverability.
 
 All of it is Stage D infrastructure. Until it exists, **item 10 is Absent** — a correct
 procedure with nothing to restore *from* recovers nothing.
+
+---
+
+## The ten recovery metrics
+
+`observability-and-operations.md` names ten. This document said "nine" until the list was
+counted against the architecture, which is a small error with a specific cost: a checklist
+whose total is wrong cannot tell you which item is missing.
+
+| Metric | Source | Emitted here |
+|---|---|---|
+| `wal_archive_lag_seconds` | `pg_stat_archiver.last_archived_time` | Only where `archive_mode` is on |
+| `latest_restorable_point_age_seconds` | RDS `LatestRestorableTime` | Needs a managed instance |
+| `pitr_window_days` | RDS `BackupRetentionPeriod` | Needs a managed instance |
+| `backup_integrity_failure_total` | `recovery_control_events` | Yes |
+| `restore_test_failure_total` | `recovery_control_events` | Yes |
+| `restore_test_rpo_seconds` | The drill's recorded result | Yes |
+| `restore_test_rto_seconds` | The drill's recorded result | Yes |
+| `restore_test_age_seconds` | The drill's recorded result | Yes |
+| `disaster_recovery_exercise_age_seconds` | `recovery_control_events` | After the first exercise |
+| `recovery_external_effect_unknown_total` | Dead letters × the consumer registry | Yes |
+
+Two design points are worth stating because both are ways this goes quietly wrong.
+
+**A value that is not known is not published.** Publishing zero for
+`latest_restorable_point_age_seconds` on a cluster whose restorable point nobody has
+confirmed would draw a flat green line meaning "recoverable to this instant" — the exact
+false reassurance these metrics exist to prevent, arriving through the metric that prevents
+it. Unknown is therefore *absent*, and every alarm over these series is configured
+`TreatMissingData: breaching`, because an absent series with the default treatment sits in
+`INSUFFICIENT_DATA` forever and never fires.
+
+**The drill now records what it measured.** Until it did, it printed its result and exited,
+so a drill that ran last week and a drill that has never run were indistinguishable from
+outside — the same failure as trusting a backup job's exit code, one level up. Results go
+to `recovery_control_events`, which is insert-only and platform-scoped, and a *failing*
+drill records its failure before exiting, because `restore_test_failure_total` exists to
+count exactly that.
+
+Set `RECOVERY_EVIDENCE_DATABASE_URL` when running the drill to have it record; without it
+the drill behaves as before and prints only.
 
 ---
 
