@@ -27,3 +27,14 @@ jobs:
 
       - name: Check the authorization audit records what it claims to
         run: python3 scripts/check_audit.py
+
+      # The templates in `infra/` have never been applied and cannot be from
+      # here. What is checkable is that they still agree with the code they
+      # describe — an alarm threshold against the constant in `recovery.ts`, a
+      # probe path against what the process actually serves, a log retention
+      # against ADR-0003's table. Those drift silently, because nobody re-reads
+      # a CloudFormation template when they change a TypeScript constant.
+      - name: Check the infrastructure agrees with the code
+        run: |
+          pip install --quiet pyyaml
+          python3 scripts/check_infra.py

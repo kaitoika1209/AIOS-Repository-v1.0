@@ -1,0 +1,120 @@
+name: Deploy
+
+# Manual only, and it stays that way until a human has applied `infra/` once by
+# hand and watched what happened. A deploy workflow that has never run against a
+# real account is an unexecuted runbook with a green checkmark on it.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Which environment to deploy
+        required: true
+        type: choice
+        options: [staging, production]
+
+concurrency:
+  # Never two deploys into one environment. The migration task and the service
+  # roll are not atomic together, and two overlapping deploys can put a new
+  # migration in front of an old image.
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  # The only credential in this workflow. `id-token: write` lets the job mint an
+  # OIDC token that `aios-deployment` trusts for exactly this repository and
+  # ref; there is no AWS key stored anywhere, and `check_infra.py` fails the
+  # build if one appears.
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-1
+
+jobs:
+  deploy:
+    name: Build, migrate, roll
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+
+      # The git SHA, never `latest`. The ECR repository has immutable tags, so
+      # "roll back to the previous task definition" — runbook 5's first step —
+      # means something.
+      - name: Build and push
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          REPOSITORY: aios-${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          docker build --target api -t "$REGISTRY/$REPOSITORY:${{ github.sha }}" .
+          docker push "$REGISTRY/$REPOSITORY:${{ github.sha }}"
+
+      # Before the services roll, as a one-off task. Never on application start:
+      # two tasks starting together race for ADR-0020's ledger, and the loser
+      # fails loudly — better than silently, still an outage.
+      #
+      # Waited on and its exit code checked. A migration that failed while the
+      # deploy carried on is new code against an old schema, which is the state
+      # `GET /admin/diagnostics`'s `schemaVersion` exists to reveal and which
+      # nobody should have to discover that way.
+      - name: Run migrations
+        id: migrate
+        env:
+          CLUSTER: aios-${{ inputs.environment }}
+          FAMILY: aios-${{ inputs.environment }}-migrate
+        run: |
+          set -euo pipefail
+          SUBNETS=$(aws ecs describe-services --cluster "$CLUSTER" \
+            --services "aios-${{ inputs.environment }}-api" \
+            --query 'services[0].networkConfiguration.awsvpcConfiguration.subnets' --output text | tr '\t' ',')
+          GROUPS=$(aws ecs describe-services --cluster "$CLUSTER" \
+            --services "aios-${{ inputs.environment }}-api" \
+            --query 'services[0].networkConfiguration.awsvpcConfiguration.securityGroups' --output text | tr '\t' ',')
+
+          TASK=$(aws ecs run-task \
+            --cluster "$CLUSTER" \
+            --task-definition "$FAMILY" \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$GROUPS],assignPublicIp=DISABLED}" \
+            --query 'tasks[0].taskArn' --output text)
+
+          aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$TASK"
+
+          CODE=$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK" \
+            --query 'tasks[0].containers[0].exitCode' --output text)
+          echo "migration exit code: $CODE"
+          [ "$CODE" = "0" ] || {
+            echo "::error::The migration task failed. The services were NOT rolled." >&2
+            exit 1
+          }
+
+      - name: Roll the services
+        env:
+          CLUSTER: aios-${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          for service in api worker; do
+            aws ecs update-service --cluster "$CLUSTER" \
+              --service "aios-${{ inputs.environment }}-$service" \
+              --force-new-deployment >/dev/null
+          done
+
+      # The deploy is not finished when the API call returns. The service's
+      # circuit breaker rolls a failing deployment back on its own, and this is
+      # what makes that visible here rather than in an alarm ten minutes later.
+      - name: Wait for both services to stabilise
+        env:
+          CLUSTER: aios-${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          aws ecs wait services-stable --cluster "$CLUSTER" \
+            --services "aios-${{ inputs.environment }}-api" "aios-${{ inputs.environment }}-worker"

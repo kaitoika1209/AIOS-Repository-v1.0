@@ -33,7 +33,7 @@ import {
 } from "@aios/application";
 import { catchError, from, mergeMap, tap, throwError } from "rxjs";
 
-import type { AuditRecord, AuditRepository } from "@aios/application";
+import { getMetrics, type AuditRecord, type AuditRepository } from "@aios/application";
 
 import { isAuditedRead, permissionFor, resourceOf } from "./route-registry.js";
 
@@ -120,6 +120,29 @@ const isRefusal = (error: unknown): boolean => {
 /** `WORK_INVALID_TRANSITION`, `VALIDATION_FAILED`, `VERSION_CONFLICT`, … */
 const DOMAIN_CODE = /^[A-Z][A-Z_]+$/;
 
+/**
+ * The denial reasons a *metric* may carry.
+ *
+ * `codeOf` returns whatever code the refusal set, which is unbounded — a domain
+ * error class added next month becomes a new value. That is right for the audit
+ * row, which is a durable record in PostgreSQL, and wrong for a metric
+ * dimension, which ADR-0003 caps at 100 active series and which no deletion can
+ * reach once it is in a provider rollup. Anything outside this list becomes
+ * `OTHER`.
+ */
+const DENIAL_REASONS = new Set([
+  "PERMISSION_DENIED",
+  "RELATIONSHIP_REQUIRED",
+  "NOT_FOUND",
+  "VALIDATION_FAILED",
+  "VERSION_CONFLICT",
+]);
+
+const denialReasonOf = (error: unknown): string => {
+  const code = codeOf(error);
+  return DENIAL_REASONS.has(code) ? code : "OTHER";
+};
+
 const codeOf = (error: unknown): string =>
   typeof error === "object" && error !== null && "code" in error
     ? String((error as { code: unknown }).code)
@@ -205,13 +228,33 @@ export class AuditInterceptor implements NestInterceptor {
       catchError((error: unknown) => {
         const subject = subjectOf(request);
         const resource = resourceOf(request, undefined);
+        const outcome = outcomeOf(error);
+
+        // A refusal, counted. The durable finding — *which* Organization, which
+        // resource, which principal — stays in the audit table, which is where
+        // runbook 4 reads it and where it can be deleted; the metric carries
+        // only a bounded reason code, because "no Organization, Aggregate,
+        // request, trace, or principal identifiers in metric dimensions".
+        //
+        // HighPriority so that a saturated exporter drops ordinary telemetry
+        // before it drops a security signal. What this can and cannot detect is
+        // recorded in `infrastructure-roadmap.md`: a *rate* of denials is the
+        // probing signal, and an isolation violation is not distinguishable
+        // here by design — a cross-tenant resource returns 404, identical to a
+        // genuine miss.
+        if (outcome === "Deny") {
+          getMetrics().countHighPriority("authorization_denied_total", {
+            reason_code: denialReasonOf(error),
+          });
+        }
+
         return from(
           write({
             ...base,
             ...subject,
             resourceType: resource.type,
             resourceId: resource.id,
-            outcome: outcomeOf(error),
+            outcome,
             // The refusal's own code — `PERMISSION_DENIED`, `NOT_FOUND`,
             // `WORK_INVALID_TRANSITION`. This is the record that would not exist
             // at all without this interceptor.

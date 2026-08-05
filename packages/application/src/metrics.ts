@@ -136,6 +136,10 @@ export const METRIC_CATALOGUE = {
   db_pool_connections_total: "Gauge",
   db_pool_idle_total: "Gauge",
   db_pool_waiting_total: "Gauge",
+  // --- Authorization (item 11's isolation alert) ---------------------------
+  // Every audited refusal, by bounded reason code. HighPriority: a saturated
+  // exporter must drop ordinary telemetry before it drops a security signal.
+  authorization_denied_total: "Counter",
   // --- Recovery capability (item 10) ---------------------------------------
   // The ten `observability-and-operations.md` names, all gauges: each is a
   // current fact about recoverability read from the provider, the archiver, or

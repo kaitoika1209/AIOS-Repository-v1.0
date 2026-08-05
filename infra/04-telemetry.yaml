@@ -1,0 +1,469 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+# Phase 4: log groups, alarms, and the saved queries the runbooks cite.
+#
+# **Deploy this before `03-compute.yaml`.** ECS auto-creates a missing log group
+# with *no retention*, and ADR-0003 says the provider default of indefinite log
+# retention is prohibited. A log group created by accident keeps tenant-adjacent
+# operational records forever and nobody finds out until a bill or a subject
+# access request.
+#
+# Retention comes straight from ADR-0003's table and `check_infra.py` compares
+# every value against it:
+#
+#   application, Worker, deployment, database, access   30 days
+#   restricted security                                 90 days
+#   Class A and Class B audit                           365 days, in PostgreSQL
+#
+# The last row is why there is no audit log group here. Audit is a durable
+# PostgreSQL table, deliberately "not placed behind an optional telemetry
+# exporter"; a copy in CloudWatch would be a second, less durable, unowned
+# retention path for the same records.
+#
+# Every alarm sends to one SNS topic. Whether an alert is *actionable* is not
+# something a template can decide — an alert nobody acts on trains people to
+# ignore the ones that matter — so each alarm below states what a responder is
+# expected to do, and the runbook it belongs to.
+
+Description: AIOS telemetry — log groups, alarms, metric filters, saved queries
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    AllowedValues: [staging, production]
+  AlertEmail:
+    Type: String
+    Description: >-
+      A verified operator address (ADR-0003). SNS sends a confirmation; an
+      unconfirmed subscription silently drops every alert.
+
+Conditions:
+  IsProduction: !Equals [!Ref EnvironmentName, production]
+
+Resources:
+  # --- Log groups ------------------------------------------------------------
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aios/${EnvironmentName}/api"
+      RetentionInDays: 30
+
+  WorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aios/${EnvironmentName}/worker"
+      RetentionInDays: 30
+
+  MigrateLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aios/${EnvironmentName}/migrate"
+      RetentionInDays: 30
+
+  DatabaseLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/rds/instance/aios-${EnvironmentName}/postgresql"
+      RetentionInDays: 30
+
+  # 90 days, and a customer-managed key: "Restricted security log groups use a
+  # customer-managed KMS key and deletion protection."
+  SecurityLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub "/aios/${EnvironmentName}/security"
+      RetentionInDays: 90
+      KmsKeyId: !ImportValue
+        Fn::Sub: "aios-${EnvironmentName}-key"
+
+  # --- Where alerts go -------------------------------------------------------
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "aios-${EnvironmentName}-alerts"
+      DisplayName: AIOS
+
+  AlertSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref AlertTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  # --- Metric filters --------------------------------------------------------
+  #
+  # One filter, not two. The roadmap originally listed an
+  # Organization-isolation alert as "a metric filter on the log group, since the
+  # metric backend must never see the Organization". Building it showed that
+  # cannot work: authorization denials are Class B audit rows in PostgreSQL and
+  # are never written to a log, so there is nothing in CloudWatch Logs to filter.
+  # And a cross-tenant access is *deliberately* indistinguishable at the
+  # boundary — a resource in another Organization returns 404, identical to a
+  # genuine miss — so no signal here can isolate one.
+  #
+  # What replaced it is `authorization_denied_total`, emitted at the audit
+  # interceptor with a bounded reason code, alarmed on rate below. The isolation
+  # *finding* stays a query against the audit table, which is runbook 4.
+  DependencyUnavailableFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref ApiLogGroup
+      # The record `http-errors.ts` writes when a request failed because a
+      # dependency was unreachable — the 503 path, not the 500 path.
+      FilterPattern: '{ $.operationalLogName = "http.dependency_unavailable" }'
+      MetricTransformations:
+        - MetricNamespace: AIOS
+          MetricName: dependency_unavailable_events
+          MetricValue: "1"
+          DefaultValue: 0
+
+  # --- Alarms ----------------------------------------------------------------
+  DatabaseUnavailableAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "aios-${EnvironmentName}-database-unavailable"
+      AlarmDescription: >-
+        Requests are failing because a dependency is unreachable. Runbook 1.
+        Check RDS first, then the task security group; the API survives the
+        database going away and recovers without a restart, so restarting tasks
+        is not the fix.
+      Namespace: AIOS
+      MetricName: dependency_unavailable_events
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
+
+  AuthoritativeWriteFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "aios-${EnvironmentName}-write-failures"
+      AlarmDescription: >-
+        5xx responses. Distinct from the alarm above: a 503 is a dependency
+        this system knows about, a 500 is one it does not. Runbook 5 if it
+        started at a deploy, runbook 1 otherwise.
+      Namespace: AIOS
+      MetricName: http_server_requests_total
+      Dimensions:
+        - Name: service
+          Value: aios-api
+        - Name: outcome_class
+          Value: 5xx
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 10
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
+
+  OutboxStalledAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "aios-${EnvironmentName}-outbox-stalled"
+      AlarmDescription: >-
+        The oldest Pending Outbox row is older than the asynchronous workflow
+        target allows. Runbook 3. Check whether a Worker type is paused before
+        assuming it crashed — a pause is silent by design and reports Unready
+        with ADMINISTRATIVELY_PAUSED.
+      Namespace: AIOS
+      MetricName: outbox_oldest_pending_age_seconds
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 2
+      # Well inside the 8-hour asynchronous workflow recovery target: an alarm
+      # at the target reports a miss rather than preventing one.
+      Threshold: 900
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref AlertTopic]
+
+  MemoryGenerationFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "aios-${EnvironmentName}-memory-generation-failing"
+      AlarmDescription: >-
+        Memory generation is failing. ExternalComputation, so no authoritative
+        state is wrong and retrying is safe — check the provider and the rate
+        limits before touching anything durable.
+      Namespace: AIOS
+      MetricName: memory_generation_failed_total
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
+
+  AuthorizationDenialSpikeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "aios-${EnvironmentName}-denial-spike"
+      AlarmDescription: >-
+        An elevated rate of refusals. This is a probing signal, not an isolation
+        finding — the metric carries no Organization by design. Runbook 4 reads
+        the audit table to find out what was actually attempted, and that query
+        is the response to this alarm.
+      Namespace: AIOS
+      MetricName: authorization_denied_total
+      Dimensions:
+        - Name: service
+          Value: aios-api
+        - Name: reason_code
+          Value: PERMISSION_DENIED
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 50
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
+
+  TelemetryLossAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "aios-${EnvironmentName}-telemetry-dropping"
+      AlarmDescription: >-
+        The bounded exporter is dropping samples. Every other alarm here is
+        weakened while this is firing, which is why it exists: an exporter that
+        silently saturates makes the whole dashboard optimistic.
+      Namespace: AIOS
+      MetricName: telemetry_export_queue_utilization_ratio
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 0.8
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
+
+  # --- Recovery alarms -------------------------------------------------------
+  #
+  # All four use `TreatMissingData: breaching`, and that is the whole point.
+  # A recovery metric whose value is unknown is *withheld* rather than published
+  # as zero, so the absence of the series is the signal. With the default
+  # treatment these alarms would sit in INSUFFICIENT_DATA forever on exactly the
+  # cluster that has no confirmed restorable point — silent about the one
+  # failure they exist to catch.
+  RestorablePointAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "aios-${EnvironmentName}-rpo-at-risk"
+      AlarmDescription: >-
+        The confirmed restorable point is falling behind, or is unknown.
+        Critical even when the most recent backup job reports success — they are
+        different claims. Runbook 6.
+      Namespace: AIOS
+      MetricName: latest_restorable_point_age_seconds
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      # RPO_ALARM_SECONDS in packages/application/src/recovery.ts. Below the
+      # 900-second RPO on purpose: "Operations MUST alert before the 15-minute
+      # RPO is consumed."
+      Threshold: 600
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref AlertTopic]
+
+  PitrWindowAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "aios-${EnvironmentName}-pitr-window-short"
+      AlarmDescription: >-
+        The PITR window is under the 14 days the baseline requires. The day you
+        discover a short window is the day you needed the days it does not have.
+      Namespace: AIOS
+      MetricName: pitr_window_days
+      Statistic: Minimum
+      Period: 300
+      EvaluationPeriods: 1
+      # MIN_PITR_WINDOW_DAYS.
+      Threshold: 14
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref AlertTopic]
+
+  RestoreTestAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "aios-${EnvironmentName}-restore-test-overdue"
+      AlarmDescription: >-
+        No verified restore test in over 31 days. A control failure in its own
+        right, and it enters the owned operations queue rather than waiting for
+        an incident.
+      Namespace: AIOS
+      MetricName: restore_test_age_seconds
+      Statistic: Maximum
+      Period: 3600
+      EvaluationPeriods: 1
+      # RESTORE_TEST_MAX_AGE_SECONDS: 31 days.
+      Threshold: 2678400
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref AlertTopic]
+
+  DisasterRecoveryExerciseAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsProduction
+    Properties:
+      AlarmName: !Sub "aios-${EnvironmentName}-dr-exercise-overdue"
+      AlarmDescription: >-
+        No full disaster-recovery exercise in over 92 days. A control failure.
+      Namespace: AIOS
+      MetricName: disaster_recovery_exercise_age_seconds
+      Statistic: Maximum
+      Period: 3600
+      EvaluationPeriods: 1
+      # DR_EXERCISE_MAX_AGE_SECONDS: 92 days.
+      Threshold: 7948800
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref AlertTopic]
+
+  UnprovableExternalEffectAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "aios-${EnvironmentName}-external-effect-unknown"
+      AlarmDescription: >-
+        A delivery failed against a consumer with an external business effect
+        whose outcome cannot be proven from PostgreSQL. Blind replay is
+        prohibited; the ordering key stays blocked until a human resolves it
+        against the provider.
+      Namespace: AIOS
+      MetricName: recovery_external_effect_unknown_total
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
+
+  # --- Saved queries the runbooks cite ---------------------------------------
+  #
+  # Written down because a query reconstructed under pressure is a query typed
+  # wrong. Each names the runbook it belongs to.
+  CorrelationQuery:
+    Type: AWS::Logs::QueryDefinition
+    Properties:
+      Name: !Sub "AIOS/${EnvironmentName}/follow one request"
+      LogGroupNames: [!Ref ApiLogGroup, !Ref WorkerLogGroup]
+      QueryString: |
+        fields @timestamp, serviceName, operationalLogName, severity, message, correlationId, requestId
+        | filter correlationId = "REPLACE-ME"
+        | sort @timestamp asc
+        | limit 200
+
+  DependencyUnavailableQuery:
+    Type: AWS::Logs::QueryDefinition
+    Properties:
+      Name: !Sub "AIOS/${EnvironmentName}/runbook 1 — dependency unavailable"
+      LogGroupNames: [!Ref ApiLogGroup]
+      QueryString: |
+        fields @timestamp, message, attributes.http.reason_code, attributes.http.route_template
+        | filter operationalLogName = "http.dependency_unavailable"
+        | stats count() by bin(1m)
+
+  WorkerDrainQuery:
+    Type: AWS::Logs::QueryDefinition
+    Properties:
+      Name: !Sub "AIOS/${EnvironmentName}/runbook 3 — worker drains"
+      LogGroupNames: [!Ref WorkerLogGroup]
+      QueryString: |
+        fields @timestamp, operationalLogName, outcome, attributes.worker.claimed, attributes.worker.published
+        | filter operationalLogName like /worker\.(drain_completed|drain_failed|started|shutdown_started)/
+        | sort @timestamp desc
+        | limit 200
+
+  DeployQuery:
+    Type: AWS::Logs::QueryDefinition
+    Properties:
+      Name: !Sub "AIOS/${EnvironmentName}/runbook 5 — what version is running"
+      LogGroupNames: [!Ref ApiLogGroup, !Ref WorkerLogGroup, !Ref MigrateLogGroup]
+      QueryString: |
+        fields @timestamp, serviceName, serviceVersion, operationalLogName
+        | filter operationalLogName in ["service.started", "worker.started", "http.listening", "service.start_failed"]
+        | stats count() by serviceName, serviceVersion
+        | sort serviceVersion desc
+
+  RecoveryQuery:
+    Type: AWS::Logs::QueryDefinition
+    Properties:
+      Name: !Sub "AIOS/${EnvironmentName}/runbook 6 — recovery metrics withheld"
+      LogGroupNames: [!Ref WorkerLogGroup]
+      QueryString: |
+        fields @timestamp, attributes.recovery.unknown, attributes.recovery.unknown_count
+        | filter operationalLogName in ["recovery.metrics_unknown", "recovery.status_read_failed", "recovery.provider_backup_facts_unavailable"]
+        | sort @timestamp desc
+        | limit 100
+
+  TelemetryLossQuery:
+    Type: AWS::Logs::QueryDefinition
+    Properties:
+      Name: !Sub "AIOS/${EnvironmentName}/is the telemetry itself lying"
+      LogGroupNames: [!Ref ApiLogGroup, !Ref WorkerLogGroup]
+      QueryString: |
+        fields @timestamp, serviceName, operationalLogName, attributes.telemetry.reason_code, attributes.telemetry.batch_size
+        | filter operationalLogName like /telemetry\./ or operationalLogName = "metrics.sample_refused"
+        | sort @timestamp desc
+        | limit 100
+
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub "aios-${EnvironmentName}"
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {"type":"metric","x":0,"y":0,"width":12,"height":6,
+             "properties":{"title":"Requests by outcome class","region":"${AWS::Region}","stat":"Sum","period":60,
+               "metrics":[
+                 ["AIOS","http_server_requests_total","service","aios-api","outcome_class","2xx"],
+                 ["...","4xx"],
+                 ["...","5xx"]]}},
+            {"type":"metric","x":12,"y":0,"width":12,"height":6,
+             "properties":{"title":"Request duration","region":"${AWS::Region}","stat":"p95","period":60,
+               "metrics":[["AIOS","http_server_request_duration_seconds","service","aios-api"]]}},
+            {"type":"metric","x":0,"y":6,"width":12,"height":6,
+             "properties":{"title":"Outbox","region":"${AWS::Region}","stat":"Maximum","period":60,
+               "metrics":[
+                 ["AIOS","outbox_pending_total","service","aios-worker"],
+                 ["AIOS","outbox_failed_total","service","aios-worker"],
+                 ["AIOS","outbox_oldest_pending_age_seconds","service","aios-worker"]]}},
+            {"type":"metric","x":12,"y":6,"width":12,"height":6,
+             "properties":{"title":"Recovery capability","region":"${AWS::Region}","stat":"Maximum","period":300,
+               "metrics":[
+                 ["AIOS","latest_restorable_point_age_seconds","service","aios-worker"],
+                 ["AIOS","restore_test_age_seconds","service","aios-worker"],
+                 ["AIOS","pitr_window_days","service","aios-worker"]]}},
+            {"type":"metric","x":0,"y":12,"width":12,"height":6,
+             "properties":{"title":"Telemetry export health","region":"${AWS::Region}","stat":"Maximum","period":60,
+               "metrics":[
+                 ["AIOS","telemetry_export_queue_utilization_ratio","service","aios-api"],
+                 ["AIOS","telemetry_export_oldest_queued_seconds","service","aios-api"],
+                 ["AIOS","telemetry_export_dropped_total","service","aios-api"]]}},
+            {"type":"metric","x":12,"y":12,"width":12,"height":6,
+             "properties":{"title":"Refusals","region":"${AWS::Region}","stat":"Sum","period":300,
+               "metrics":[
+                 ["AIOS","authorization_denied_total","service","aios-api","reason_code","PERMISSION_DENIED"],
+                 ["...","NOT_FOUND"],
+                 ["...","RELATIONSHIP_REQUIRED"]]}}
+          ]
+        }
+
+Outputs:
+  AlertTopicArn:
+    Value: !Ref AlertTopic
+    Export:
+      Name: !Sub "aios-${EnvironmentName}-alerts"
+  ApiLogGroupName:
+    Value: !Ref ApiLogGroup
+  SecurityLogGroupName:
+    Value: !Ref SecurityLogGroup

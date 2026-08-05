@@ -1,0 +1,287 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+# Phase 2: the data tier. Highest value, and deliberately before compute.
+#
+# Item 10 is the only *Absent* baseline item whose absence risks losing customer
+# data, and "losing a customer's data because backups came after launch cannot be
+# undone by reordering anything."
+#
+# Most of item 10 is four properties on one resource — retention, automated
+# backups, deletion protection, encryption — and they are all below. What RDS
+# does *not* give you is the verified restore test, the deletion-resistant copy,
+# and the recovery metrics, and those are the reason this template also creates
+# an evidence bucket and a backup vault.
+
+Description: AIOS data tier — PostgreSQL, secrets, recovery evidence
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    AllowedValues: [staging, production]
+
+  DbInstanceClass:
+    Type: String
+    Default: db.t4g.small
+
+  MultiAz:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      Decision D3. The 4-hour RTO permits single-AZ; single-AZ makes an AZ
+      failure an RTO event rather than a blip, and halves the bill.
+
+  BackupRetentionDays:
+    Type: Number
+    Default: 14
+    MinValue: 14
+    Description: >-
+      The PITR window. The baseline requires at least 14 days; MinValue makes a
+      smaller value a stack failure rather than a quiet reduction, because the
+      day you discover a 3-day window is too short is the day you needed 10.
+
+Conditions:
+  IsProduction: !Equals [!Ref EnvironmentName, production]
+
+Resources:
+  DatabaseKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: !Sub "AIOS ${EnvironmentName} database and backups"
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action: "kms:*"
+            Resource: "*"
+
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Sub "AIOS ${EnvironmentName} private subnets"
+      SubnetIds: !Split
+        - ","
+        - !ImportValue
+          Fn::Sub: "aios-${EnvironmentName}-private-subnets"
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "AIOS ${EnvironmentName} database"
+      VpcId: !ImportValue
+        Fn::Sub: "aios-${EnvironmentName}-vpc"
+      # No ingress rule here. The compute stack adds one referencing its own
+      # task security group, so reaching the database requires being an AIOS
+      # task rather than being inside the VPC.
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 127.0.0.1/32
+          Description: The database initiates nothing.
+
+  DatabaseParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Family: postgres16
+      Description: !Sub "AIOS ${EnvironmentName}"
+      Parameters:
+        # Bounds the RPO when segments do not fill. Without it a 15-minute RPO
+        # holds only while traffic is heavy enough to fill 16 MB segments —
+        # which is to say, not during the quiet night when a failure is least
+        # likely to be noticed. RDS manages archiving, and this is the knob that
+        # decides how far behind `LatestRestorableTime` can fall.
+        archive_timeout: "60"
+        # Every connection's statements are attributable in the log, which is
+        # what runbook 5 reads after a bad deploy.
+        log_line_prefix: "%m [%p] %q%u@%d "
+        # A statement running longer than this is logged. Not a limit — killing
+        # a migration mid-flight is worse than a slow one — but the only way a
+        # slow query is visible without a profiler.
+        log_min_duration_statement: "1000"
+        # ADR-0020's migrations take DDL locks. A migration blocked behind a
+        # long-running read should fail fast and be retried rather than queue
+        # behind it holding an ACCESS EXCLUSIVE lock that blocks everything.
+        lock_timeout: "10000"
+
+  Database:
+    Type: AWS::RDS::DBInstance
+    # Retained on stack deletion. A `cfn delete` that takes the database with it
+    # is the fastest way to lose everything this template exists to protect.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      DBInstanceIdentifier: !Sub "aios-${EnvironmentName}"
+      Engine: postgres
+      EngineVersion: "16.13"
+      DBInstanceClass: !Ref DbInstanceClass
+      AllocatedStorage: "20"
+      MaxAllocatedStorage: 200
+      StorageType: gp3
+      StorageEncrypted: true
+      KmsKeyId: !Ref DatabaseKey
+      MultiAZ: !Ref MultiAz
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      VPCSecurityGroups: [!Ref DatabaseSecurityGroup]
+      DBParameterGroupName: !Ref DatabaseParameterGroup
+      # No public address. Only the ECS tasks reach it.
+      PubliclyAccessible: false
+      # Automated backups: continuous WAL archiving plus a daily snapshot, and
+      # the PITR window. Setting this to 0 disables automated backups entirely,
+      # which is why the parameter has a MinValue.
+      BackupRetentionPeriod: !Ref BackupRetentionDays
+      PreferredBackupWindow: "17:00-18:00"
+      PreferredMaintenanceWindow: "sun:18:00-sun:19:00"
+      CopyTagsToSnapshot: true
+      DeletionProtection: !If [IsProduction, true, false]
+      AutoMinorVersionUpgrade: true
+      EnableCloudwatchLogsExports: [postgresql, upgrade]
+      MasterUsername: aios
+      MasterUserSecret:
+        KmsKeyId: !Ref DatabaseKey
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # --- Deletion-resistant backup copy ---------------------------------------
+  #
+  # "Backups live in the same account as the thing being backed up. A copy to a
+  # separate account or a Vault Lock is what survives a compromised credential."
+  #
+  # A Vault Lock in compliance mode cannot be shortened or deleted by anyone,
+  # including the account root and including AWS Support. That is the property —
+  # and it is also why the retention below is a decision to make deliberately,
+  # since it cannot be undone for the rows it already covers.
+  BackupVault:
+    Type: AWS::Backup::BackupVault
+    Properties:
+      BackupVaultName: !Sub "aios-${EnvironmentName}-locked"
+      EncryptionKeyArn: !GetAtt DatabaseKey.Arn
+      LockConfiguration:
+        MinRetentionDays: 30
+        MaxRetentionDays: 365
+        # Governance mode until this window elapses, then compliance mode and
+        # irreversible. Three days is the chance to discover the retention is
+        # wrong before it becomes permanent.
+        ChangeableForDays: 3
+
+  BackupPlan:
+    Type: AWS::Backup::BackupPlan
+    Properties:
+      BackupPlan:
+        BackupPlanName: !Sub "aios-${EnvironmentName}"
+        BackupPlanRule:
+          - RuleName: daily
+            TargetBackupVault: !Ref BackupVault
+            # 18:10 UTC, after the RDS backup window closes.
+            ScheduleExpression: cron(10 18 * * ? *)
+            StartWindowMinutes: 60
+            CompletionWindowMinutes: 180
+            Lifecycle:
+              DeleteAfterDays: 35
+
+  BackupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "aios-${EnvironmentName}-backup"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: backup.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup
+
+  BackupSelection:
+    Type: AWS::Backup::BackupSelection
+    Properties:
+      BackupPlanId: !Ref BackupPlan
+      BackupSelection:
+        SelectionName: database
+        IamRoleArn: !GetAtt BackupRole.Arn
+        Resources:
+          - !Sub "arn:aws:rds:${AWS::Region}:${AWS::AccountId}:db:aios-${EnvironmentName}"
+
+  # --- Restore-drill evidence ------------------------------------------------
+  RecoveryEvidenceBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "aios-${EnvironmentName}-recovery-evidence-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !Ref DatabaseKey
+      VersioningConfiguration:
+        Status: Enabled
+      # Evidence of a control is worth about as much as the retention behind it.
+      # A year covers the quarterly disaster-recovery exercise four times over.
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire
+            Status: Enabled
+            ExpirationInDays: 400
+
+  # --- Secrets ---------------------------------------------------------------
+  #
+  # Secrets Manager, not SSM plain parameters, and never a task-definition
+  # environment variable: those show in the console and in
+  # `DescribeTaskDefinition`, which is readable by anyone with ECS read access.
+  ClerkSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "aios/${EnvironmentName}/clerk"
+      Description: CLERK_SECRET_KEY and CLERK_WEBHOOK_SIGNING_SECRET (ADR-0013).
+      KmsKeyId: !Ref DatabaseKey
+
+  AnthropicSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "aios/${EnvironmentName}/anthropic"
+      Description: ANTHROPIC_API_KEY (ADR-0016).
+      KmsKeyId: !Ref DatabaseKey
+
+Outputs:
+  DatabaseEndpoint:
+    Value: !GetAtt Database.Endpoint.Address
+    Export:
+      Name: !Sub "aios-${EnvironmentName}-db-endpoint"
+  DatabaseIdentifier:
+    Value: !Ref Database
+    Description: Set as RDS_DB_INSTANCE_IDENTIFIER so the Worker can publish the restorable point.
+    Export:
+      Name: !Sub "aios-${EnvironmentName}-db-identifier"
+  DatabaseSecurityGroupId:
+    Value: !Ref DatabaseSecurityGroup
+    Export:
+      Name: !Sub "aios-${EnvironmentName}-db-sg"
+  DatabaseSecretArn:
+    Value: !GetAtt Database.MasterUserSecret.SecretArn
+    Export:
+      Name: !Sub "aios-${EnvironmentName}-db-secret"
+  ClerkSecretArn:
+    Value: !Ref ClerkSecret
+    Export:
+      Name: !Sub "aios-${EnvironmentName}-clerk-secret"
+  AnthropicSecretArn:
+    Value: !Ref AnthropicSecret
+    Export:
+      Name: !Sub "aios-${EnvironmentName}-anthropic-secret"
+  KeyArn:
+    Value: !GetAtt DatabaseKey.Arn
+    Export:
+      Name: !Sub "aios-${EnvironmentName}-key"
+  RecoveryEvidenceBucket:
+    Value: !Ref RecoveryEvidenceBucket
+    Export:
+      Name: !Sub "aios-${EnvironmentName}-recovery-evidence"

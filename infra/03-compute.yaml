@@ -1,0 +1,533 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+# Phase 3: the two services.
+#
+# Two, because the Worker is already a separate process and `chooseWorkerMode`
+# refuses to drain in-process outside development — "a Worker that cannot be
+# observed or paused independently of the API is not a Worker, it is a timer
+# inside a web server."
+#
+# Four places this application has an opinion, each of which wastes a day when
+# it is got wrong, and each of which `check_infra.py` asserts:
+#
+#   1. The probe paths are `/health/live` and `/health/ready`, on a port
+#      separate from the application, so an exhausted request pool cannot stop
+#      the probe answering.
+#   2. **Readiness gates traffic; liveness gates restarts.** The load balancer
+#      checks readiness — pointing it at liveness would keep sending traffic to
+#      a process that cannot reach the database. The container health check
+#      checks liveness — pointing it at readiness turns a thirty-second database
+#      blip into every task restarting at once, which is a self-inflicted
+#      outage on top of a recovered one.
+#   3. The Worker's stop timeout exceeds its longest drain. It finishes the
+#      batch in flight on SIGTERM; killed early, claimed messages wait for their
+#      lease to expire instead.
+#   4. Migrations run as a one-off task before the new tasks start, never on
+#      application start. Two tasks starting together would race, and ADR-0020's
+#      ledger would refuse the second one loudly rather than quietly — better,
+#      but still an outage.
+#
+# Deploy this **after** `04-telemetry.yaml`. The log groups live there, and a
+# task started before its log group exists gets one auto-created with no
+# retention at all — logs kept forever, against ADR-0003's table, discovered
+# only on a bill.
+
+Description: AIOS compute — ECS services for the API and the Worker
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    AllowedValues: [staging, production]
+  ImageTag:
+    Type: String
+    Description: The image the deploy workflow pushed; a git SHA, never "latest".
+  CertificateArn:
+    Type: String
+    Description: ACM certificate for the API listener.
+  WebOrigin:
+    Type: String
+    Description: The web client's origin, for CORS. Not a wildcard.
+  ApiDesiredCount:
+    Type: Number
+    Default: 2
+  WorkerDesiredCount:
+    Type: Number
+    Default: 1
+    Description: >-
+      One is enough. Several are safe — the Outbox claim uses FOR UPDATE SKIP
+      LOCKED, so workers divide the queue rather than duplicating it — but the
+      MVP has no throughput requirement that needs a second.
+  WorkerPausedTypes:
+    Type: String
+    Default: ""
+    Description: >-
+      ADR-0022's deployment control. Read at startup, so pausing globally is a
+      task restart — which is what runbook 8 says. Comma-separated;
+      OutboxPublication, MemoryGeneration.
+
+Resources:
+  Registry:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "aios-${EnvironmentName}"
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      # Immutable tags. A mutable tag means the image a task definition names
+      # today is not the image it named yesterday, which makes "roll back to the
+      # previous task definition" — runbook 5's first step — meaningless.
+      ImageTagMutability: IMMUTABLE
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {"rules":[{"rulePriority":1,"description":"Keep the last 30 images",
+          "selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":30},
+          "action":{"type":"expire"}}]}
+
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "aios-${EnvironmentName}"
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+
+  # --- Networking ------------------------------------------------------------
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "AIOS ${EnvironmentName} load balancer"
+      VpcId: !ImportValue
+        Fn::Sub: "aios-${EnvironmentName}-vpc"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: TLS only. There is no port 80 listener and no redirect to add one.
+
+  TaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "AIOS ${EnvironmentName} tasks"
+      VpcId: !ImportValue
+        Fn::Sub: "aios-${EnvironmentName}-vpc"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3001
+          ToPort: 3001
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+          Description: The application port, from the load balancer only.
+        - IpProtocol: tcp
+          FromPort: 3011
+          ToPort: 3011
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+          Description: >-
+            The probe port. Reachable inside the network rather than through a
+            public route, because it answers before authentication.
+
+  DatabaseIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !ImportValue
+        Fn::Sub: "aios-${EnvironmentName}-db-sg"
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !Ref TaskSecurityGroup
+      Description: Reaching the database requires being an AIOS task, not being inside the VPC.
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "aios-${EnvironmentName}"
+      Scheme: internet-facing
+      Type: application
+      SecurityGroups: [!Ref LoadBalancerSecurityGroup]
+      Subnets: !Split
+        - ","
+        - !ImportValue
+          Fn::Sub: "aios-${EnvironmentName}-public-subnets"
+      LoadBalancerAttributes:
+        # Longer than any request this API serves, shorter than the ECS
+        # deregistration delay below, so a draining task finishes its work
+        # rather than having a connection cut mid-response.
+        - Key: idle_timeout.timeout_seconds
+          Value: "60"
+
+  ApiTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "aios-${EnvironmentName}-api"
+      VpcId: !ImportValue
+        Fn::Sub: "aios-${EnvironmentName}-vpc"
+      Protocol: HTTP
+      Port: 3001
+      TargetType: ip
+      # Readiness, on the probe port. Not `/health/live`, and not port 3001:
+      # liveness answers while the database is unreachable, which is correct for
+      # a restart decision and wrong for a routing one.
+      HealthCheckProtocol: HTTP
+      HealthCheckPort: "3011"
+      HealthCheckPath: /health/ready
+      HealthCheckIntervalSeconds: 15
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      TargetGroupAttributes:
+        # The Worker's drain is protected by its stop timeout; the API's is
+        # protected here. Thirty seconds covers an in-flight request plus the
+        # graceful `app.close()` and the telemetry flush behind it.
+        - Key: deregistration_delay.timeout_seconds
+          Value: "30"
+
+  ApiListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Protocol: HTTPS
+      Port: 443
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ApiTargetGroup
+
+  # --- Roles -----------------------------------------------------------------
+  #
+  # Two roles, and the split matters. The *execution* role is used by the ECS
+  # agent to pull the image and resolve secrets before the container starts. The
+  # *task* role is what the application code holds at runtime. Merging them
+  # would give the application permission to read every secret, including ones
+  # it never uses.
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "aios-task-execution-${EnvironmentName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: secrets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource:
+                  - !ImportValue
+                    Fn::Sub: "aios-${EnvironmentName}-db-secret"
+                  - !ImportValue
+                    Fn::Sub: "aios-${EnvironmentName}-clerk-secret"
+                  - !ImportValue
+                    Fn::Sub: "aios-${EnvironmentName}-anthropic-secret"
+              - Effect: Allow
+                Action: kms:Decrypt
+                Resource: !ImportValue
+                  Fn::Sub: "aios-${EnvironmentName}-key"
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "aios-task-${EnvironmentName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: telemetry-and-recovery
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # PutMetricData takes no resource ARN, so the namespace condition
+              # is the only scope available — without it this permission covers
+              # every namespace in the account, including AWS/ ones.
+              - Effect: Allow
+                Action: cloudwatch:PutMetricData
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    cloudwatch:namespace: AIOS
+              # Read-only, and the only control-plane call the application makes:
+              # the confirmed restorable point and the PITR window.
+              - Effect: Allow
+                Action: rds:DescribeDBInstances
+                Resource: "*"
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub
+                  - "arn:aws:s3:::${Bucket}/*"
+                  - Bucket: !ImportValue
+                      Fn::Sub: "aios-${EnvironmentName}-recovery-evidence"
+
+  # --- Task definitions ------------------------------------------------------
+  ApiTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "aios-${EnvironmentName}-api"
+      Cpu: "512"
+      Memory: "1024"
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: api
+          Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/aios-${EnvironmentName}:${ImageTag}"
+          Essential: true
+          PortMappings:
+            - ContainerPort: 3001
+            - ContainerPort: 3011
+          Environment:
+            - Name: NODE_ENV
+              Value: production
+            - Name: PORT
+              Value: "3001"
+            - Name: PROBE_PORT
+              Value: "3011"
+            - Name: WEB_ORIGIN
+              Value: !Ref WebOrigin
+            - Name: LOG_LEVEL
+              Value: INFO
+            - Name: SERVICE_VERSION
+              Value: !Ref ImageTag
+            - Name: METRICS_SINK
+              Value: cloudwatch
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+          Secrets:
+            # Never `Environment`. A task-definition environment variable is
+            # visible in the console and in DescribeTaskDefinition, which is
+            # readable by anyone with ECS read access.
+            - Name: DATABASE_URL
+              ValueFrom: !Sub
+                - "${Secret}:DATABASE_URL::"
+                - Secret: !ImportValue
+                    Fn::Sub: "aios-${EnvironmentName}-db-secret"
+            - Name: CLERK_SECRET_KEY
+              ValueFrom: !Sub
+                - "${Secret}:CLERK_SECRET_KEY::"
+                - Secret: !ImportValue
+                    Fn::Sub: "aios-${EnvironmentName}-clerk-secret"
+            - Name: CLERK_WEBHOOK_SIGNING_SECRET
+              ValueFrom: !Sub
+                - "${Secret}:CLERK_WEBHOOK_SIGNING_SECRET::"
+                - Secret: !ImportValue
+                    Fn::Sub: "aios-${EnvironmentName}-clerk-secret"
+          HealthCheck:
+            # Liveness. A failing liveness check replaces the task, and a
+            # process that cannot reach the database is not repaired by a
+            # restart — it is repaired by the database coming back.
+            Command:
+              - CMD-SHELL
+              - "node -e \"fetch('http://127.0.0.1:3011/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 30
+          StopTimeout: 30
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub "/aios/${EnvironmentName}/api"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: api
+
+  WorkerTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "aios-${EnvironmentName}-worker"
+      Cpu: "512"
+      Memory: "1024"
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: worker
+          Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/aios-${EnvironmentName}:${ImageTag}"
+          Essential: true
+          Command: ["node", "dist/worker.js"]
+          PortMappings:
+            - ContainerPort: 3012
+          Environment:
+            - Name: NODE_ENV
+              Value: production
+            - Name: PROBE_PORT
+              Value: "3012"
+            - Name: LOG_LEVEL
+              Value: INFO
+            - Name: SERVICE_VERSION
+              Value: !Ref ImageTag
+            - Name: METRICS_SINK
+              Value: cloudwatch
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+            # Turns on the two recovery metrics only the provider knows. Without
+            # it they stay unknown and are withheld rather than published as
+            # zero.
+            - Name: RDS_DB_INSTANCE_IDENTIFIER
+              Value: !ImportValue
+                Fn::Sub: "aios-${EnvironmentName}-db-identifier"
+            - Name: WORKER_PAUSED_TYPES
+              Value: !Ref WorkerPausedTypes
+          Secrets:
+            - Name: DATABASE_URL
+              ValueFrom: !Sub
+                - "${Secret}:DATABASE_URL::"
+                - Secret: !ImportValue
+                    Fn::Sub: "aios-${EnvironmentName}-db-secret"
+            - Name: ANTHROPIC_API_KEY
+              ValueFrom: !Sub
+                - "${Secret}:ANTHROPIC_API_KEY::"
+                - Secret: !ImportValue
+                    Fn::Sub: "aios-${EnvironmentName}-anthropic-secret"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - "node -e \"fetch('http://127.0.0.1:3012/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 30
+          # The longest drain, with room. On SIGTERM the Worker finishes the
+          # batch in flight, then flushes telemetry inside its own deadline;
+          # killed before that completes, the claimed Outbox rows wait out their
+          # lease instead of being handed back — which delays exactly the work
+          # the deploy was trying not to disrupt. 120 is the Fargate maximum.
+          StopTimeout: 120
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub "/aios/${EnvironmentName}/worker"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: worker
+
+  # Run once per deploy, before the new tasks start. Never on application start:
+  # two tasks starting together race for the ledger.
+  MigrationTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "aios-${EnvironmentName}-migrate"
+      Cpu: "256"
+      Memory: "512"
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: migrate
+          Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/aios-${EnvironmentName}:${ImageTag}"
+          Essential: true
+          Command: ["node", "dist/migrate.js"]
+          Environment:
+            - Name: NODE_ENV
+              Value: production
+            - Name: LOG_LEVEL
+              Value: INFO
+            - Name: SERVICE_VERSION
+              Value: !Ref ImageTag
+          Secrets:
+            - Name: DATABASE_URL
+              ValueFrom: !Sub
+                - "${Secret}:DATABASE_URL::"
+                - Secret: !ImportValue
+                    Fn::Sub: "aios-${EnvironmentName}-db-secret"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub "/aios/${EnvironmentName}/migrate"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: migrate
+
+  # --- Services --------------------------------------------------------------
+  ApiService:
+    Type: AWS::ECS::Service
+    DependsOn: ApiListener
+    Properties:
+      ServiceName: !Sub "aios-${EnvironmentName}-api"
+      Cluster: !Ref Cluster
+      TaskDefinition: !Ref ApiTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref ApiDesiredCount
+      # Decision D1 is Fargate here. EC2 is cheaper at steady load and means
+      # owning the AMI and its patching, which for a two-service MVP is a larger
+      # operational surface than the saving is worth.
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          # A deploy whose tasks never pass readiness rolls itself back. Runbook
+          # 5's mixed-version window is real but bounded; a broken deploy left
+          # half-rolled is the same window with nobody watching it.
+          Rollback: true
+      # Long enough for the process to start, connect, and answer readiness
+      # before the load balancer counts a failure against it.
+      HealthCheckGracePeriodSeconds: 60
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Split
+            - ","
+            - !ImportValue
+              Fn::Sub: "aios-${EnvironmentName}-private-subnets"
+          SecurityGroups: [!Ref TaskSecurityGroup]
+      LoadBalancers:
+        - ContainerName: api
+          ContainerPort: 3001
+          TargetGroupArn: !Ref ApiTargetGroup
+
+  WorkerService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "aios-${EnvironmentName}-worker"
+      Cluster: !Ref Cluster
+      TaskDefinition: !Ref WorkerTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref WorkerDesiredCount
+      DeploymentConfiguration:
+        # 0 rather than 100. With one Worker, requiring the old task to stay
+        # healthy while the new one starts means both drain the Outbox at once —
+        # safe, because the claim uses SKIP LOCKED, but it also means the old
+        # task is killed at an arbitrary point rather than after its stop
+        # timeout. Stopping first, then starting, keeps the drain contract.
+        MinimumHealthyPercent: 0
+        MaximumPercent: 100
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Split
+            - ","
+            - !ImportValue
+              Fn::Sub: "aios-${EnvironmentName}-private-subnets"
+          SecurityGroups: [!Ref TaskSecurityGroup]
+
+Outputs:
+  ClusterName:
+    Value: !Ref Cluster
+    Export:
+      Name: !Sub "aios-${EnvironmentName}-cluster"
+  ApiEndpoint:
+    Value: !Sub "https://${LoadBalancer.DNSName}"
+  RegistryUri:
+    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/aios-${EnvironmentName}"
+  MigrationTaskDefinitionArn:
+    Value: !Ref MigrationTaskDefinition
+    Export:
+      Name: !Sub "aios-${EnvironmentName}-migrate-task"
+  TaskSubnets:
+    Value: !ImportValue
+      Fn::Sub: "aios-${EnvironmentName}-private-subnets"
+  TaskSecurityGroupId:
+    Value: !Ref TaskSecurityGroup
+    Export:
+      Name: !Sub "aios-${EnvironmentName}-task-sg"

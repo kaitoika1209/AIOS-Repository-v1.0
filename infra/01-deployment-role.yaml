@@ -1,0 +1,130 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+# Phase 1: how GitHub Actions gets into this account.
+#
+# The rule this template exists to satisfy is one line: **no long-lived AWS key
+# ever exists.** A stored access key is a credential with no expiry, no
+# attribution beyond "somebody with the key", and no way to tell a leak from
+# normal use. OIDC replaces it with a token minted per workflow run, valid for an
+# hour, and bound to a specific repository and ref.
+#
+# The bind is the part worth getting right, and it is the part most commonly got
+# wrong. A trust policy that matches `repo:owner/name:*` on the `sub` claim
+# trusts **every workflow in the repository, including one running from a pull
+# request opened by a stranger**. The condition below names the branch. Widen it
+# only to add another named ref, never to a wildcard — `check_infra.py` fails the
+# build if a bare `*` appears in the subject condition.
+
+Description: AIOS deployment identity — GitHub Actions OIDC, no stored keys
+
+Parameters:
+  GitHubRepository:
+    Type: String
+    Default: kaitoika1209/aios-repository-v1.0
+    Description: owner/name, matched exactly in the trust policy subject.
+  DeployRef:
+    Type: String
+    Default: refs/heads/main
+    Description: >-
+      The one ref permitted to assume this role. A wildcard here would let any
+      workflow run in the repository — including one from a fork's pull
+      request — obtain deployment credentials. To permit a second ref, add a
+      second Statement rather than loosening this one.
+
+Resources:
+  # One provider per account. If the account already has one for GitHub, delete
+  # this resource and pass its ARN instead: creating a second fails.
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      # GitHub rotates its certificate; since 2023 IAM validates the OIDC
+      # endpoint's chain against the trusted-root store and this list is no
+      # longer the security boundary. Present because the resource requires it.
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+
+  DeploymentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: aios-deployment
+      # An hour. Long enough for a deploy including the migration task and the
+      # service stabilisation wait; short enough that a leaked token is a
+      # narrow window rather than an incident.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                # StringEquals rather than StringLike, and one exact ref. This
+                # is the whole security boundary of the role.
+                token.actions.githubusercontent.com:sub:
+                  !Sub "repo:${GitHubRepository}:ref:${DeployRef}"
+      Policies:
+        - PolicyName: aios-deploy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Push the image.
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:CompleteLayerUpload
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                Resource: !Sub "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/aios-*"
+
+              # Register a task definition and roll the services.
+              - Effect: Allow
+                Action:
+                  - ecs:RegisterTaskDefinition
+                  - ecs:DescribeTaskDefinition
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecs:UpdateService
+                  - ecs:DescribeServices
+                  - ecs:RunTask
+                  - ecs:DescribeTasks
+                  - ecs:ListTasks
+                Resource: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:*/aios-*"
+
+              # Hand the task and execution roles to ECS. Scoped by name and by
+              # service: `iam:PassRole` unscoped is the classic privilege
+              # escalation — it lets the holder attach any role in the account
+              # to a container it controls.
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource:
+                  - !Sub "arn:aws:iam::${AWS::AccountId}:role/aios-task-*"
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: ecs-tasks.amazonaws.com
+
+              # Deliberately absent: rds:*, secretsmanager:PutSecretValue,
+              # iam:CreateRole, cloudformation:*. A deploy changes the image and
+              # the service; changing the data tier or the secrets is a separate
+              # act with a separate approval, and a pipeline that could do it
+              # silently is a pipeline that will.
+
+Outputs:
+  DeploymentRoleArn:
+    Value: !GetAtt DeploymentRole.Arn
+    Description: Set as the AWS_DEPLOY_ROLE_ARN repository variable — not a secret; it is not a credential.
+    Export:
+      Name: aios-deployment-role-arn

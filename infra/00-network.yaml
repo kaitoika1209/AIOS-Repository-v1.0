@@ -1,0 +1,169 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+# The network the rest of the stack sits in.
+#
+# Nothing here is an AIOS decision — it is the smallest VPC that satisfies two
+# requirements the application does make:
+#
+#   - the database takes no public address, so it needs private subnets
+#   - the ECS tasks reach Secrets Manager, ECR, and CloudWatch, so the private
+#     subnets need a route out
+#
+# Two Availability Zones because RDS requires a subnet group spanning at least
+# two, whether or not Multi-AZ is enabled (decision D3). A single-AZ instance in
+# a two-AZ subnet group costs nothing extra and leaves the failover option open.
+#
+# **One NAT Gateway, not two.** Two is the textbook answer and it doubles a
+# fixed ~$45/month line item to remove a dependency on one AZ that a single-AZ
+# database already has. When D3 chooses Multi-AZ, add the second — until then it
+# would be redundancy behind a single point of failure.
+
+Description: AIOS network — VPC, two Availability Zones, private data tier
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    AllowedValues: [staging, production]
+    Description: Distinguishes the stacks; not a metric dimension and not a namespace suffix.
+
+Mappings:
+  Cidr:
+    Vpc:
+      Range: 10.40.0.0/16
+    PublicA:
+      Range: 10.40.0.0/20
+    PublicB:
+      Range: 10.40.16.0/20
+    PrivateA:
+      Range: 10.40.32.0/20
+    PrivateB:
+      Range: 10.40.48.0/20
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !FindInMap [Cidr, Vpc, Range]
+      EnableDnsSupport: true
+      # Required by the RDS endpoint and by the interface endpoints below; both
+      # are reached by name.
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "aios-${EnvironmentName}"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: !FindInMap [Cidr, PublicA, Range]
+      MapPublicIpOnLaunch: true
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: !FindInMap [Cidr, PublicB, Range]
+      MapPublicIpOnLaunch: true
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: !FindInMap [Cidr, PrivateA, Range]
+      MapPublicIpOnLaunch: false
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: !FindInMap [Cidr, PrivateB, Range]
+      MapPublicIpOnLaunch: false
+
+  NatEip:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      AllocationId: !GetAtt NatEip.AllocationId
+      SubnetId: !Ref PublicSubnetA
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetARouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetA
+
+  PublicSubnetBRouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetB
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  PrivateSubnetARouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnetA
+
+  PrivateSubnetBRouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnetB
+
+Outputs:
+  VpcId:
+    Value: !Ref Vpc
+    Export:
+      Name: !Sub "aios-${EnvironmentName}-vpc"
+  PublicSubnets:
+    Value: !Join [",", [!Ref PublicSubnetA, !Ref PublicSubnetB]]
+    Export:
+      Name: !Sub "aios-${EnvironmentName}-public-subnets"
+  PrivateSubnets:
+    Value: !Join [",", [!Ref PrivateSubnetA, !Ref PrivateSubnetB]]
+    Export:
+      Name: !Sub "aios-${EnvironmentName}-private-subnets"
