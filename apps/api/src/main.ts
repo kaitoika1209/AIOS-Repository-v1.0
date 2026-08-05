@@ -93,7 +93,7 @@ const main = async (): Promise<void> => {
       // hold the process past its termination grace period. The exporter
       // returns false and counts the timeout rather than waiting.
       void app.close().finally(() => {
-        void metrics.sink.shutdown().finally(() => {
+        void metrics.flush().finally(() => {
           void probePool.end().finally(() => process.exit(0));
         });
       });

@@ -5,11 +5,20 @@
  * decision made once at startup and **logged**, so which sink is running is a
  * fact in the log rather than something inferred from what is missing.
  *
- * ADR-0003 chose CloudWatch. That transport is not built: reaching it needs an
- * AWS SDK, credentials, and a Region, none of which exist here — it is Stage D
- * infrastructure and `release-readiness.md` says so. What is built is the part
- * that had to be right first, which is every bound between the call site and
- * the network.
+ * ADR-0003 chose CloudWatch, and that transport now exists
+ * (`cloudwatch-transport.ts`). It has never run against a real account from
+ * here, and `infrastructure-roadmap.md` records it as unverified until it has —
+ * written-but-unapplied infrastructure has the same status as an unexecuted
+ * runbook.
+ *
+ * A misconfiguration here **falls back loudly rather than refusing to start**,
+ * which is the opposite of what `validateLimits` does one file over. The
+ * asymmetry is deliberate. An unbounded buffer is a way for telemetry to kill
+ * the process, so a process configured that way must not start. A missing
+ * Region is a way for telemetry to be absent, and taking the API down because
+ * its metrics are misconfigured would make observability the outage — "drop
+ * additional diagnostic detail rather than block an authoritative transaction
+ * or Worker lease."
  */
 
 import type { Pool } from "pg";
@@ -27,6 +36,11 @@ import {
   type MetricSink,
 } from "@aios/application";
 
+import {
+  CloudWatchMetricTransport,
+  METRIC_NAMESPACE,
+  SdkCloudWatchPutter,
+} from "./cloudwatch-transport.js";
 import { startMetricsCollector } from "./metrics-collector.js";
 
 const positive = (raw: string | undefined, fallback: number): number => {
@@ -52,8 +66,18 @@ export const limitsFrom = (env: NodeJS.ProcessEnv): ExportLimits => ({
 export interface MetricsRuntime {
   readonly sink: MetricSink;
   readonly reason: string;
-  /** Stops the collector and the self-report; the sink is flushed separately. */
+  /** Stops the collector and the self-report. Does not flush. */
   stop(): void;
+  /**
+   * Flush within the exporter's deadline, then release the transport.
+   *
+   * One method rather than "call `sink.shutdown()` and then remember to close
+   * the client", because the ordering is not obvious and getting it backwards
+   * is silent: destroying an SDK client first aborts the in-flight flush, so the
+   * last batch before a deploy — which is the batch describing the deploy —
+   * disappears while `shutdown()` still reports success.
+   */
+  flush(): Promise<boolean>;
 }
 
 /**
@@ -74,16 +98,35 @@ export const startMetrics = (
 
   let sink: MetricSink = nullSink;
   let reason = "no metric sink configured; samples are discarded";
+  let dispose: (() => void) | null = null;
 
   if (requested === "stdout" && environment !== "test") {
     sink = new BoundedMetricExporter(new StdoutMetricTransport(), limitsFrom(env));
     reason = "JSON lines to stdout, behind the bounded exporter";
+  } else if (requested === "cloudwatch" && environment !== "test") {
+    // The Region is not defaulted. ADR-0003 pins `ap-northeast-1`, and a
+    // transport that guessed would publish a production Organization's operational
+    // metrics into whichever Region the SDK happened to pick — a data-residency
+    // decision made by a fallback.
+    const region = env["AWS_REGION"] ?? env["AWS_DEFAULT_REGION"] ?? "";
+
+    if (region === "") {
+      // Named rather than silently ignored. An operator who set this and got
+      // nothing deserves to be told why, not left to discover it from an empty
+      // dashboard during an incident.
+      reason =
+        "CloudWatch was requested but AWS_REGION is unset (ADR-0003 pins ap-northeast-1); samples are discarded";
+    } else {
+      const putter = new SdkCloudWatchPutter(region);
+      sink = new BoundedMetricExporter(
+        new CloudWatchMetricTransport(putter),
+        limitsFrom(env),
+      );
+      dispose = () => putter.destroy();
+      reason = `CloudWatch namespace ${METRIC_NAMESPACE} in ${region}, behind the bounded exporter`;
+    }
   } else if (requested === "cloudwatch") {
-    // Named rather than silently ignored. An operator who set this and got
-    // nothing deserves to be told why, not left to discover it from an empty
-    // dashboard during an incident.
-    reason =
-      "CloudWatch was requested but its transport is not built (ADR-0003, Stage D); samples are discarded";
+    reason = "CloudWatch is refused under NODE_ENV=test; samples are discarded";
   }
 
   setMetrics(new Metrics(sink, service));
@@ -136,6 +179,11 @@ export const startMetrics = (
     reason,
     stop: () => {
       for (const stop of stops) stop();
+    },
+    flush: async () => {
+      const flushed = await sink.shutdown();
+      dispose?.();
+      return flushed;
     },
   };
 };

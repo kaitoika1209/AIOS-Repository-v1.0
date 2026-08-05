@@ -170,7 +170,7 @@ const main = async (): Promise<void> => {
     // the work a deploy was trying not to disrupt.
     metrics.stop();
     void inFlight.finally(() => {
-      void metrics.sink.shutdown().finally(() => {
+      void metrics.flush().finally(() => {
         void pool.end().finally(() => process.exit(0));
       });
     });
