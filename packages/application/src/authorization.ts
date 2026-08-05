@@ -83,6 +83,11 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     // ADR-0021. Granted beside the recovery family because the people who act
     // on a stalled workflow are the ones who need to see it.
     "operations.read_workflow_health",
+    // ADR-0022, and for the same reason: containment is what an operator does
+    // about what the health report shows. Both are Organization-scoped, so an
+    // Owner can stop only their own Organization's processing.
+    "operations.pause_worker",
+    "operations.resume_worker",
   ],
   OrganizationAdmin: [
     "notification.read",
@@ -130,6 +135,8 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     // policy does not exist in this release, so the default is deny.
     "events.replay_projection",
     "operations.read_workflow_health",
+    "operations.pause_worker",
+    "operations.resume_worker",
   ],
   Member: [
     "notification.read",

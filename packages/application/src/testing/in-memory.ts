@@ -37,8 +37,10 @@ import type {
   SecretaryContribution,
   SecretaryContributionRepository,
 } from "../assistance.js";
+import type { PausableWorkerType, WorkerPause } from "../worker-pause.js";
 import type { WorkflowCounts, WorkflowType } from "../workflow-health.js";
 import type {
+  WorkerPauseRepository,
   WorkflowHealthQuery,
   CallerOrganizationSummary,
   Clock,
@@ -118,6 +120,45 @@ export class InMemoryWorkflowHealthQuery implements WorkflowHealthQuery {
       result[workflowType] = this.counts.get(workflowType) ?? empty;
     }
     return result;
+  }
+}
+
+/**
+ * Administrative Worker pauses, in a map keyed the way the table is.
+ *
+ * The composite key is not incidental: a double keyed by Organization alone
+ * would let a test pause `OutboxPublication` and find `MemoryGeneration` paused
+ * too, which is the one behaviour ADR-0022 most needs to be able to test.
+ */
+export class InMemoryWorkerPauseRepository implements WorkerPauseRepository {
+  private readonly rows = new Map<string, WorkerPause>();
+
+  private static key(organizationId: string, workerType: string): string {
+    return `${organizationId}:${workerType}`;
+  }
+
+  async pause(pause: WorkerPause): Promise<WorkerPause> {
+    const key = InMemoryWorkerPauseRepository.key(pause.organizationId, pause.workerType);
+    // First writer wins, matching `ON CONFLICT DO NOTHING`. A double that
+    // overwrote would let a test pass against behaviour PostgreSQL will not
+    // reproduce.
+    const existing = this.rows.get(key);
+    if (existing !== undefined) return existing;
+    this.rows.set(key, pause);
+    return pause;
+  }
+
+  async resume(
+    organizationId: OrganizationId,
+    workerType: PausableWorkerType,
+  ): Promise<boolean> {
+    return this.rows.delete(InMemoryWorkerPauseRepository.key(organizationId, workerType));
+  }
+
+  async listFor(organizationId: OrganizationId): Promise<readonly WorkerPause[]> {
+    return [...this.rows.values()]
+      .filter((p) => p.organizationId === organizationId)
+      .sort((a, b) => a.workerType.localeCompare(b.workerType));
   }
 }
 
@@ -1319,6 +1360,7 @@ export const buildTestHarness = (now = new Date("2026-07-28T10:00:00Z")) => {
   const deliveries = new InMemoryConsumerDeliveryRepository();
   const replays = new InMemoryReplayRepository();
   const workflowHealth = new InMemoryWorkflowHealthQuery();
+  const workerPauses = new InMemoryWorkerPauseRepository();
   const memberships = new InMemoryMembershipRepository();
   const organizations = new InMemoryOrganizationRepository(memberships);
   const notifications = new InMemoryNotificationRepository();
@@ -1342,6 +1384,7 @@ export const buildTestHarness = (now = new Date("2026-07-28T10:00:00Z")) => {
     contributions,
     identities,
     workflowHealth,
+    workerPauses,
     outbox,
   };
 

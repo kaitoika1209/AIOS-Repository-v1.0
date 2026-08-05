@@ -133,6 +133,11 @@ SHARES_A_ROUTE = {
     "work.request_decision": "decision.submit",
 }
 
+# Permission families whose *reads* are audited, mirroring
+# `AUDITED_READ_FAMILIES` in the route registry. Kept as a tuple because
+# `str.startswith` takes one.
+AUDITED_READ_FAMILIES = ("events.", "operations.")
+
 # Transitions whose guard is not one of the two standard forms, so the scan
 # cannot find them. Each is listed with the guard it uses instead, and each is
 # still required to record its transition.
@@ -204,12 +209,29 @@ def check_routes(failures: list[str]) -> None:
         expected = f"{method} {pattern}"
 
         if method == "GET":
-            # Reads are not audited, so a GET route must not appear. An entry
-            # here would be dead weight that reads as coverage.
-            if permission in registered:
+            # Privileged operational reads are audited (ADR-0022): the
+            # architecture requires the operational surface to "audit privileged
+            # or cross-Organization access". Ordinary reads are not — a row per
+            # list request would bury the ones that matter — so a GET outside
+            # those families must not appear, and one inside them must.
+            privileged = permission.startswith(AUDITED_READ_FAMILIES)
+
+            if privileged and permission not in registered:
                 failures.append(
-                    f"{permission!r} is a GET route but appears in {REGISTRY} — "
-                    f"the interceptor skips GET, so the entry records nothing"
+                    f"{permission!r} is a privileged operational read routed as "
+                    f"{expected!r} (ADR-0014) but has no entry in {REGISTRY}, so "
+                    f"the interceptor skips it and it leaves no audit row"
+                )
+            elif privileged and registered[permission] != expected:
+                failures.append(
+                    f"{permission!r} is routed as {expected!r} (ADR-0014) but "
+                    f"{REGISTRY} maps it from {registered[permission]!r} — a "
+                    f"pattern that does not match is never looked up"
+                )
+            elif not privileged and permission in registered:
+                failures.append(
+                    f"{permission!r} is an ordinary GET route but appears in "
+                    f"{REGISTRY} — only privileged operational reads are audited"
                 )
             continue
 

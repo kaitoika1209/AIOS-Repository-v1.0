@@ -99,6 +99,7 @@ suite("AIOS API", () => {
                   notifications,
                   decision_secretary_contributions, secretary_assistance_grants,
                   dead_letter_events, event_replays, processed_events,
+                  worker_pauses,
                   consumer_ordering_state,
                   memory_revisions, memories,
                   membership_role_assignments, memberships,
@@ -3280,6 +3281,290 @@ suite("AIOS API", () => {
         .expect(201);
 
       expect(res.body.replayId).toMatch(/^[0-9a-f-]{36}$/);
+    });
+  });
+
+
+  /**
+   * Worker pause and resume (ADR-0022).
+   *
+   * Against a real database and a real drain, because the pause is a predicate
+   * on the Outbox claim: the property that matters is that a paused
+   * Organization's rows are *not claimed* — still `Pending`, no attempt
+   * recorded — and no in-memory double can demonstrate that.
+   */
+  describe("Worker pause and resume", () => {
+    const memoryOptions = {
+      memory: {
+        generator: new DeterministicMemoryGenerator(),
+        secretaryIdentityId: SECRETARY_IDENTITY_ID,
+        systemPrincipalId: "memory-generator",
+      },
+    };
+
+    const completeWork = async (title: string) => {
+      const created = await request(server())
+        .post("/works")
+        .set(as(MEMBER))
+        .send({ title, description: "d" })
+        .expect(201);
+      const work = created.body as { workId: string };
+      await request(server()).post(`/works/${work.workId}/start`).set(as(MEMBER)).expect(201);
+      await request(server())
+        .post(`/works/${work.workId}/complete`)
+        .set(as(MEMBER))
+        .send({ completionSummary: "done" })
+        .expect(201);
+      return work;
+    };
+
+    const outboxStatuses = async (): Promise<Record<string, string>> => {
+      const client = await pool.connect();
+      try {
+        const result = await client.query<{ event_type: string; status: string; attempt_count: number }>(
+          `SELECT event_type, status, attempt_count FROM outbox_messages ORDER BY recorded_at`,
+        );
+        return Object.fromEntries(
+          result.rows.map((r) => [`${r.event_type}:${r.status}`, String(r.attempt_count)]),
+        );
+      } finally {
+        client.release();
+      }
+    };
+
+    const pause = (workerType: string, who = OWNER) =>
+      request(server())
+        .post(`/admin/workers/${workerType}/pause`)
+        .set(as(who))
+        .send({ reasonCode: "PROVIDER_UNSAFE", reason: "Bad candidates." });
+
+    it("stops the claim rather than the processing", async () => {
+      await completeWork("Ship the beta");
+      await pause("MemoryGeneration").expect(201);
+
+      const result = await drainOutbox(pool, dependenciesFor(pool), 20, memoryOptions);
+
+      // Not claimed, and not attempted — attempt_count still 0. The whole design
+      // rests on this: a pause that claimed and then skipped would move the
+      // attempt counters and pending ages that workflow health and retry policy
+      // read.
+      const statuses = await outboxStatuses();
+      expect(statuses["WorkCompleted:Pending"]).toBe("0");
+      expect(statuses["WorkCompleted:Published"]).toBeUndefined();
+
+      // The other events of the same Work are untouched by a MemoryGeneration
+      // pause: only `WorkCompleted` is served by that consumer.
+      expect(result.claimed).toBeGreaterThan(0);
+      expect(statuses["WorkStarted:Published"]).toBeDefined();
+    });
+
+    it("resumes into the same backlog, with no repair", async () => {
+      const work = await completeWork("Ship the beta");
+      await pause("MemoryGeneration").expect(201);
+      await drainOutbox(pool, dependenciesFor(pool), 20, memoryOptions);
+
+      await request(server())
+        .post("/admin/workers/MemoryGeneration/resume")
+        .set(as(OWNER))
+        .expect(201)
+        .expect((r) => expect(r.body).toEqual({ resumed: true }));
+
+      await drainOutbox(pool, dependenciesFor(pool), 20, memoryOptions);
+
+      const memory = await request(server())
+        .get(`/memories/by-work/${work.workId}`)
+        .set(as(MEMBER))
+        .expect(200);
+      expect(memory.body.memory).toMatchObject({ status: "Generated" });
+    });
+
+    it("pausing MemoryGeneration leaves other work flowing", async () => {
+      // A Decision outcome and a completed Work in the same drain. Only the
+      // second is served by the memory-generation consumer.
+      const blocked = await createWork("Launch");
+      await request(server()).post(`/works/${blocked.workId}/start`).set(as(MEMBER)).expect(201);
+      const decision = await request(server())
+        .post("/decisions")
+        .set(as(MEMBER))
+        .send({
+          relatedWorkId: blocked.workId,
+          title: "Launch timing",
+          question: "Ship on Friday?",
+          options: [{ optionId: "yes", summary: "Yes" }],
+          isBlocking: true,
+        })
+        .expect(201);
+      await request(server())
+        .post(`/decisions/${decision.body.decisionId}/submit`)
+        .set(as(MEMBER))
+        .expect(201);
+      await request(server())
+        .post(`/decisions/${decision.body.decisionId}/approve`)
+        .set(as(REVIEWER))
+        .send({ selectedOptionId: "yes", rationale: "ok" })
+        .expect(201);
+      await completeWork("Ship the beta");
+
+      await pause("MemoryGeneration").expect(201);
+      await drainOutbox(pool, dependenciesFor(pool), 20, memoryOptions);
+
+      const after = await request(server())
+        .get(`/works/${blocked.workId}`)
+        .set(as(MEMBER))
+        .expect(200);
+      expect(after.body.completionGate).toBe("Satisfied");
+      expect((await outboxStatuses())["WorkCompleted:Pending"]).toBe("0");
+    });
+
+    it("pausing OutboxPublication stops consumer delivery too", async () => {
+      const blocked = await createWork("Launch");
+      await request(server()).post(`/works/${blocked.workId}/start`).set(as(MEMBER)).expect(201);
+      const decision = await request(server())
+        .post("/decisions")
+        .set(as(MEMBER))
+        .send({
+          relatedWorkId: blocked.workId,
+          title: "Launch timing",
+          question: "Ship on Friday?",
+          options: [{ optionId: "yes", summary: "Yes" }],
+          isBlocking: true,
+        })
+        .expect(201);
+      await request(server())
+        .post(`/decisions/${decision.body.decisionId}/submit`)
+        .set(as(MEMBER))
+        .expect(201);
+      await request(server())
+        .post(`/decisions/${decision.body.decisionId}/approve`)
+        .set(as(REVIEWER))
+        .send({ selectedOptionId: "yes", rationale: "ok" })
+        .expect(201);
+
+      await pause("OutboxPublication").expect(201);
+      const result = await drainOutbox(pool, dependenciesFor(pool), 20, memoryOptions);
+
+      expect(result.claimed).toBe(0);
+      const stillBlocked = await request(server())
+        .get(`/works/${blocked.workId}`)
+        .set(as(MEMBER))
+        .expect(200);
+      expect(stillBlocked.body.status).toBe("WaitingForDecision");
+    });
+
+    it("does not stop another Organization's work", async () => {
+      // ORG pauses; the drain is global. OTHER_ORG's rows must still be claimed
+      // — the isolation property the whole authorization design exists for.
+      await completeWork("Ship the beta");
+      await pause("OutboxPublication").expect(201);
+
+      const client = await pool.connect();
+      try {
+        await client.query(
+          `INSERT INTO outbox_messages (
+             outbox_id, event_id, event_type, event_category, schema_version,
+             aggregate_type, aggregate_id, aggregate_version, event_sequence,
+             organization_id, payload, headers, destination,
+             occurred_at, recorded_at, correlation_id, actor_reference,
+             status, attempt_count, next_attempt_at
+           ) VALUES ($1, $2, 'MemoryApproved', 'Domain', 1, 'Memory', $3, 1, 1,
+                     $4, $5, '{}'::jsonb, 'local', now(), now(), $6, '{}'::jsonb,
+                     'Pending', 0, now())`,
+          [
+            randomUUID(),
+            randomUUID(),
+            randomUUID(),
+            OTHER_ORG,
+            JSON.stringify({ organizationId: OTHER_ORG }),
+            randomUUID(),
+          ],
+        );
+      } finally {
+        client.release();
+      }
+
+      const result = await drainOutbox(pool, dependenciesFor(pool), 20, memoryOptions);
+      expect(result.claimed).toBe(1);
+    });
+
+    it("honours the deployment-scoped pause, for every Organization", async () => {
+      // No route and no permission: `authorization.md` models no principal with
+      // authority across Organizations, so the global pause is configuration.
+      await completeWork("Ship the beta");
+
+      const result = await drainOutbox(pool, dependenciesFor(pool), 20, {
+        ...memoryOptions,
+        pausedWorkerTypes: new Set(["OutboxPublication"]),
+      });
+
+      expect(result.claimed).toBe(0);
+      const statuses = await outboxStatuses();
+      expect(statuses["WorkCompleted:Pending"]).toBe("0");
+    });
+
+    it("refuses a Worker type that has no claim loop to pause", async () => {
+      await request(server())
+        .post("/admin/workers/ConsumerDelivery/pause")
+        .set(as(OWNER))
+        .send({ reasonCode: "X", reason: "y" })
+        .expect(400);
+    });
+
+    it("refuses a Member, and says nothing about why", async () => {
+      await pause("MemoryGeneration", MEMBER).expect(403);
+    });
+
+    it("requires a reason", async () => {
+      await request(server())
+        .post("/admin/workers/MemoryGeneration/pause")
+        .set(as(OWNER))
+        .send({ reasonCode: "X" })
+        .expect(400);
+    });
+
+    it("reports the pause in the Organization's workflow health, and only there", async () => {
+      await pause("MemoryGeneration").expect(201);
+
+      const mine = await request(server())
+        .get("/admin/workflow-health")
+        .set(as(OWNER))
+        .expect(200);
+      expect(
+        (mine.body.workflows as { workflowType: string; paused: boolean }[])
+          .filter((w) => w.paused)
+          .map((w) => w.workflowType),
+      ).toEqual(["MemoryGeneration"]);
+
+      const theirs = await request(server())
+        .get("/admin/workflow-health")
+        .set(as(OUTSIDER, OTHER_ORG))
+        .expect(403);
+      expect(theirs.body.code).not.toContain("MemoryGeneration");
+    });
+
+    it("leaves an audit row, like every other privileged operational action", async () => {
+      await pause("MemoryGeneration").expect(201);
+
+      const rows = await auditRows("operations.pause_worker");
+      expect(rows[0]).toMatchObject({
+        outcome: "Allow",
+        resource_type: "Worker",
+        resource_id: "MemoryGeneration",
+        membership_id: OWNER.membership,
+      });
+    });
+
+    it("audits a privileged operational read, which ADR-0021 promised", async () => {
+      await request(server()).get("/admin/workflow-health").set(as(OWNER)).expect(200);
+
+      // The interceptor skips GET for ordinary reads. Reading an Organization's
+      // stalled workflows is not one.
+      expect(await auditRows("operations.read_workflow_health")).toHaveLength(1);
+
+      await request(server()).get("/notifications").set(as(OWNER)).expect(200);
+      const ordinary = await pool.query(
+        `SELECT 1 FROM authorization_audit_records WHERE permission = 'notification.read'`,
+      );
+      expect(ordinary.rowCount).toBe(0);
     });
   });
 

@@ -37,6 +37,8 @@ scope. Accepted ADRs are the highest authority in this repository — see
 | [0018](0018-promote-role-assignment.md) | Promote Role Assignment and Revocation, and Forbid Self-Assignment | Proposed | 2026-07-30 |
 | [0019](0019-promote-assistance-grant-management.md) | Promote Assistance Grant Management and Enable the Secretary at Bootstrap | Proposed | 2026-07-31 |
 | [0020](0020-adopt-forward-only-migrations-checked-against-the-documented-ddl.md) | Adopt Forward-Only Migrations, Checked Against the Documented DDL | Proposed | 2026-07-31 |
+| [0021](0021-promote-asynchronous-workflow-health.md) | Promote Asynchronous Workflow Health | Accepted | 2026-08-04 |
+| [0022](0022-promote-worker-pause-and-resume.md) | Promote Worker Pause and Resume | Accepted | 2026-08-05 |
 
 ---
 

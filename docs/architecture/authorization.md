@@ -1103,6 +1103,8 @@ events.replay_domain_consumer
 events.replay_projection
 
 operations.read_workflow_health
+operations.pause_worker
+operations.resume_worker
 ```
 
 Membership invitation is split into one permission per command rather than a single
@@ -1117,6 +1119,19 @@ by every role.
 summarization" — the two conditions ADR-0010's promotion rule names. Promotion "must
 identify the smallest useful vertical slice", so exactly one assistance operation is
 implemented; `memory.record_secretary_contribution` stays Reserved.
+
+`operations.pause_worker` and `operations.resume_worker` authorize a pause **scoped to the
+holder's own Organization** ([ADR-0022](../adr/0022-promote-worker-pause-and-resume.md)).
+That scope is not a simplification, it is what makes the permissions holdable: a Worker type
+is process-wide, so a permission held through one Membership must not be able to stop
+another tenant's work. Pausing a Worker type globally has no permission because it has no
+principal — see *Platform Access Is Not Organization Authority* below — and is a deployment
+control instead.
+
+They are two permissions rather than one because pausing and resuming are not the same
+authority. Pausing stops work; resuming asserts that the condition which caused the pause is
+over. A future policy that lets an Admin pause and requires an Owner to resume is
+expressible only if they are separate.
 
 The permission gates *requesting* assistance and reading what it produced. It grants no
 authority over Decision content: adoption is the Human's own `decision.edit_draft`,
@@ -1547,6 +1562,8 @@ Canonical permissions and default role policy are:
 | Operation | Permission | OrganizationOwner | OrganizationAdmin |
 |---|---|---:|---:|
 | Read asynchronous workflow health | `operations.read_workflow_health` | Allow | Allow |
+| Pause a Worker type for this Organization | `operations.pause_worker` | Allow | Allow |
+| Resume a Worker type for this Organization | `operations.resume_worker` | Allow | Allow |
 | Inspect redacted failed-event metadata | `events.inspect_failed` | Allow | Allow |
 | Validate a Failed delivery without effects | `events.retry` | Allow | Allow |
 | RetryOriginal for a Failed delivery | `events.retry` | Allow | Allow |
@@ -1618,6 +1635,8 @@ A successful skip is terminal for that consumer result. It does not state that t
 The MVP does not model a cross-Organization Human PlatformOperator principal. Deployment or database operators may pause Workers, preserve evidence, and restore infrastructure under the Operations controls, but they cannot use that access to authorize Organization-scoped replay or skip.
 
 Cross-Organization replay, support impersonation, and break-glass recovery require a separate future identity, approval, customer-visibility, and audit design.
+
+Pausing a Worker type for every Organization is therefore a deployment control rather than a routed command: it is exercised through process configuration, which is how deployment operators exercise the Operations controls, and it carries no permission because there is no principal in the MVP who could hold one. The routed `operations.pause_worker` and `operations.resume_worker` commands are the Organization-scoped case, and they cannot reach beyond the Organization whose Membership authorized them ([ADR-0022](../adr/0022-promote-worker-pause-and-resume.md)).
 
 ---
 

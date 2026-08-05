@@ -35,7 +35,7 @@ import { catchError, from, mergeMap, tap, throwError } from "rxjs";
 
 import type { AuditRecord, AuditRepository } from "@aios/application";
 
-import { permissionFor, resourceOf } from "./route-registry.js";
+import { isAuditedRead, permissionFor, resourceOf } from "./route-registry.js";
 
 /**
  * The audited request, as the interceptor can see it.
@@ -87,10 +87,17 @@ export class AuditInterceptor implements NestInterceptor {
     const method = request.method;
     const route = `${method} ${request.route?.path ?? request.path}`;
 
-    // Reads are not audited. The audit records decisions about *actions*, and a
-    // row per list request would bury the ones that matter. `mvp.md` asks for
-    // "every protected action", and a query is not one.
-    if (method === "GET") {
+    // Ordinary reads are not audited. The audit records decisions about
+    // *actions*, and a row per list request would bury the ones that matter.
+    // `mvp.md` asks for "every protected action", and a query is not one.
+    //
+    // Privileged operational reads are the exception (ADR-0022). The
+    // architecture requires the operational surface to "audit privileged or
+    // cross-Organization access under the audit durability policy", and reading
+    // an Organization's failed deliveries or stalled workflows is a privileged
+    // access whether or not it changes anything. `isAuditedRead` names exactly
+    // which reads those are; `GET /notifications` is not one of them.
+    if (method === "GET" && !isAuditedRead(method, request.route?.path ?? request.path)) {
       return next.handle();
     }
 

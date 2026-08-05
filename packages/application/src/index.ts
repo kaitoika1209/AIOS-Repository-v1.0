@@ -23,4 +23,5 @@ export * from "./membership-use-cases.js";
 export * from "./notification-use-cases.js";
 export * from "./correlation.js";
 export * from "./logging.js";
+export * from "./worker-pause.js";
 export * from "./workflow-health.js";

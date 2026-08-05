@@ -32,6 +32,7 @@ import type {
   SecretaryContributionRepository,
 } from "./assistance.js";
 import type { AuditRepository } from "./audit.js";
+import type { PausableWorkerType, WorkerPause } from "./worker-pause.js";
 import type { WorkflowCounts, WorkflowType } from "./workflow-health.js";
 import type {
   DecisionState,
@@ -104,6 +105,35 @@ export interface WorkflowHealthQuery {
   countsFor(
     organizationId: OrganizationId,
   ): Promise<Readonly<Partial<Record<WorkflowType, WorkflowCounts>>>>;
+}
+
+/**
+ * The Organization's administrative Worker pauses (ADR-0022).
+ *
+ * A store rather than an Aggregate repository: no domain invariant depends on a
+ * pause, and it is written by the Operations commands rather than by any
+ * Aggregate. That is also why there is no version and no optimistic concurrency
+ * — two operators pausing the same Worker want the same outcome, and the loser
+ * of a race has nothing to reconcile.
+ */
+export interface WorkerPauseRepository {
+  /**
+   * Record the pause, or return the existing one unchanged.
+   *
+   * Returning the existing pause rather than overwriting it keeps the reason
+   * that explains the current state. An operator repeating the command should
+   * not silently replace the note the first one left.
+   */
+  pause(pause: WorkerPause): Promise<WorkerPause>;
+
+  /** Lift it. False when there was nothing to lift, which is not an error. */
+  resume(
+    organizationId: OrganizationId,
+    workerType: PausableWorkerType,
+  ): Promise<boolean>;
+
+  /** Every pause this Organization currently holds. */
+  listFor(organizationId: OrganizationId): Promise<readonly WorkerPause[]>;
 }
 
 export interface OrganizationRepository {
@@ -594,6 +624,7 @@ export interface RepositoryBundle {
   readonly contributions: SecretaryContributionRepository;
   readonly identities: IdentityRepository;
   readonly workflowHealth: WorkflowHealthQuery;
+  readonly workerPauses: WorkerPauseRepository;
   readonly outbox: OutboxPort;
 }
 

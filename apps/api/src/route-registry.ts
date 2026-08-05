@@ -64,6 +64,33 @@ const ROUTES: Readonly<Record<string, string>> = {
   "POST /admin/events/dead-letters/:deadLetterId/reprocess":
     "events.replay_domain_consumer",
   "POST /admin/events/replay/projection": "events.replay_projection",
+  "POST /admin/workers/:workerType/pause": "operations.pause_worker",
+  "POST /admin/workers/:workerType/resume": "operations.resume_worker",
+  // Privileged operational *reads* (ADR-0022). Ordinary reads are not audited —
+  // "a row per list request would bury the ones that matter" — but the
+  // architecture requires the operational surface to "audit privileged or
+  // cross-Organization access", and an operational read of an Organization's
+  // failures is a privileged access whether or not it changes anything.
+  "GET /admin/workflow-health": "operations.read_workflow_health",
+  "GET /admin/events/failed": "events.inspect_failed",
+};
+
+/**
+ * Permission families whose reads are audited.
+ *
+ * The distinction the interceptor needs, kept here beside the map it applies to.
+ * `notification.read` is not in it; `events.inspect_failed` is.
+ */
+const AUDITED_READ_FAMILIES = ["events.", "operations."];
+
+/** Whether this route's read should leave an audit row. */
+export const isAuditedRead = (method: string, path: string): boolean => {
+  if (method !== "GET") return false;
+  const permission = permissionFor(method, path);
+  return (
+    permission !== null &&
+    AUDITED_READ_FAMILIES.some((family) => permission.startsWith(family))
+  );
 };
 
 export const permissionFor = (method: string, path: string): string | null =>
@@ -107,7 +134,9 @@ export const resourceOf = (
                   ? ["OutboxMessage", params["eventId"]]
                   : params["organizationId"] !== undefined
                     ? ["Organization", params["organizationId"]]
-                    : [null, null];
+                    : params["workerType"] !== undefined
+                      ? ["Worker", params["workerType"]]
+                      : [null, null];
 
   const status =
     typeof body === "object" && body !== null && "status" in body

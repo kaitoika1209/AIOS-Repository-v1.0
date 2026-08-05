@@ -33,10 +33,10 @@ driving the whole loop over HTTP.
 | | |
 |---|---|
 | Release Acceptance Criteria | 33 executable tests, all passing |
-| Test suite | 731 passing (types 11, domain 170, application 227, persistence 67, api 256) |
-| Routed permissions enforced | 44 / 44 |
-| Documentation checks | 60 files |
-| Accepted and proposed ADRs | 21 |
+| Test suite | 777 passing (types 11, domain 170, application 246, persistence 74, api 276) |
+| Routed permissions enforced | 46 / 46 |
+| Documentation checks | 62 files |
+| Accepted and proposed ADRs | 22 |
 
 The domain loop is complete. Work → Decision → completion → generated Memory → human
 review → immutable approved Memory works end to end, with Organization isolation, an
@@ -62,13 +62,13 @@ Thirteen items. Assessed against the code as it stands.
 | 6 | PostgreSQL, Outbox, Worker, queue-age, and Work-to-Memory workflow metrics | **Absent** |
 | 7 | Durable audit for Human-authoritative transitions and privileged operational actions | **Done** — `authorization_audit_records`, edge and use-case halves |
 | 8 | HTTP and Worker liveness/readiness, asynchronous workflow health, restricted admin diagnostics | **Partial** — four process probes and asynchronous workflow health serve; the health projection and admin diagnostics remain |
-| 9 | Bounded retry, idempotency, retry-exhaustion visibility, dead-letter handling, typed Operations commands for Worker pause/resume, replay, dead-letter retry/skip | **Partial** — everything except Worker pause/resume |
+| 9 | Bounded retry, idempotency, retry-exhaustion visibility, dead-letter handling, typed Operations commands for Worker pause/resume, replay, dead-letter retry/skip | **Done** — pause and resume land as ADR-0022, alongside replay and dead-letter retry/skip |
 | 10 | Continuous WAL archiving, base backup ≥ every 24h, 14-day PITR, monthly verified restore test, approved RPO and RTO | **Absent** — the restore *procedure* is proven by an executable drill; no production storage, schedule, or retention exists |
 | 11 | Actionable alerts for database unavailability, authoritative-write failure, Outbox or Worker stoppage, Memory-generation failure, Organization-isolation violation | **Absent** |
-| 12 | The six MVP runbooks | **Absent** |
+| 12 | The six MVP runbooks | **Partial** — Worker containment and PostgreSQL recovery are written; four remain |
 | 13 | Separate Worker process | **Done** — `apps/api/src/worker.ts`; `chooseWorkerMode` refuses in-process draining outside development |
 
-Five done, three partial, five absent. None of it is domain work.
+Six done, three partial, four absent. None of it is domain work.
 
 ---
 
@@ -281,8 +281,11 @@ Remaining:
   baseline names.
 - Restricted administrative diagnostics — note that these need a permission, and adding one
   is an ADR-0010 promotion, not an editing decision.
-- Worker readiness cannot yet report "administratively paused", because pause and resume do
-  not exist. That is B3's remaining half, and the probe does not pretend otherwise.
+Worker readiness now reports `ADMINISTRATIVELY_PAUSED`, which it could not before pause
+existed. The remaining probe gap is a different one: both Worker types share a process, so a
+deployment pause of either makes that process unready, while the architecture asks that "one
+Worker type becoming unready MUST NOT make unrelated Worker types ... unready". Separating
+them is a deployment-topology change, not a probe change.
 
 #### The defect that stopping the database found
 
@@ -319,9 +322,62 @@ their lease timeout.
 Running several is safe: the Outbox claim uses `FOR UPDATE SKIP LOCKED` and each consumer
 records its own delivery, so replicas divide the queue instead of duplicating it.
 
-**Item 9's remaining half is pause and resume**, which need permissions and routes, so that
-part carries an ADR under ADR-0010 and ADR-0014 — the same promotion path the `events.*`
-recovery commands followed. Until it exists, stopping the Worker means stopping the process.
+**Item 9 is done.** Pause and resume land as
+[ADR-0022](../adr/0022-promote-worker-pause-and-resume.md), the same promotion path the
+`events.*` recovery commands followed. Stopping the Worker no longer means stopping the
+process.
+
+What made this the last piece of item 9 was not the mechanism but the authority. A Worker
+type is process-wide; a permission is held through a Membership in one Organization. An
+Owner of one tenant pausing "the Memory Worker" would halt every other tenant, and
+`authorization.md` forbids that and forbids the escape hatch: "The MVP does not model a
+cross-Organization Human PlatformOperator principal ... Cross-Organization replay, support
+impersonation, and break-glass recovery require a separate future identity, approval,
+customer-visibility, and audit design."
+
+So it ships as two controls split along that boundary:
+
+- **`operations.pause_worker` / `operations.resume_worker`**, routed as
+  `POST /admin/workers/{workerType}/pause` and `/resume`, granted to Owner and Admin. A
+  pause suspends claiming for **that Organization only** — the "pause Organization-scoped
+  Worker processing" action the architecture lists under Organization-specific containment.
+- **`WORKER_PAUSED_TYPES`**, deployment configuration with no route and no permission,
+  because it has no principal. It is the "deployment or database operators may pause
+  Workers" case, and it is what closes the readiness requirement: a Worker paused this way
+  reports `Unready` with `ADMINISTRATIVELY_PAUSED`.
+
+Two Worker types are pausable — `OutboxPublication` and `MemoryGeneration` — sharing names
+with ADR-0021's health vocabulary. `ConsumerDelivery` has no claim loop of its own, so
+`OutboxPublication` already is its pause, and a dead letter is a record awaiting a decision
+rather than a Worker; the command rejects both rather than recording a pause that stops
+nothing.
+
+**Pausing means not claiming.** The entire mechanism is one predicate on the Outbox claim,
+which is what makes it safe: nothing is begun and abandoned, no delivery is recorded as
+attempted, no attempt counter moves. Rows stay `Pending` and drain in order after the
+resume, so resuming needs no repair and no replay. Checking the pause inside a consumer
+instead would mark deliveries attempted that never were, corrupting the retry counts and
+pending ages the rest of items 9 and 11 read.
+
+Verified against a real database and a real drain, and by deliberately removing each half of
+the predicate to confirm the tests fail: with the Organization-scoped half gone, four tests
+break; with the deployment-scoped half gone, one does. The composite foreign key on the
+pause row was checked the same way — PostgreSQL refuses a Membership from another
+Organization, independently of the permission check.
+
+**What it does not do.** A pause does not expire; nothing lifts it but a person. The health
+report makes a forgotten one visible — it reports `paused: true` beside a status that keeps
+climbing — but a scheduled expiry needs a second durable mechanism and a default duration
+nobody has yet earned by running an incident with this. Runbook 7 says so, and says to put
+the reversal in the incident record.
+
+**A correction ADR-0022 carries.** ADR-0021 claimed the workflow-health read was "audited
+like every other routed permission". It was not — the audit interceptor skips `GET`, on
+purpose, because "a row per list request would bury the ones that matter". That reasoning is
+right for `GET /notifications` and wrong for a privileged operational read, which the
+architecture requires to be audited. The interceptor now audits `GET` for the `events.*` and
+`operations.*` families only, `check_audit.py` enforces the rule in both directions, and
+`GET /admin/events/failed` gained the trace it should always have had.
 
 ### B4. Alerts and runbooks (items 11, 12)
 
@@ -334,11 +390,22 @@ audit evidence":
 3. Memory generation failure or retry exhaustion
 4. Organization isolation or Human authority violation
 5. Deployment rollback
-6. PostgreSQL backup or WAL failure and point-in-time recovery
+6. PostgreSQL backup or WAL failure and point-in-time recovery — written, in
+   [`backup-and-recovery.md`](backup-and-recovery.md), and executable as
+   `scripts/restore_drill.sh`
+
+Two more exist beyond that list, both in
+[`worker-containment.md`](worker-containment.md), because pause and resume made them
+possible: **runbook 7**, containing one Organization's asynchronous processing, and
+**runbook 8**, stopping a Worker type for every Organization. Runbook 7 is the safe
+containment step that runbooks 2 and 3 have to reach for, so those two can now be written
+against something that exists.
 
 A runbook that has never been executed is a draft. Each should be exercised once against a
 staging environment before launch, which is what makes runbooks 5 and 6 depend on Stage C
-and Stage D existing first.
+and Stage D existing first. Runbooks 7 and 8 have been exercised in the test suite rather
+than by hand — the pause, the drain that claims nothing, the resume, and the drain that
+clears the backlog all run against a real database on every build.
 
 ---
 
@@ -495,8 +562,8 @@ to the MVP application; no external compatibility commitment exists.
 
 | Decision | Why it needs one |
 |---|---|
-| Worker pause and resume | New permissions and routes — ADR-0010 promotion and an ADR-0014 route entry |
 | Restricted administrative diagnostics | Same: a new permission is a scope change |
+| The status of ADRs 0017, 0018, and 0019 | They promote permissions that are catalogued and implemented, and each still reads `Proposed`. ADR-0010's rule is that promotion requires an **accepted** ADR *and* a scope-document update — so either the status is stale or the implementation went ahead of the decision. Only the architecture owner can say which |
 | RPO and RTO | Named figures the baseline requires an owner to approve |
 | Clerk profile webhook | In scope or out; `.env.example` currently implies in |
 

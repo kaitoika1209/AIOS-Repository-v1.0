@@ -288,6 +288,8 @@ is amended.
 | `organization.grant_assistance` | `POST /organizations/{organizationId}/assistance-grants` |
 | `organization.revoke_assistance` | `POST /organizations/{organizationId}/assistance-grants/revoke` |
 | `operations.read_workflow_health` | `GET /admin/workflow-health` |
+| `operations.pause_worker` | `POST /admin/workers/{workerType}/pause` |
+| `operations.resume_worker` | `POST /admin/workers/{workerType}/resume` |
 | `events.inspect_failed` | `GET /admin/events/failed` |
 | `events.retry` | `POST /admin/events/{eventId}/retry` |
 | `events.skip` | `POST /admin/events/dead-letters/{deadLetterId}/skip` |
@@ -314,6 +316,19 @@ Keying them by `eventId` would be ambiguous the moment a second consumer registe
 for the same event type: two deliveries can fail independently, and skipping "the
 event" would not say which result is being discarded. The dead letter is the thing
 an operator inspects, so it is the thing the command names.
+
+### `{workerType}` is a closed vocabulary, not an identifier
+
+Every other path parameter in this table is an identifier of a stored row. `workerType` is
+not: it is one of a fixed set of names, and the route rejects anything outside it before the
+handler runs ([ADR-0022](0022-promote-worker-pause-and-resume.md)).
+
+It is still a path segment rather than a body field, because it identifies *what the command
+acts on*. `POST /admin/workers/pause` with `{"workerType": "MemoryGeneration"}` would put the
+target of a privileged operational command in the payload, where the route pattern — and
+therefore the audit's `commandType` and the ingress metric's `route_template` — could not see
+it. A pause of publication and a pause of Memory generation would be indistinguishable in
+both.
 
 ### `work.assign` declares relationships rather than naming an operation
 

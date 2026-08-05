@@ -53,7 +53,8 @@ export type ReasonCode =
   | "DATABASE_READ_ONLY"
   | "PROBE_TIMEOUT"
   | "LOOP_STALLED"
-  | "SHUTTING_DOWN";
+  | "SHUTTING_DOWN"
+  | "ADMINISTRATIVELY_PAUSED";
 
 export interface ProbeResult {
   readonly status: ProbeStatus;
@@ -166,14 +167,40 @@ export const httpReadiness = async (pool: Pool): Promise<ProbeResult> => {
  * cannot claim an Outbox row against a read-only database, and cannot claim one
  * at all if the Outbox schema is a migration behind.
  *
- * Two things the architecture asks for are absent, and both are recorded as
- * gaps rather than quietly assumed. It "MUST verify ... the Worker type is not
- * administratively paused" — pause and resume are the unbuilt half of baseline
- * item 9. And readiness "does not prove progress": a Worker can be ready and
- * make none, which is what asynchronous workflow health is for.
+ * It also verifies what the architecture asks for last: "the Worker type is not
+ * administratively paused". `pausedTypes` is the deployment-scoped pause
+ * (ADR-0022), and it is checked before the database — a paused Worker is unready
+ * whether or not PostgreSQL is reachable, and reporting `DATABASE_UNAVAILABLE`
+ * for a process that was deliberately stopped would send an operator after the
+ * wrong thing.
+ *
+ * Organization-scoped pauses are deliberately **not** checked here. The probe
+ * answers for a process, and a process with one tenant paused is still able to
+ * claim and process work for every other one. Reporting `Unready` for it would
+ * present one Organization's containment as a platform fault — the inverse of
+ * the failure the architecture names, where "global metrics can remain healthy
+ * while one Organization is permanently blocked". That answer is
+ * Organization-scoped, so it belongs in the Organization-scoped surface, and
+ * `GET /admin/workflow-health` reports it.
+ *
+ * One thing the architecture asks for is still absent and recorded as a gap
+ * rather than quietly assumed: "one Worker type becoming unready MUST NOT make
+ * unrelated Worker types ... unready". Both types run in one loop here, so a
+ * deployment pause of either makes the one process unready. Separating them is a
+ * deployment-topology change, not a probe change.
+ *
+ * Readiness still "does not prove progress": a Worker can be ready and make
+ * none, which is what asynchronous workflow health is for.
  */
-export const workerReadiness = async (pool: Pool): Promise<ProbeResult> =>
-  httpReadiness(pool);
+export const workerReadiness = async (
+  pool: Pool,
+  pausedTypes: ReadonlySet<string> = new Set(),
+): Promise<ProbeResult> => {
+  if (pausedTypes.size > 0) {
+    return { status: "Unready", reasonCode: "ADMINISTRATIVELY_PAUSED" };
+  }
+  return httpReadiness(pool);
+};
 
 /**
  * Is this Worker's loop still turning?

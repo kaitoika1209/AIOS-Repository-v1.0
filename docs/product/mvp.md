@@ -800,6 +800,14 @@ work is actually moving. The `organization_workflow_health` projection the obser
 architecture describes is not built — health is derived live from the durable tables — so
 the operational baseline's item 8 remains incomplete.
 
+An Owner or Admin can also pause and resume asynchronous processing for their own
+Organization ([ADR-0022](../adr/0022-promote-worker-pause-and-resume.md)), which is what
+makes "observable failure handling" actionable rather than only visible: a workflow that is
+producing bad effects can be stopped for the affected Organization without stopping it for
+anyone else. A pause suspends claiming, so nothing is half-processed and resuming needs no
+repair. Pausing a Worker for every Organization is a deployment control, not a command —
+the MVP models no principal with authority across Organizations.
+
 ### AI Integration
 
 AI calls must occur outside critical domain transactions.

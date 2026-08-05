@@ -56,6 +56,18 @@ export interface WorkflowHealth {
   readonly oldestPendingSeconds: number | null;
   /** A bounded code, never free text — the same rule the diagnostic surface has. */
   readonly reasonCode: "OK" | "PENDING_OVER_THRESHOLD" | "UNRESOLVED_FAILURE" | "QUERY_FAILED";
+  /**
+   * Whether an operator has administratively paused this workflow (ADR-0022).
+   *
+   * Reported alongside the status rather than folded into it. A paused workflow
+   * accumulates a backlog and its status honestly says so — "is committed work
+   * progressing within policy" is answered `no` whether the cause is a fault or
+   * a decision. This field says which, so an operator reading `Critical` can see
+   * that they are looking at their own containment rather than a new incident.
+   *
+   * Always `false` for the workflow types that cannot be paused.
+   */
+  readonly paused: boolean;
 }
 
 export interface WorkflowHealthReport {
@@ -147,9 +159,16 @@ export const readWorkflowHealthUseCase = async (
 ): Promise<WorkflowHealthReport> => {
   requirePermission(context.principal, "operations.read_workflow_health");
 
-  const counts = await deps.uow.transaction((tx) =>
-    tx.workflowHealth.countsFor(context.organizationId),
-  );
+  // One transaction for both, so the pauses an operator reads are the pauses
+  // that were in force when the counts were taken. Read separately, a resume
+  // landing in between would produce a report showing a backlog with no
+  // explanation for it.
+  const { counts, pauses } = await deps.uow.transaction(async (tx) => ({
+    counts: await tx.workflowHealth.countsFor(context.organizationId),
+    pauses: await tx.workerPauses.listFor(context.organizationId),
+  }));
+
+  const paused = new Set<string>(pauses.map((p) => p.workerType));
 
   const workflows = WORKFLOW_TYPES.map((workflowType): WorkflowHealth => {
     const measured = counts[workflowType] ?? null;
@@ -160,6 +179,7 @@ export const readWorkflowHealthUseCase = async (
       pending: measured?.pending ?? 0,
       oldestPendingSeconds: measured?.oldestPendingSeconds ?? null,
       reasonCode,
+      paused: paused.has(workflowType),
     };
   });
 

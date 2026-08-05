@@ -93,14 +93,25 @@ export const EVENT_PERMISSIONS = [
 ] as const;
 
 /**
- * Operational observation, restricted to Owner and Admin.
+ * Operational observation and containment, restricted to Owner and Admin.
  *
  * Separate from `EVENT_PERMISSIONS` because those act on a specific failed
- * delivery and this observes whether work is progressing at all — the reason
- * ADR-0021 promoted it rather than reusing `events.inspect_failed`.
+ * delivery and these act on the workflow as a whole — the reason ADR-0021
+ * promoted the read rather than reusing `events.inspect_failed`.
+ *
+ * Pause and resume are two permissions rather than one (ADR-0022). Pausing stops
+ * work; resuming asserts that whatever caused the pause is over. Only separate
+ * permissions can express a future policy where an Admin may pause and an Owner
+ * must resume.
+ *
+ * All three authorize an action **within the caller's own Organization**. Pausing
+ * a Worker type for every Organization has no permission because the MVP models
+ * no principal who could hold one; it is a deployment control instead.
  */
 export const OPERATIONS_PERMISSIONS = [
   "operations.read_workflow_health",
+  "operations.pause_worker",
+  "operations.resume_worker",
 ] as const;
 
 export const PERMISSIONS = [

@@ -28,4 +28,5 @@ export * from "./assistance-repository.js";
 export * from "./audit-repository.js";
 export * from "./migrations.js";
 export * from "./pool.js";
+export * from "./worker-pause-repository.js";
 export * from "./workflow-health-query.js";

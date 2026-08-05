@@ -253,7 +253,46 @@ export interface ConsumerOptions {
      */
     readonly workerId?: string;
   };
+  /**
+   * Worker types paused for every Organization by deployment configuration.
+   *
+   * Passed in rather than read here, so the drain has no opinion about where a
+   * pause comes from and a test can set one without touching `process.env`.
+   */
+  readonly pausedWorkerTypes?: ReadonlySet<string>;
 }
+
+/**
+ * What an administrative pause excludes from a claim (ADR-0022).
+ *
+ * The entire pause mechanism, in one predicate, because the claim is the only
+ * place a pause can take effect without damaging evidence. Skipping *after* the
+ * claim would mark deliveries attempted that were never attempted, moving the
+ * retry counts and pending ages that baseline items 9 and 11 read. Rows excluded
+ * here stay `Pending` and are claimed on the first drain after the resume.
+ *
+ * Both scopes are expressed together so they cannot drift: `worker_pauses` is
+ * the Organization-scoped pause taken through a routed command, and `$2` is the
+ * deployment-scoped pause read from the environment. A row is claimable only if
+ * neither excludes it.
+ *
+ * `MemoryGeneration` excludes `WorkCompleted` specifically because that is the
+ * only event the `memory-generation` consumer registers for, and no other
+ * consumer registers for it — so excluding those rows stops Memory generation
+ * exactly, starving nothing else. `OutboxPublication` excludes everything,
+ * which is why pausing it stops consumer delivery too: delivery has no claim
+ * loop of its own.
+ */
+const PAUSE_PREDICATE = `
+          AND NOT EXISTS (
+                SELECT 1 FROM worker_pauses p
+                 WHERE p.organization_id = o.organization_id
+                   AND (p.worker_type = 'OutboxPublication'
+                        OR (p.worker_type = 'MemoryGeneration'
+                            AND o.event_type = 'WorkCompleted')))
+          AND NOT ('OutboxPublication' = ANY($2::text[]))
+          AND NOT ('MemoryGeneration' = ANY($2::text[])
+                   AND o.event_type = 'WorkCompleted')`;
 
 export const drainOutbox = async (
   pool: Pool,
@@ -261,6 +300,8 @@ export const drainOutbox = async (
   batchSize = 20,
   options: ConsumerOptions = {},
 ): Promise<DrainResult> => {
+  const deploymentPaused = [...(options.pausedWorkerTypes ?? [])];
+
   const client = await pool.connect();
   let rows: OutboxRow[];
 
@@ -269,13 +310,14 @@ export const drainOutbox = async (
     const claimed = await client.query<OutboxRow>(
       `SELECT outbox_id, event_id, event_type, aggregate_type, aggregate_id,
               aggregate_version, schema_version, correlation_id, event_sequence, payload
-         FROM outbox_messages
+         FROM outbox_messages o
         WHERE status = 'Pending'
           AND next_attempt_at <= now()
+          ${PAUSE_PREDICATE}
         ORDER BY recorded_at
-        FOR UPDATE SKIP LOCKED
+        FOR UPDATE OF o SKIP LOCKED
         LIMIT $1`,
-      [batchSize],
+      [batchSize, deploymentPaused],
     );
     rows = claimed.rows;
 

@@ -26,6 +26,7 @@ import { getLogger } from "@aios/application";
 import { PostgresAuditRepository, PostgresUnitOfWork, createPool } from "@aios/persistence";
 
 import { AdminEventsController } from "./admin-events.controller.js";
+import { WorkersController } from "./workers.controller.js";
 import { WorkflowHealthController } from "./workflow-health.controller.js";
 import { AuditInterceptor } from "./audit-interceptor.js";
 import { correlationMiddleware } from "./correlation-middleware.js";
@@ -151,6 +152,7 @@ export const createApp = async (options: AppOptions): Promise<INestApplication> 
       OrganizationMemberController,
       InvitationController,
       AdminEventsController,
+      WorkersController,
       WorkflowHealthController,
     ],
     providers: [

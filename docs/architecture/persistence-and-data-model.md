@@ -6310,6 +6310,64 @@ They are not free-form declarations of success.
 
 ---
 
+## Worker Pause Persistence
+
+An administrative pause suspends a Worker type's claiming for one Organization. It is
+operational state rather than Aggregate state: no domain invariant depends on it, and it is
+written by the Operations commands
+([ADR-0022](../adr/0022-promote-worker-pause-and-resume.md)) rather than by any Aggregate.
+
+```sql
+CREATE TABLE worker_pauses (
+    organization_id         uuid NOT NULL,
+    worker_type             text NOT NULL,
+
+    paused_at               timestamptz NOT NULL,
+    paused_by_identity_id   uuid NOT NULL,
+    paused_by_membership_id uuid NOT NULL,
+    reason_code             text NOT NULL,
+    reason                  text NOT NULL,
+
+    PRIMARY KEY (organization_id, worker_type),
+
+    CONSTRAINT ck_worker_pause_type CHECK (
+        worker_type IN ('OutboxPublication', 'MemoryGeneration')
+    ),
+
+    FOREIGN KEY (organization_id)
+        REFERENCES organizations (organization_id),
+
+    FOREIGN KEY (organization_id, paused_by_membership_id)
+        REFERENCES memberships (organization_id, membership_id)
+);
+```
+
+Presence is the pause. Resume deletes the row rather than clearing a flag, because a
+two-state column cannot distinguish "resumed" from "never paused" without a third column
+recording whether it was ever set — and the durable history of who paused what and why is
+the Class B audit record, which is insert-only and unaffected by a resume.
+
+The primary key is the pause's identity. One Organization has at most one pause per Worker
+type, so a repeated pause command is a conflict rather than a second row, and the claim
+query's lookup is a primary-key probe.
+
+`paused_by_membership_id` uses the composite foreign key for the same reason
+`dead_letter_events.resolved_by_membership_id` does: pausing is Organization business
+authority, so the Membership that authorized it must belong to the Organization being
+paused. A cross-Organization pause is rejected by the database, not only by the permission
+check.
+
+`reason` is required. A pause with no stated cause is a pause nobody else can safely lift,
+and pauses are routinely lifted by someone other than the person who took them.
+
+`worker_type` is constrained to the pausable types rather than to every workflow type in the
+health report. `ConsumerDelivery` has no claim loop of its own — it runs inside the Outbox
+drain, so pausing `OutboxPublication` already stops it — and a dead letter is a durable
+record awaiting a decision, not a Worker. Accepting a name that pauses nothing would let an
+operator believe processing had stopped when it had not.
+
+---
+
 ## Reconciliation Finding Persistence
 
 Recommended table:

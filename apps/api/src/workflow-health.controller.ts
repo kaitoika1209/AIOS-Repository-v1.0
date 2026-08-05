@@ -37,6 +37,7 @@ interface WorkflowHealthResponse {
     pending: number;
     oldestPendingSeconds: number | null;
     reasonCode: string;
+    paused: boolean;
   }[];
 }
 
@@ -66,6 +67,11 @@ export class WorkflowHealthController {
         // surface has, and for the same reason: unbounded error text is how
         // internals reach a caller.
         reasonCode: w.reasonCode,
+        // Reported beside the status, not folded into it (ADR-0022). A paused
+        // workflow really is accumulating a backlog; this says the operator
+        // chose that, so `Critical` reads as containment rather than a new
+        // incident.
+        paused: w.paused,
       })),
     };
   }

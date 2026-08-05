@@ -34,6 +34,7 @@ import { loopLiveness, workerReadiness } from "./health.js";
 import { chooseLogger } from "./json-logger.js";
 import { drainOutbox } from "./outbox-worker.js";
 import { startProbeServer } from "./probe-server.js";
+import { readDeploymentPause } from "./worker-pause-config.js";
 
 /** How long to wait after an empty drain before polling again. */
 const IDLE_INTERVAL_MS = Number.parseInt(process.env["WORKER_INTERVAL_MS"] ?? "500", 10);
@@ -55,6 +56,12 @@ const main = async (): Promise<void> => {
   captureUnhandledFailures();
 
   const { generator, reason } = chooseGenerator(process.env);
+
+  // Read once, at startup. A deployment pause that could change under a running
+  // loop would let the readiness answer and the claim behaviour disagree for as
+  // long as the process lived (ADR-0022).
+  const deploymentPause = readDeploymentPause(process.env);
+
   logger.log({
     severity: "INFO",
     operationalLogName: "worker.started",
@@ -62,8 +69,29 @@ const main = async (): Promise<void> => {
     operationalLogCategory: "Operations",
     message: "Outbox worker started.",
     outcome: "Success",
-    attributes: { "worker.memory_generation": reason, "worker.logging": logReason },
+    attributes: {
+      "worker.memory_generation": reason,
+      "worker.logging": logReason,
+      "worker.pause": deploymentPause.reason,
+    },
   });
+
+  // Loud, because the operator who set it believes work has stopped. A name
+  // that pauses nothing is the failure mode of a control whose whole purpose is
+  // to stop something.
+  if (deploymentPause.unrecognised.length > 0) {
+    logger.log({
+      severity: "WARN",
+      operationalLogName: "worker.pause_unrecognised",
+      operationalLogClass: "Worker",
+      operationalLogCategory: "Operations",
+      message: "WORKER_PAUSED_TYPES named a Worker type that does not exist.",
+      outcome: "Failure",
+      attributes: {
+        "worker.pause_unrecognised": deploymentPause.unrecognised.join(","),
+      },
+    });
+  }
 
   const options = {
     memory: {
@@ -74,6 +102,7 @@ const main = async (): Promise<void> => {
       // an abandoned attempt can be attributed when it is reclaimed.
       workerId: process.env["WORKER_ID"] ?? `worker-${process.pid}`,
     },
+    pausedWorkerTypes: deploymentPause.paused,
   };
 
   let stopping = false;
@@ -106,7 +135,7 @@ const main = async (): Promise<void> => {
     readiness: async () =>
       stopping
         ? { status: "Unready", reasonCode: "SHUTTING_DOWN" }
-        : workerReadiness(pool),
+        : workerReadiness(pool, deploymentPause.paused),
   });
 
   const shutdown = (signal: string): void => {

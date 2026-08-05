@@ -139,6 +139,41 @@ describeDb("process health probes", () => {
       });
       expect((await workerReadiness(pending)).reasonCode).toBe("MIGRATIONS_PENDING");
     });
+
+    it("is unready when the Worker type is administratively paused", async () => {
+      // The architecture requires readiness to verify "the Worker type is not
+      // administratively paused" (ADR-0022). Before pause existed there was
+      // nothing to read, and the check was recorded as a gap.
+      expect(await workerReadiness(migrated, new Set(["MemoryGeneration"]))).toEqual({
+        status: "Unready",
+        reasonCode: "ADMINISTRATIVELY_PAUSED",
+      });
+    });
+
+    it("reports the pause even when the database is unreachable", async () => {
+      // Checked before the database on purpose. Reporting DATABASE_UNAVAILABLE
+      // for a Worker that was deliberately stopped would send an operator after
+      // the wrong thing.
+      const unreachable = new Pool({
+        connectionString: "postgresql://nobody@127.0.0.1:1/none",
+        connectionTimeoutMillis: 200,
+      });
+      unreachable.on("error", () => {});
+      try {
+        expect(
+          (await workerReadiness(unreachable, new Set(["OutboxPublication"]))).reasonCode,
+        ).toBe("ADMINISTRATIVELY_PAUSED");
+      } finally {
+        await unreachable.end();
+      }
+    });
+
+    it("is ready when nothing is paused", async () => {
+      // An Organization-scoped pause never reaches here: the probe answers for a
+      // process, and a process with one tenant paused can still claim and process
+      // for every other one.
+      expect((await workerReadiness(migrated, new Set())).status).toBe("Ready");
+    });
   });
 });
 

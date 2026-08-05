@@ -18,6 +18,8 @@ The goal is to ensure consistency, maintainability, and high code quality as AIO
 | [pull-request.md](pull-request.md) | Pull request guidelines |
 | [review-checklist.md](review-checklist.md) | Review checklist, including ADR-0010 scope verification |
 | [release-readiness.md](release-readiness.md) | What remains between the build and production, against the MVP Production Baseline |
+| [backup-and-recovery.md](backup-and-recovery.md) | What recovery is proven, what is not, and runbook 6 |
+| [worker-containment.md](worker-containment.md) | Pausing and resuming asynchronous processing — runbooks 7 and 8 |
 
 ## Related
 
