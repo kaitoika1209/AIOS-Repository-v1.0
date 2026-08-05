@@ -80,6 +80,9 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     "events.skip",
     "events.replay_domain_consumer",
     "events.replay_projection",
+    // ADR-0021. Granted beside the recovery family because the people who act
+    // on a stalled workflow are the ones who need to see it.
+    "operations.read_workflow_health",
   ],
   OrganizationAdmin: [
     "notification.read",
@@ -126,6 +129,7 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     // Admin "unless explicit Organization policy grants it" — and per-Organization
     // policy does not exist in this release, so the default is deny.
     "events.replay_projection",
+    "operations.read_workflow_health",
   ],
   Member: [
     "notification.read",

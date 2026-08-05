@@ -792,6 +792,14 @@ The MVP should use:
 
 An external message broker is not required for the MVP.
 
+Asynchronous workflow progress is readable by an Owner or Admin, scoped to their own
+Organization ([ADR-0021](../adr/0021-promote-asynchronous-workflow-health.md)). Process
+liveness and readiness do not cover this: a Worker can be ready and still make no progress,
+so "retry with observable failure handling" needs a surface that reports whether committed
+work is actually moving. The `organization_workflow_health` projection the observability
+architecture describes is not built — health is derived live from the durable tables — so
+the operational baseline's item 8 remains incomplete.
+
 ### AI Integration
 
 AI calls must occur outside critical domain transactions.

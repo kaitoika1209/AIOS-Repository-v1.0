@@ -1101,6 +1101,8 @@ events.retry
 events.skip
 events.replay_domain_consumer
 events.replay_projection
+
+operations.read_workflow_health
 ```
 
 Membership invitation is split into one permission per command rather than a single
@@ -1544,6 +1546,7 @@ Canonical permissions and default role policy are:
 
 | Operation | Permission | OrganizationOwner | OrganizationAdmin |
 |---|---|---:|---:|
+| Read asynchronous workflow health | `operations.read_workflow_health` | Allow | Allow |
 | Inspect redacted failed-event metadata | `events.inspect_failed` | Allow | Allow |
 | Validate a Failed delivery without effects | `events.retry` | Allow | Allow |
 | RetryOriginal for a Failed delivery | `events.retry` | Allow | Allow |

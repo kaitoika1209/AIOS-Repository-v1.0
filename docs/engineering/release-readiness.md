@@ -33,10 +33,10 @@ driving the whole loop over HTTP.
 | | |
 |---|---|
 | Release Acceptance Criteria | 33 executable tests, all passing |
-| Test suite | 715 passing (types 11, domain 170, application 215, persistence 67, api 252) |
-| Routed permissions enforced | 43 / 43 |
-| Documentation checks | 59 files |
-| Accepted and proposed ADRs | 20 |
+| Test suite | 731 passing (types 11, domain 170, application 227, persistence 67, api 256) |
+| Routed permissions enforced | 44 / 44 |
+| Documentation checks | 60 files |
+| Accepted and proposed ADRs | 21 |
 
 The domain loop is complete. Work → Decision → completion → generated Memory → human
 review → immutable approved Memory works end to end, with Organization isolation, an
@@ -61,7 +61,7 @@ Thirteen items. Assessed against the code as it stands.
 | 5 | RED metrics for HTTP traffic | **Absent** |
 | 6 | PostgreSQL, Outbox, Worker, queue-age, and Work-to-Memory workflow metrics | **Absent** |
 | 7 | Durable audit for Human-authoritative transitions and privileged operational actions | **Done** — `authorization_audit_records`, edge and use-case halves |
-| 8 | HTTP and Worker liveness/readiness, asynchronous workflow health, restricted admin diagnostics | **Partial** — all four process probes serve; workflow health and admin diagnostics remain |
+| 8 | HTTP and Worker liveness/readiness, asynchronous workflow health, restricted admin diagnostics | **Partial** — four process probes and asynchronous workflow health serve; the health projection and admin diagnostics remain |
 | 9 | Bounded retry, idempotency, retry-exhaustion visibility, dead-letter handling, typed Operations commands for Worker pause/resume, replay, dead-letter retry/skip | **Partial** — everything except Worker pause/resume |
 | 10 | Continuous WAL archiving, base backup ≥ every 24h, 14-day PITR, monthly verified restore test, approved RPO and RTO | **Absent** — the restore *procedure* is proven by an executable drill; no production storage, schedule, or retention exists |
 | 11 | Actionable alerts for database unavailability, authoritative-write failure, Outbox or Worker stoppage, Memory-generation failure, Organization-isolation violation | **Absent** |
@@ -253,11 +253,30 @@ Verified by causing the failures rather than by reading the code: migrations wit
 database made read-only, database stopped under both running processes. That last one
 **found a defect that would have crash-looped production** — see the note below.
 
+**Asynchronous workflow health is done**, as ADR-0021's promotion of
+`operations.read_workflow_health`. `GET /admin/workflow-health` reports four workflow types
+— Outbox publication, consumer delivery, dead letters, and Memory generation — each with a
+status, a pending count, the age of the oldest pending item, and a bounded reason code.
+
+It closes the gap the probes themselves opened: both processes can be green while nothing
+has moved for an hour, because "Worker readiness does not prove progress". Status is decided
+by **age, not count**, which the architecture requires and which matters in both directions
+— an Organization processing thousands of items promptly is healthy, and one with a single
+item stuck for two hours is not.
+
+`Unknown` is reported rather than omitted when a query cannot answer. An operator reading
+three healthy workflows would reasonably conclude the fourth was fine, so a workflow that
+failed to measure appears and says so.
+
 Remaining:
 
-- Asynchronous workflow health: Outbox depth, queue age, dead-letter count. Derived from
-  durable facts and scoped by Organization, so it belongs on the authenticated API rather
-  than the probe port.
+- The `organization_workflow_health` projection. The architecture requires a rebuildable
+  projection with its own freshness; health is derived live from the source tables instead.
+  ADR-0021 records why live derivation came first — a projection cannot be designed before
+  the query it precomputes exists — and that this is why item 8 is still Partial.
+- Restricted administrative diagnostics. A different surface with different rules: it
+  correlates evidence across components, needs an explicit operational role, and audits
+  cross-Organization access separately.
 - RED metrics for HTTP; the PostgreSQL, Outbox, Worker, and Work-to-Memory metrics the
   baseline names.
 - Restricted administrative diagnostics — note that these need a permission, and adding one

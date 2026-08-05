@@ -331,6 +331,78 @@ suite("AIOS API", () => {
     });
   });
 
+  describe("asynchronous workflow health (ADR-0021)", () => {
+    it("reports every workflow type for the acting Organization", async () => {
+      const res = await request(server())
+        .get("/admin/workflow-health")
+        .set(as(OWNER))
+        .expect(200);
+
+      expect(res.body.organizationId).toBe(ORG);
+      expect(res.body.workflows.map((w: { workflowType: string }) => w.workflowType)).toEqual(
+        ["OutboxPublication", "ConsumerDelivery", "DeadLetter", "MemoryGeneration"],
+      );
+      // Every workflow reports a bounded reason code, never free text.
+      for (const w of res.body.workflows) {
+        expect(["OK", "PENDING_OVER_THRESHOLD", "UNRESOLVED_FAILURE", "QUERY_FAILED"])
+          .toContain(w.reasonCode);
+      }
+    });
+
+    it("notices work that is committed and not moving", async () => {
+      // The gap this closes. Both probes stay green while the Outbox backs up —
+      // "Worker readiness does not prove progress" — so an Outbox row that was
+      // never published has to show up here or nowhere.
+      const before = await request(server())
+        .get("/admin/workflow-health").set(as(OWNER)).expect(200);
+      const beforeOutbox = before.body.workflows.find(
+        (w: { workflowType: string }) => w.workflowType === "OutboxPublication",
+      );
+
+      await createWork("Something that emits an event");
+
+      const after = await request(server())
+        .get("/admin/workflow-health").set(as(OWNER)).expect(200);
+      const afterOutbox = after.body.workflows.find(
+        (w: { workflowType: string }) => w.workflowType === "OutboxPublication",
+      );
+
+      expect(afterOutbox.pending).toBeGreaterThan(beforeOutbox.pending);
+      // Fresh, so still healthy: age decides, not count.
+      expect(afterOutbox.status).toBe("Healthy");
+    });
+
+    it("refuses a Member", async () => {
+      await request(server())
+        .get("/admin/workflow-health")
+        .set(as(MEMBER))
+        .expect(403);
+    });
+
+    it("counts only the acting Organization's work", async () => {
+      // The isolation property. "Global metrics can remain healthy while one
+      // Organization is permanently blocked" is why this is scoped, and a query
+      // that forgot the scope would report another tenant's backlog here.
+      const mine = await request(server())
+        .get("/admin/workflow-health").set(as(OWNER)).expect(200);
+      const minePending = mine.body.workflows.find(
+        (w: { workflowType: string }) => w.workflowType === "OutboxPublication",
+      ).pending;
+
+      const otherOrgPending = await pool.query<{ n: string }>(
+        `SELECT count(*) AS n FROM outbox_messages
+          WHERE organization_id <> $1 AND status <> 'Published'`,
+        [ORG],
+      );
+
+      const total = await pool.query<{ n: string }>(
+        `SELECT count(*) AS n FROM outbox_messages WHERE status <> 'Published'`,
+      );
+
+      expect(minePending).toBe(Number(total.rows[0]!.n) - Number(otherOrgPending.rows[0]!.n));
+    });
+  });
+
   describe("content edits (PATCH)", () => {
     it("edits a Work's title and description", async () => {
       const work = await createWork();

@@ -287,6 +287,7 @@ is amended.
 | `organization.revoke_role` | `POST /organizations/{organizationId}/members/{membershipId}/revoke-role` |
 | `organization.grant_assistance` | `POST /organizations/{organizationId}/assistance-grants` |
 | `organization.revoke_assistance` | `POST /organizations/{organizationId}/assistance-grants/revoke` |
+| `operations.read_workflow_health` | `GET /admin/workflow-health` |
 | `events.inspect_failed` | `GET /admin/events/failed` |
 | `events.retry` | `POST /admin/events/{eventId}/retry` |
 | `events.skip` | `POST /admin/events/dead-letters/{deadLetterId}/skip` |

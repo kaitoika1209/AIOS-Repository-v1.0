@@ -92,12 +92,24 @@ export const EVENT_PERMISSIONS = [
   "events.replay_projection",
 ] as const;
 
+/**
+ * Operational observation, restricted to Owner and Admin.
+ *
+ * Separate from `EVENT_PERMISSIONS` because those act on a specific failed
+ * delivery and this observes whether work is progressing at all — the reason
+ * ADR-0021 promoted it rather than reusing `events.inspect_failed`.
+ */
+export const OPERATIONS_PERMISSIONS = [
+  "operations.read_workflow_health",
+] as const;
+
 export const PERMISSIONS = [
   ...WORK_PERMISSIONS,
   ...DECISION_PERMISSIONS,
   ...MEMORY_PERMISSIONS,
   ...ORGANIZATION_PERMISSIONS,
   ...EVENT_PERMISSIONS,
+  ...OPERATIONS_PERMISSIONS,
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

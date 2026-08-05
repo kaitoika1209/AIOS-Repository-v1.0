@@ -32,6 +32,7 @@ import type {
   SecretaryContributionRepository,
 } from "./assistance.js";
 import type { AuditRepository } from "./audit.js";
+import type { WorkflowCounts, WorkflowType } from "./workflow-health.js";
 import type {
   DecisionState,
   DomainEvent,
@@ -81,6 +82,28 @@ export interface IdGenerator {
    * and reject an opaque non-UUID string at write time.
    */
   revisionId(): string;
+}
+
+/**
+ * Asynchronous workflow health, read from the durable facts (ADR-0021).
+ *
+ * A query port rather than a repository: it owns no Aggregate and writes
+ * nothing. Organization-scoped by signature like everything else here, and for
+ * a sharper reason — the answer is per-Organization by definition, and one
+ * that aggregated across tenants would be an isolation break rather than a
+ * merely wrong number.
+ */
+export interface WorkflowHealthQuery {
+  /**
+   * One row per workflow type.
+   *
+   * A workflow whose query could not be answered is **absent from the map**
+   * rather than present with zeroes, so the caller reports `Unknown` instead of
+   * `Healthy`. Missing evidence must not read as good news.
+   */
+  countsFor(
+    organizationId: OrganizationId,
+  ): Promise<Readonly<Partial<Record<WorkflowType, WorkflowCounts>>>>;
 }
 
 export interface OrganizationRepository {
@@ -570,6 +593,7 @@ export interface RepositoryBundle {
   readonly assistanceGrants: AssistanceGrantRepository;
   readonly contributions: SecretaryContributionRepository;
   readonly identities: IdentityRepository;
+  readonly workflowHealth: WorkflowHealthQuery;
   readonly outbox: OutboxPort;
 }
 

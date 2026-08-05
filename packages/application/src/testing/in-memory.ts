@@ -37,7 +37,9 @@ import type {
   SecretaryContribution,
   SecretaryContributionRepository,
 } from "../assistance.js";
+import type { WorkflowCounts, WorkflowType } from "../workflow-health.js";
 import type {
+  WorkflowHealthQuery,
   CallerOrganizationSummary,
   Clock,
   ConsumerDeliveryRepository,
@@ -71,6 +73,54 @@ import type {
  * Membership as two independent steps would let a test pass while the invariant
  * the bootstrap exists to protect was broken.
  */
+/**
+ * Workflow health for tests that do not care about it.
+ *
+ * Healthy by default with nothing pending, and settable, so a test that wants a
+ * stalled Outbox can say so without building one.
+ */
+export class InMemoryWorkflowHealthQuery implements WorkflowHealthQuery {
+  private readonly counts = new Map<WorkflowType, WorkflowCounts>();
+  /**
+   * Workflows this double reports as unanswerable.
+   *
+   * Tracked separately from `counts` rather than by deleting a key: absence
+   * from the result is what makes the caller report `Unknown`, and a default
+   * spread would quietly fill the hole back in with a healthy row — which is
+   * the exact failure the `Unknown` path exists to prevent.
+   */
+  private readonly unanswerable = new Set<WorkflowType>();
+
+  set(workflowType: WorkflowType, counts: WorkflowCounts | null): void {
+    if (counts === null) {
+      this.unanswerable.add(workflowType);
+      this.counts.delete(workflowType);
+    } else {
+      this.unanswerable.delete(workflowType);
+      this.counts.set(workflowType, counts);
+    }
+  }
+
+  async countsFor(): Promise<Readonly<Partial<Record<WorkflowType, WorkflowCounts>>>> {
+    const empty: WorkflowCounts = {
+      pending: 0,
+      oldestPendingSeconds: null,
+      unresolvedFailures: 0,
+    };
+    const result: Partial<Record<WorkflowType, WorkflowCounts>> = {};
+    for (const workflowType of [
+      "OutboxPublication",
+      "ConsumerDelivery",
+      "DeadLetter",
+      "MemoryGeneration",
+    ] as const) {
+      if (this.unanswerable.has(workflowType)) continue;
+      result[workflowType] = this.counts.get(workflowType) ?? empty;
+    }
+    return result;
+  }
+}
+
 export class InMemoryOrganizationRepository implements OrganizationRepository {
   private readonly rows = new Map<string, OrganizationState>();
 
@@ -1268,6 +1318,7 @@ export const buildTestHarness = (now = new Date("2026-07-28T10:00:00Z")) => {
   const eventRecovery = new InMemoryEventRecoveryRepository();
   const deliveries = new InMemoryConsumerDeliveryRepository();
   const replays = new InMemoryReplayRepository();
+  const workflowHealth = new InMemoryWorkflowHealthQuery();
   const memberships = new InMemoryMembershipRepository();
   const organizations = new InMemoryOrganizationRepository(memberships);
   const notifications = new InMemoryNotificationRepository();
@@ -1290,6 +1341,7 @@ export const buildTestHarness = (now = new Date("2026-07-28T10:00:00Z")) => {
     assistanceGrants,
     contributions,
     identities,
+    workflowHealth,
     outbox,
   };
 

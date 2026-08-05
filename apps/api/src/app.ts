@@ -26,6 +26,7 @@ import { getLogger } from "@aios/application";
 import { PostgresAuditRepository, PostgresUnitOfWork, createPool } from "@aios/persistence";
 
 import { AdminEventsController } from "./admin-events.controller.js";
+import { WorkflowHealthController } from "./workflow-health.controller.js";
 import { AuditInterceptor } from "./audit-interceptor.js";
 import { correlationMiddleware } from "./correlation-middleware.js";
 import { chooseGenerator } from "./anthropic-memory-generator.js";
@@ -150,6 +151,7 @@ export const createApp = async (options: AppOptions): Promise<INestApplication> 
       OrganizationMemberController,
       InvitationController,
       AdminEventsController,
+      WorkflowHealthController,
     ],
     providers: [
       { provide: USE_CASE_DEPENDENCIES, useValue: deps },
