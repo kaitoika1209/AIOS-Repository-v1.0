@@ -33,7 +33,7 @@ driving the whole loop over HTTP.
 | | |
 |---|---|
 | Release Acceptance Criteria | 33 executable tests, all passing |
-| Test suite | 828 passing (types 11, domain 170, application 269, persistence 89, api 289) |
+| Test suite | 842 passing (types 11, domain 170, application 269, persistence 89, api 303) |
 | Routed permissions enforced | 47 / 47 |
 | Documentation checks | 64 files |
 | Accepted and proposed ADRs | 23 |
@@ -65,14 +65,19 @@ Thirteen items. Assessed against the code as it stands.
 | 9 | Bounded retry, idempotency, retry-exhaustion visibility, dead-letter handling, typed Operations commands for Worker pause/resume, replay, dead-letter retry/skip | **Done** — pause and resume land as ADR-0022, alongside replay and dead-letter retry/skip |
 | 10 | Continuous WAL archiving, base backup ≥ every 24h, 14-day PITR, monthly verified restore test, approved RPO and RTO | **Absent** — the restore *procedure* is proven by an executable drill; no production storage, schedule, or retention exists |
 | 11 | Actionable alerts for database unavailability, authoritative-write failure, Outbox or Worker stoppage, Memory-generation failure, Organization-isolation violation | **Absent** |
-| 12 | The six MVP runbooks | **Partial** — all six are written, plus two for Worker containment; none of the five new ones has been executed against a staging environment |
+| 12 | The six MVP runbooks | **Partial** — all six written, plus two for Worker containment, and all executed; runbooks 1–5 against a live local environment rather than staging |
 | 13 | Separate Worker process | **Done** — `apps/api/src/worker.ts`; `chooseWorkerMode` refuses in-process draining outside development |
 
 Seven done, two partial, four absent. None of it is domain work.
 
-Item 12 is the one where "Partial" means something different from the rest: the
-deliverable exists and the *verification* does not. A runbook that has never been run is a
-draft, and five of the eight have never been run.
+Item 12 stays Partial for a narrower reason than before: every runbook has now been
+executed, but runbooks 1–5 were executed against a **live local environment**, not a staging
+one. There is no load balancer, no replica set, no object store, no second application
+replica, and no real provider, so every step depending on those is still unrehearsed.
+
+Executing them was not a formality. It found three defects — see
+[`runbooks.md`](runbooks.md) — one of which was a recovery command that appeared to work and
+did not.
 
 ---
 
@@ -368,7 +373,25 @@ their lease timeout.
 Running several is safe: the Outbox claim uses `FOR UPDATE SKIP LOCKED` and each consumer
 records its own delivery, so replicas divide the queue instead of duplicating it.
 
-**Item 9 is done.** Pause and resume land as
+**Item 9 is done**, and one part of it only became true when the runbooks were executed.
+`POST /admin/events/dead-letters/{id}/reprocess` re-queued the delivery and the drain did
+re-attempt it — but nothing closed the loop afterwards. The replay stayed `Running` for ever
+and the dead letter stayed `ReadyForReplay` whether the retry succeeded or failed again, so
+an operator could not tell those two apart, and `ReadyForReplay` reads as "queued and fine".
+
+The terminal transaction the events architecture requires now runs: on success the dead
+letter becomes `Resolved` / `ReplaySucceeded`, the replay `Completed`, and the ordering key
+`Recovering -> Active`; on failure the replay is `Failed` with its error code and the dead
+letter returns to `Open`, which is the documented transition. Attribution comes from the
+Human who authorized the replay rather than from the Worker, which holds no Membership and
+could not satisfy `ck_dead_letter_resolution` if it tried.
+
+One gap in this area is recorded rather than closed: **`ValidateOnly` is not reachable.** The
+events architecture asks an operator to use it first when handler compatibility or ordering
+impact is uncertain, and no route accepts a replay mode. Runbook 2 says so and gives the
+substitute.
+
+Pause and resume land as
 [ADR-0022](../adr/0022-promote-worker-pause-and-resume.md), the same promotion path the
 `events.*` recovery commands followed. Stopping the Worker no longer means stopping the
 process.

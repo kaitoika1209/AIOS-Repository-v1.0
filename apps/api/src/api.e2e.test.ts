@@ -4243,6 +4243,239 @@ suite("AIOS API", () => {
       }
     });
 
+
+    /**
+     * The terminal transaction, both ways (found by running runbook 2).
+     *
+     * The recovery command re-queues the delivery and the drain does re-attempt
+     * it — that part always worked. What did not exist was anything closing the
+     * loop afterwards: a replay stayed `Running` for ever, and a dead letter
+     * stayed `ReadyForReplay` whether the retry succeeded or failed again. An
+     * operator had no way to tell those two apart, and `ReadyForReplay` reads
+     * as "queued and fine" when it can mean "tried again and failed again".
+     */
+    describe("the terminal transaction after a reprocess", () => {
+      /** A blocking Decision approved, with the outcome pointed at a real Work. */
+      const approvedOutcome = async () => {
+        const work = await createWork("recoverable");
+        await request(server()).post(`/works/${work.workId}/start`).set(as(MEMBER)).expect(201);
+        const decision = await request(server())
+          .post("/decisions")
+          .set(as(MEMBER))
+          .send({
+            relatedWorkId: work.workId,
+            title: "go?",
+            question: "ship?",
+            options: [{ optionId: "yes", summary: "Yes" }],
+            isBlocking: true,
+          })
+          .expect(201);
+        await request(server())
+          .post(`/decisions/${decision.body.decisionId}/submit`)
+          .set(as(MEMBER))
+          .expect(201);
+        await request(server())
+          .post(`/decisions/${decision.body.decisionId}/approve`)
+          .set(as(REVIEWER))
+          .send({ selectedOptionId: "yes", rationale: "ok" })
+          .expect(201);
+        return work;
+      };
+
+      /** Point the outcome at a Work that does not exist, so delivery fails. */
+      const misdirectOutcome = async () => {
+        const client = await pool.connect();
+        try {
+          await client.query(
+            `UPDATE outbox_messages
+                SET payload = jsonb_set(payload, '{relatedWorkId}', $1::jsonb)
+              WHERE event_type = 'DecisionApproved'`,
+            [JSON.stringify(randomUUID())],
+          );
+        } finally {
+          client.release();
+        }
+      };
+
+      const restoreOutcome = async (workId: string) => {
+        const client = await pool.connect();
+        try {
+          await client.query(
+            `UPDATE outbox_messages
+                SET payload = jsonb_set(payload, '{relatedWorkId}', $1::jsonb)
+              WHERE event_type = 'DecisionApproved'`,
+            [JSON.stringify(workId)],
+          );
+        } finally {
+          client.release();
+        }
+      };
+
+      const recoveryState = async () => {
+        const client = await pool.connect();
+        try {
+          const replay = await client.query<{ status: string; result_code: string | null }>(
+            `SELECT status, result_code FROM event_replays ORDER BY created_at DESC LIMIT 1`,
+          );
+          const dead = await client.query<{ status: string; resolution_type: string | null }>(
+            `SELECT status, resolution_type FROM dead_letter_events LIMIT 1`,
+          );
+          const ordering = await client.query<{ status: string }>(
+            `SELECT status FROM consumer_ordering_state LIMIT 1`,
+          );
+          return {
+            replay: replay.rows[0],
+            dead: dead.rows[0],
+            ordering: ordering.rows[0]?.status,
+          };
+        } finally {
+          client.release();
+        }
+      };
+
+      const deadLetterFor = async () => {
+        const listed = await request(server())
+          .get("/admin/events/dead-letters")
+          .set(as(OWNER))
+          .expect(200);
+        return listed.body.items[0] as { deadLetterId: string; version: number };
+      };
+
+      it("resolves the dead letter and completes the replay when the retry succeeds", async () => {
+        const work = await approvedOutcome();
+        await misdirectOutcome();
+        await drainOutbox(pool, dependenciesFor(pool));
+
+        const dead = await deadLetterFor();
+        expect(dead).toBeDefined();
+
+        // The operator fixes the cause, then issues the typed command.
+        await restoreOutcome(work.workId);
+        await request(server())
+          .post(`/admin/events/dead-letters/${dead.deadLetterId}/reprocess`)
+          .set(as(OWNER))
+          .send({
+            expectedVersion: dead.version,
+            reasonCode: "CAUSE_FIXED",
+            reason: "The outcome now names the right Work.",
+          })
+          .expect(201);
+
+        await drainOutbox(pool, dependenciesFor(pool));
+
+        const state = await recoveryState();
+        expect(state.replay).toMatchObject({
+          status: "Completed",
+          result_code: "ReplaySucceeded",
+        });
+        expect(state.dead).toMatchObject({
+          status: "Resolved",
+          resolution_type: "ReplaySucceeded",
+        });
+        // Recovering -> Active: the attempt reached a terminal state, so later
+        // deliveries on the key are no longer waiting behind a recovery.
+        expect(state.ordering).toBe("Active");
+
+        // And the effect the whole exercise exists for.
+        const after = await request(server())
+          .get(`/works/${work.workId}`)
+          .set(as(MEMBER))
+          .expect(200);
+        expect(after.body.completionGate).toBe("Satisfied");
+      });
+
+      it("returns the dead letter to Open and fails the replay when the retry fails again", async () => {
+        const work = await approvedOutcome();
+        await misdirectOutcome();
+        await drainOutbox(pool, dependenciesFor(pool));
+
+        const dead = await deadLetterFor();
+
+        // Reprocessed without fixing anything, which is the ordinary mistake.
+        await request(server())
+          .post(`/admin/events/dead-letters/${dead.deadLetterId}/reprocess`)
+          .set(as(OWNER))
+          .send({
+            expectedVersion: dead.version,
+            reasonCode: "OPTIMISM",
+            reason: "Trying again without a fix.",
+          })
+          .expect(201);
+
+        await drainOutbox(pool, dependenciesFor(pool));
+
+        const state = await recoveryState();
+        expect(state.replay?.status).toBe("Failed");
+        // "ReadyForReplay -> Open when replay fails before effect." Left at
+        // ReadyForReplay it would look like one still waiting its turn.
+        expect(state.dead?.status).toBe("Open");
+        expect(state.ordering).toBe("Blocked");
+
+        const still = await request(server())
+          .get(`/works/${work.workId}`)
+          .set(as(MEMBER))
+          .expect(200);
+        expect(still.body.status).toBe("WaitingForDecision");
+      });
+
+      it("attributes the resolution to the Human who authorized the replay", async () => {
+        // Not to the Worker. It is a System Principal with no Membership, and
+        // `ck_dead_letter_resolution` requires one on a terminal dead letter —
+        // correctly, because resolving one is Organization authority.
+        const work = await approvedOutcome();
+        await misdirectOutcome();
+        await drainOutbox(pool, dependenciesFor(pool));
+
+        const dead = await deadLetterFor();
+        await restoreOutcome(work.workId);
+        await request(server())
+          .post(`/admin/events/dead-letters/${dead.deadLetterId}/reprocess`)
+          .set(as(OWNER))
+          .send({ expectedVersion: dead.version, reasonCode: "CAUSE_FIXED", reason: "fixed" })
+          .expect(201);
+        await drainOutbox(pool, dependenciesFor(pool));
+
+        const client = await pool.connect();
+        try {
+          const row = await client.query<{
+            resolved_by_membership_id: string;
+            resolution_reason_code: string;
+          }>(
+            `SELECT resolved_by_membership_id, resolution_reason_code
+               FROM dead_letter_events LIMIT 1`,
+          );
+          expect(row.rows[0]?.resolved_by_membership_id).toBe(OWNER.membership);
+          expect(row.rows[0]?.resolution_reason_code).toBe("CAUSE_FIXED");
+        } finally {
+          client.release();
+        }
+      });
+
+      it("leaves an ordinary success alone when no replay is in flight", async () => {
+        // A retry that succeeds without a recovery command is not a replay
+        // outcome. Inventing a resolver for it would put a name against a
+        // decision nobody made.
+        const work = await approvedOutcome();
+        await drainOutbox(pool, dependenciesFor(pool));
+
+        const client = await pool.connect();
+        try {
+          const replays = await client.query(`SELECT 1 FROM event_replays`);
+          const dead = await client.query(`SELECT 1 FROM dead_letter_events`);
+          expect(replays.rowCount).toBe(0);
+          expect(dead.rowCount).toBe(0);
+        } finally {
+          client.release();
+        }
+
+        const after = await request(server())
+          .get(`/works/${work.workId}`)
+          .set(as(MEMBER))
+          .expect(200);
+        expect(after.body.completionGate).toBe("Satisfied");
+      });
+    });
+
     it("denies an Admin the domain-consumer reprocess by default", async () => {
       const { deadLetterId } = await seedDeadLetter("decision-outcome");
 

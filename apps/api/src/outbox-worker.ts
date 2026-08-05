@@ -145,10 +145,12 @@ const completeDelivery = (
   client: PoolClient,
   consumerName: string,
   eventId: string,
+  organizationId: OrganizationId,
 ): Promise<void> =>
   new PostgresConsumerDeliveryRepository(client).complete({
     consumerName,
     eventId,
+    organizationId,
     now: new Date(),
   });
 
@@ -217,7 +219,7 @@ const projectFor = async (
         row.event_id,
       ),
     );
-    await completeDelivery(client, NOTIFICATIONS_CONSUMER, row.event_id);
+    await completeDelivery(client, NOTIFICATIONS_CONSUMER, row.event_id, organizationId);
     return written;
   } catch (error) {
     await failDelivery(
@@ -401,7 +403,7 @@ export const drainOutbox = async (
           },
         );
         applied += 1;
-        await completeDelivery(client, MEMORY_GENERATION_CONSUMER, row.event_id);
+        await completeDelivery(client, MEMORY_GENERATION_CONSUMER, row.event_id, organizationId);
         await client.query(
           `UPDATE outbox_messages SET status = 'Published', published_at = now()
             WHERE outbox_id = $1`,
@@ -485,7 +487,7 @@ export const drainOutbox = async (
         },
       );
       applied += 1;
-      await completeDelivery(client, DECISION_OUTCOME_CONSUMER, row.event_id);
+      await completeDelivery(client, DECISION_OUTCOME_CONSUMER, row.event_id, organizationId);
       await client.query(
         `UPDATE outbox_messages SET status = 'Published', published_at = now()
           WHERE outbox_id = $1`,
@@ -503,7 +505,7 @@ export const drainOutbox = async (
 
       if (duplicate) {
         alreadyApplied += 1;
-        await completeDelivery(client, DECISION_OUTCOME_CONSUMER, row.event_id);
+        await completeDelivery(client, DECISION_OUTCOME_CONSUMER, row.event_id, organizationId);
         await client.query(
           `UPDATE outbox_messages SET status = 'Published', published_at = now()
             WHERE outbox_id = $1`,

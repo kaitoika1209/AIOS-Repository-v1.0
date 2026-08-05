@@ -787,6 +787,7 @@ export interface ConsumerDeliveryRepository {
   complete(input: {
     readonly consumerName: string;
     readonly eventId: string;
+    readonly organizationId: OrganizationId;
     readonly now: Date;
   }): Promise<void>;
 

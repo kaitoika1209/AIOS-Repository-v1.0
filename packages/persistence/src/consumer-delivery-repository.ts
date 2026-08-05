@@ -182,6 +182,7 @@ export class PostgresConsumerDeliveryRepository
   async complete(input: {
     consumerName: string;
     eventId: string;
+    organizationId: OrganizationId;
     now: Date;
   }): Promise<void> {
     await this.client.query(
@@ -194,6 +195,134 @@ export class PostgresConsumerDeliveryRepository
           AND event_id = $2
           AND status = 'Processing'`,
       [input.consumerName, input.eventId, input.now],
+    );
+
+    await this.closeReplay(input, "Completed", "ReplaySucceeded");
+  }
+
+  /**
+   * The terminal transaction a replay requires, when one is in flight.
+   *
+   * The events architecture: for a PostgreSQL-local replay success "the linked
+   * dead letter becomes `Resolved` in the same transaction as: processed event
+   * `Processing -> Processed`; the target Aggregate or registered consumer
+   * effect; follow-up Outbox and required audit; ordering-state advancement or
+   * unblock; and replay `Running -> Completed`."
+   *
+   * None of it existed. Running runbook 2 is what found that: the command
+   * re-queued the delivery and the drain did re-attempt it, but nothing closed
+   * the loop — a replay stayed `Running` for ever, a dead letter stayed
+   * `ReadyForReplay` whether the retry succeeded or failed again, and an
+   * operator had no way to tell those two apart. `ReadyForReplay` reads as
+   * "queued and fine" when it can mean "tried again and failed again".
+   *
+   * Attribution comes from the replay's requester rather than from the Worker.
+   * The Worker is a System Principal with no business authority and no
+   * Membership, and `ck_dead_letter_resolution` requires both on a terminal
+   * dead letter — correctly, because resolving one is Organization authority.
+   * The Human who authorized the replay is who resolved it, and the replay
+   * record is the durable evidence of that intent.
+   *
+   * Does nothing when no replay is active. An ordinary retry that succeeds is
+   * not a replay outcome, and inventing a resolver for it would put a name
+   * against a decision nobody made.
+   */
+  private async closeReplay(
+    input: {
+      consumerName: string;
+      eventId: string;
+      organizationId: OrganizationId;
+      now: Date;
+    },
+    status: "Completed" | "Failed",
+    resultCode: string,
+  ): Promise<void> {
+    const replay = await this.client.query<{
+      replay_id: string;
+      requested_by_identity_id: string;
+      requested_by_membership_id: string;
+      reason_code: string;
+    }>(
+      `UPDATE event_replays
+          SET status = $4,
+              ${status === "Completed" ? "result_code" : "last_error_code"} = $5,
+              started_at = coalesce(started_at, $3),
+              completed_at = $3,
+              attempt_count = attempt_count + 1,
+              version = version + 1,
+              updated_at = $3
+        WHERE consumer_name = $1
+          AND original_event_id = $2
+          AND organization_id = $6
+          AND status IN ('Requested', 'Validating', 'Running')
+       RETURNING replay_id, requested_by_identity_id, requested_by_membership_id, reason_code`,
+      [
+        input.consumerName,
+        input.eventId,
+        input.now,
+        status,
+        resultCode,
+        input.organizationId,
+      ],
+    );
+
+    const row = replay.rows[0];
+    if (row === undefined) return;
+
+    if (status === "Failed") {
+      // "ReadyForReplay -> Open when replay fails before effect." Left at
+      // `ReadyForReplay`, a dead letter that had just failed again would look
+      // like one still waiting its turn.
+      await this.client.query(
+        `UPDATE dead_letter_events
+            SET status = 'Open',
+                replay_id = $3,
+                version = version + 1,
+                updated_at = $4
+          WHERE consumer_name = $1
+            AND event_id = $2
+            AND status = 'ReadyForReplay'`,
+        [input.consumerName, input.eventId, row.replay_id, input.now],
+      );
+      return;
+    }
+
+    await this.client.query(
+      `UPDATE dead_letter_events
+          SET status = 'Resolved',
+              resolution_type = 'ReplaySucceeded',
+              resolution_reason_code = $5,
+              resolved_by_identity_id = $3,
+              resolved_by_membership_id = $4,
+              resolved_at = $6,
+              replay_id = $7,
+              version = version + 1,
+              updated_at = $6
+        WHERE consumer_name = $1
+          AND event_id = $2
+          AND status IN ('Open', 'Investigating', 'ReadyForReplay')`,
+      [
+        input.consumerName,
+        input.eventId,
+        row.requested_by_identity_id,
+        row.requested_by_membership_id,
+        row.reason_code,
+        input.now,
+        row.replay_id,
+      ],
+    );
+
+    // `Recovering -> Active`: the attempt reached a terminal state, so later
+    // deliveries on the key are no longer waiting behind a recovery.
+    await this.client.query(
+      `UPDATE consumer_ordering_state
+          SET status = 'Active',
+              version = version + 1,
+              updated_at = $3
+        WHERE consumer_name = $1
+          AND organization_id = $2
+          AND status = 'Recovering'`,
+      [input.consumerName, input.organizationId, input.now],
     );
   }
 
@@ -293,6 +422,20 @@ export class PostgresConsumerDeliveryRepository
         ],
       );
     }
+
+    // The replay that asked for this attempt, if there was one. Recorded before
+    // the ordering key is re-blocked so a reader of `event_replays` sees the
+    // failure rather than a row still claiming to be `Running`.
+    await this.closeReplay(
+      {
+        consumerName: input.consumerName,
+        eventId: input.eventId,
+        organizationId: input.organizationId,
+        now: input.now,
+      },
+      "Failed",
+      input.errorCode,
+    );
   }
 
   async listDeadLettered(

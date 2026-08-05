@@ -37,10 +37,38 @@ Where a step below names a metric that does not exist yet, it says so and gives 
 endpoint that answers the same question now. A runbook that cited a metric nobody emits
 would read as complete and fail on the day.
 
-**None of these five has been executed against a staging environment.** A runbook that has
-never been run is a draft. Runbooks 6, 7, and 8 have been exercised — 6 by
-`scripts/restore_drill.sh`, 7 and 8 by the test suite on every build — and these five have
-not.
+**Read `freshness.ageSeconds` before concluding anything from a health read.** The projection
+reconciles on a schedule, so a fresh answer can still be up to one interval behind — during
+runbook 3's execution the health report said `Healthy` for a workflow that was already
+`Blocked`, because the answer was twenty-eight seconds old. `stale: false` means the answer
+is trustworthy, not that it is instantaneous. When a state has just changed, wait a reconcile
+interval before believing a health read that disagrees with `GET /admin/diagnostics`, which
+reads the source tables directly.
+
+## How they were exercised
+
+**All five have now been executed**, against a live local environment rather than a staging
+one, by inducing each failure for real: PostgreSQL stopped under a running API, the database
+made read-only, a migration withheld, the Worker stopped with committed work waiting, a
+poison event dead-lettered with its ordering key blocked, and a recovery driven through to a
+resolved dead letter and an unblocked key.
+
+That is not the same as a staging rehearsal and does not claim to be. It has no load
+balancer, no replica set, no object store, no second application replica, and no real
+provider — so every step that depends on those is still unrehearsed, and each is marked
+below where it appears.
+
+It was worth doing anyway: **executing them found three defects**, which is what a runbook is
+for.
+
+| Found by | Defect |
+|---|---|
+| Runbook 1 | An authoritative command during a database outage returned `500 INTERNAL_ERROR`. A client will not retry that, and an operator reading logs sees `http.unhandled_error` rather than an outage. Now `503` with `Retry-After`. |
+| Runbook 1 | A read-only database can refuse the very command that reverses it — `ALTER DATABASE ... RESET` fails inside a read-only transaction. The escape is recorded in the runbook. |
+| Runbook 2 | A reprocess re-queued the delivery and the drain re-attempted it, but nothing closed the loop: the replay stayed `Running` for ever and the dead letter stayed `ReadyForReplay` whether the retry succeeded or failed. |
+
+Runbooks 6, 7, and 8 are exercised mechanically — 6 by `scripts/restore_drill.sh`, 7 and 8
+by the test suite on every build.
 
 ---
 
@@ -53,7 +81,7 @@ The architecture asks every runbook to carry `owner`, `reviewDate`, `lastTestedA
 |---|---|
 | `owner` | Platform Operations |
 | `reviewDate` | On the first production incident, or at the next baseline review |
-| `lastTestedAt` | **Never** — see above |
+| `lastTestedAt` | 2026-08-05, runbooks 1–5, against a live local environment — see *How they were exercised* |
 | `applicableVersion` | Blueprint 0.2.0; schema at migration `0003_organization_workflow_health` |
 | `severity` | Stated per runbook |
 
@@ -120,6 +148,21 @@ readiness reports `ADMINISTRATIVELY_PAUSED` rather than the process simply being
    unapplied. Apply it only when every replica can run the new schema — see runbook 5.
 4. **If `DATABASE_READ_ONLY`:** the process is talking to a replica or a cluster still in
    recovery. Resolve the failover; do not work around it.
+
+   One trap, found by executing this runbook: if the cause is a database-level
+   `default_transaction_read_only`, the command that reverses it is itself refused —
+   `ALTER DATABASE` cannot run in a read-only transaction, and a session-level `SET` in the
+   same implicit transaction does not help. The escape is an explicitly read-write
+   transaction:
+
+   ```sql
+   START TRANSACTION READ WRITE;
+   ALTER DATABASE aios RESET default_transaction_read_only;
+   COMMIT;
+   ```
+
+   No restart is needed afterwards: pooled connections pick the change up, and readiness
+   returns to `Ready` within one probe interval. That was verified, not assumed.
 5. **Pause the Worker** if the database is recovering, so no claim lands mid-failover.
 6. **Restore the database**, or fail over. If the database is lost rather than unreachable,
    this becomes runbook 6.
@@ -243,15 +286,42 @@ corrupted state" is the architecture's own test for when to pause.
    Confirm the count falls after a drain; if it does not, the Worker is claiming and dying,
    and `worker.drain_failed` says why.
 4. **If an ordering key is blocked**, that key is the incident. `GET /admin/events/dead-letters`
-   names the delivery, and runbook 2's continuation is the Dead-Letter Event runbook in
-   `observability-and-operations.md`, which is authoritative for the recovery-mode choice.
-   Use `ValidateOnly` first whenever handler compatibility, authorization, or ordering impact
-   is uncertain.
+   names the delivery, and the Dead-Letter Event runbook in
+   `observability-and-operations.md` is authoritative for the recovery-mode choice.
+
+   That runbook says to "use `ValidateOnly` first when handler compatibility, current
+   authorization, idempotency, or ordering impact is uncertain". **`ValidateOnly` is not
+   reachable in this release.** `POST /admin/events/dead-letters/{id}/reprocess` is
+   `ReprocessWithCurrentHandler` and takes no mode, so the dry run the architecture asks for
+   cannot be requested. Until it exists, the substitute is to establish the cause from
+   `GET /admin/diagnostics` and the logs *before* issuing the command, and to accept that a
+   reprocess is a real attempt with real effects.
+
+   **Fix the cause before reprocessing.** A reprocess without a fix fails again, and the
+   dead letter returns to `Open` with its version bumped — visible, recoverable, and a wasted
+   attempt on the retry counters an operator is trying to read.
 5. **If publication is failing**, `POST /admin/events/{eventId}/retry` after fixing the cause.
    Retrying before fixing produces a second identical failure and a worse `attempt_count`.
 6. **If the workflow was paused**, resume it (runbook 7) once the cause is resolved.
 
 ### Validation
+
+After a reprocess, the terminal transaction is what says whether it worked, and the three
+records must agree:
+
+```sql
+SELECT status, result_code, last_error_code FROM event_replays ORDER BY created_at DESC LIMIT 1;
+SELECT status, resolution_type FROM dead_letter_events WHERE dead_letter_id = :id;
+SELECT status FROM consumer_ordering_state WHERE ordering_key = :key;
+```
+
+| Outcome | replay | dead letter | ordering |
+|---|---|---|---|
+| The retry succeeded | `Completed` / `ReplaySucceeded` | `Resolved` / `ReplaySucceeded` | `Active` |
+| The retry failed again | `Failed` with the error code | `Open` | `Blocked` |
+
+A replay still `Running` after a drain means the loop did not close — that was a real defect
+before these runbooks were executed, and it is worth checking rather than assuming.
 
 - `oldestPendingSeconds` falls, on successive reads. Falling matters more than the absolute
   number: a large backlog that is draining is fine, and a small one that is not is the

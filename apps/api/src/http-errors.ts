@@ -93,6 +93,52 @@ const STATUS_CODES: Readonly<Record<number, string>> = {
   422: "VALIDATION_FAILED",
 };
 
+/**
+ * The database is unreachable, shutting down, or refusing writes.
+ *
+ * These are `503`, not `500`, and running runbook 1 is what found them mapped
+ * wrongly: stopping PostgreSQL under the API turned every authoritative command
+ * into `500 INTERNAL_ERROR`. The runbook asks an operator to "reject
+ * authoritative commands safely", and a `500` is not safe rejection — it is
+ * indistinguishable from a defect in the code. A client will not retry it, an
+ * SLI counts it against the service's own correctness rather than its
+ * dependency's availability, and an operator reading logs sees
+ * `http.unhandled_error` instead of a database outage they could have named in
+ * one glance.
+ *
+ * `503` says the opposite of all three: temporary, retry, not our logic.
+ *
+ * Node socket errors cover unreachable; PostgreSQL class `08` is a connection
+ * exception and class `57` is operator intervention — `57P01` admin shutdown,
+ * `57P03` cannot connect now, both of which a restart or failover produces.
+ * `53300` is too many connections, which is the pool exhaustion runbook 1's
+ * sibling covers, and `25006` is a write attempted against a read-only
+ * transaction, which is what a promoted replica answers.
+ */
+const UNAVAILABLE_CODES = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ETIMEDOUT",
+  "ENOTFOUND",
+  "EHOSTUNREACH",
+  "EPIPE",
+  "57P01",
+  "57P02",
+  "57P03",
+  "53300",
+  "25006",
+]);
+
+const isUnavailable = (error: unknown): boolean => {
+  const code = codeOf(error);
+  if (code === null) return false;
+  // Class 08 is "connection exception" in full: 08000, 08003, 08006, 08001,
+  // 08004, 08007, 08P01. Matched by prefix rather than enumerated, because the
+  // class is the thing that means "the connection failed" and a member added by
+  // a future PostgreSQL release should not need a code change here.
+  return UNAVAILABLE_CODES.has(code) || code.startsWith("08");
+};
+
 /** Codes whose responses are flattened to an indistinguishable `NOT_FOUND`. */
 const OPAQUE_CODES = new Set([
   "CROSS_ORGANIZATION_REFERENCE",
@@ -106,6 +152,10 @@ export const statusFor = (error: unknown): number => {
 
   const code = codeOf(error);
   if (code !== null && code in APPLICATION_STATUS) return APPLICATION_STATUS[code]!;
+
+  // Before the `HttpException` branch and before the `500` default: a driver
+  // error carries no HTTP status of its own, so nothing else would catch it.
+  if (isUnavailable(error)) return 503;
 
   if (error instanceof HttpException) return error.getStatus();
   return 500;
@@ -171,6 +221,17 @@ export const bodyFor = (error: unknown): ErrorBody => {
     };
   }
 
+  if (isUnavailable(error)) {
+    // No driver message, no host, no port, no user. The code is the whole
+    // contract — the same rule the diagnostic surface follows, and for the same
+    // reason: a driver's message routinely quotes the connection string.
+    return {
+      code: "SERVICE_UNAVAILABLE",
+      message: "The service is temporarily unable to handle this request.",
+      details: {},
+    };
+  }
+
   return { code: "INTERNAL_ERROR", message: "An unexpected error occurred.", details: {} };
 };
 
@@ -179,6 +240,27 @@ export class DomainExceptionFilter implements ExceptionFilter {
   catch(error: unknown, host: ArgumentsHost): void {
     const response = host.switchToHttp().getResponse<Response>();
     const status = statusFor(error);
+
+    if (status === 503) {
+      // Logged as an outage rather than as a defect, at WARN rather than ERROR:
+      // the service is behaving correctly and its dependency is not. Logging it
+      // as `http.unhandled_error` was what made a database outage read like a
+      // code fault in the one place an operator looks first.
+      getLogger().log({
+        severity: "WARN",
+        operationalLogName: "http.dependency_unavailable",
+        operationalLogClass: "Request",
+        operationalLogCategory: "Application",
+        message: "A request could not be served because a dependency is unavailable.",
+        outcome: "Failure",
+        attributes: describeError(error),
+      });
+      // The client is told to come back rather than left to guess. Short,
+      // because a database restart is seconds and a failover is tens of them —
+      // and because every client waiting the same long interval is a thundering
+      // herd at the end of it.
+      response.setHeader("Retry-After", "5");
+    }
 
     if (status === 500) {
       // Internal detail stays in the log; the client gets a stable envelope.
