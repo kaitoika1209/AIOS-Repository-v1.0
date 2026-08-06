@@ -22,6 +22,7 @@ The goal is to ensure consistency, maintainability, and high code quality as AIO
 | [runbooks.md](runbooks.md) | The MVP operational runbooks 1–5 |
 | [staging-rehearsal.md](staging-rehearsal.md) | What breaking the runbooks on purpose, with two of everything, found |
 | [../../infra/README.md](../../infra/README.md) | The CloudFormation stacks, in deployment order, and what remains unverified |
+| [../../infra/APPLY.md](../../infra/APPLY.md) | Applying Phase 1 to a real account for the first time, step by step |
 | [backup-and-recovery.md](backup-and-recovery.md) | What recovery is proven, what is not, and runbook 6 |
 | [worker-containment.md](worker-containment.md) | Pausing and resuming asynchronous processing — runbooks 7 and 8 |
 

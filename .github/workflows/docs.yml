@@ -38,3 +38,17 @@ jobs:
         run: |
           pip install --quiet pyyaml
           python3 scripts/check_infra.py
+
+      # Two different questions, and both are worth asking. `check_infra.py`
+      # asks whether the templates are right about *this application*; cfn-lint
+      # asks whether they are valid CloudFormation at all. Neither answers the
+      # other, and cfn-lint found four stateful resources with no deletion
+      # policy — including the KMS key that the retained database and the
+      # retained evidence bucket are both encrypted with.
+      #
+      # Informational and experimental rules included deliberately: the finding
+      # above was an `I` rule, and running only the errors would have missed it.
+      - name: Lint the CloudFormation templates
+        run: |
+          pip install --quiet cfn-lint
+          cfn-lint --include-checks I --include-experimental infra/*.yaml

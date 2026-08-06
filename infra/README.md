@@ -10,16 +10,27 @@ There is no AWS account. Every template here was written from the roadmap and
 from the code, and **not one resource has ever been created**. That places it in
 the same category as an unexecuted runbook: plausible, reviewed, and unproven.
 
-`scripts/check_infra.py` narrows the gap but does not close it. It checks the
-part that is a claim about *this repository* — that an alarm threshold matches
-the constant in `recovery.ts`, that the load balancer probes the path the
-process actually serves, that a log group's retention is the one in ADR-0003's
-table, that no secret is passed as an environment variable, that no long-lived
-AWS key exists anywhere. It cannot check that CloudFormation accepts the
-template, that the resources come up, or that they talk to each other.
+Two checks run in CI, and neither closes that gap.
 
-Run `cfn-lint` and then a real `create-stack` in a throwaway account before
-believing any of it.
+**`cfn-lint`** asks whether these are valid CloudFormation at all, with
+informational and experimental rules included. It earned its place on the first
+run: it found four stateful resources with no deletion policy, including **the
+KMS key that the retained database and the retained evidence bucket are both
+encrypted with**. Two visible `Retain`s were hiding the one that made them true,
+and the finding was an `I` rule — running only the errors would have missed it.
+
+**`scripts/check_infra.py`** asks whether they are right about *this
+application*: that an alarm threshold matches the constant in `recovery.ts`,
+that the load balancer probes the path the process actually serves, that a log
+group's retention is the one in ADR-0003's table, that no secret is passed as an
+environment variable, that no long-lived AWS key exists anywhere.
+
+Neither answers the other, and neither can tell you that the resources come up
+or that they can reach each other. A real `create-stack` in a throwaway account
+is the only thing that does.
+
+**[`APPLY.md`](APPLY.md) is the step-by-step for the first person to run these
+against a real account.** Read that; this file is the map.
 
 ## The stacks
 
@@ -81,10 +92,10 @@ scoped by name, and a generated name would force that scope to a wildcard.
 
 ## What is deliberately not here
 
-- **CloudFront and the web client.** `apps/web` has no real sign-in yet (A1),
-  so there is nothing to serve that a person could log into. Adding the
-  distribution before that would be building the front door of a house with no
-  lock.
+- **CloudFront and the web client.** `apps/web` now has a real session boundary
+  (A1), but no Clerk instance behind it — so a deployed client would refuse to
+  start, which is the refusal working rather than a bug. Add the distribution
+  when there are keys; until then there is nothing a person could sign in to.
 - **A second NAT gateway.** Redundancy behind a single-AZ database is redundancy
   in the wrong place. Add it with `MultiAz=true`, not before.
 - **An audit log group.** Class A and Class B audit are PostgreSQL tables,

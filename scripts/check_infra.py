@@ -209,6 +209,41 @@ for name, template in loaded.items():
                 )
                 break
 
+# --- Stateful resources declare what happens to them -------------------------
+#
+# "The default action when replacing or removing a resource is to delete it."
+# cfn-lint says this as a style note; here it is a data-durability rule, and the
+# case that made it one is worth naming.
+#
+# The database and the evidence bucket both carried `Retain`, which reads as
+# "a stack delete cannot lose the data". It could. Both are encrypted with the
+# KMS key, and the key had no policy at all — so deleting the stack would have
+# left two retained resources nobody can decrypt, and taken the locked backup
+# vault's protection with it. The two visible `Retain`s were hiding the one that
+# made them true.
+STATEFUL_TYPES = {
+    "AWS::RDS::DBInstance",
+    "AWS::KMS::Key",
+    "AWS::S3::Bucket",
+    "AWS::Backup::BackupVault",
+    "AWS::SecretsManager::Secret",
+    "AWS::Logs::LogGroup",
+    "AWS::ECR::Repository",
+}
+
+for name, template in loaded.items():
+    for logical, body in template.get("Resources", {}).items():
+        kind = body.get("Type")
+        if kind not in STATEFUL_TYPES:
+            continue
+        for policy in ("DeletionPolicy", "UpdateReplacePolicy"):
+            check(
+                body.get(policy) is not None,
+                f"{name}: {logical} ({kind}) declares no {policy}. CloudFormation deletes by "
+                "default, so a stateful resource without one loses its contents to a template "
+                "change nobody meant as a deletion.",
+            )
+
 # --- Alarms ------------------------------------------------------------------
 alarm_metrics: set[str] = set()
 filter_metrics: set[str] = set()

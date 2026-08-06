@@ -44,24 +44,48 @@ Resources:
   # --- Log groups ------------------------------------------------------------
   ApiLogGroup:
     Type: AWS::Logs::LogGroup
+    # Retained. A log group replaced or removed by a stack operation takes its
+    # records with it, and ADR-0003's retention table is a floor rather than a
+    # target — losing 30 days of operational evidence to a template change is
+    # the same outcome as never having set the retention at all.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: !Sub "/aios/${EnvironmentName}/api"
       RetentionInDays: 30
 
   WorkerLogGroup:
     Type: AWS::Logs::LogGroup
+    # Retained. A log group replaced or removed by a stack operation takes its
+    # records with it, and ADR-0003's retention table is a floor rather than a
+    # target — losing 30 days of operational evidence to a template change is
+    # the same outcome as never having set the retention at all.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: !Sub "/aios/${EnvironmentName}/worker"
       RetentionInDays: 30
 
   MigrateLogGroup:
     Type: AWS::Logs::LogGroup
+    # Retained. A log group replaced or removed by a stack operation takes its
+    # records with it, and ADR-0003's retention table is a floor rather than a
+    # target — losing 30 days of operational evidence to a template change is
+    # the same outcome as never having set the retention at all.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: !Sub "/aios/${EnvironmentName}/migrate"
       RetentionInDays: 30
 
   DatabaseLogGroup:
     Type: AWS::Logs::LogGroup
+    # Retained. A log group replaced or removed by a stack operation takes its
+    # records with it, and ADR-0003's retention table is a floor rather than a
+    # target — losing 30 days of operational evidence to a template change is
+    # the same outcome as never having set the retention at all.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: !Sub "/aws/rds/instance/aios-${EnvironmentName}/postgresql"
       RetentionInDays: 30

@@ -46,6 +46,18 @@ Conditions:
 Resources:
   DatabaseKey:
     Type: AWS::KMS::Key
+    # Retained, and this is the one that matters most.
+    #
+    # The database and the evidence bucket already carry `Retain`, which reads
+    # as "deleting the stack cannot lose the data". It could: both are encrypted
+    # with this key, and a stack delete that removed it would leave two retained
+    # resources nobody can decrypt. KMS schedules a key for deletion rather than
+    # destroying it, so there is a 7-30 day window — which is exactly long
+    # enough for nobody to notice, and it would take the locked vault's
+    # protection with it. Found by cfn-lint; the two visible `Retain`s were
+    # hiding the one that made them true.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       Description: !Sub "AIOS ${EnvironmentName} database and backups"
       EnableKeyRotation: true
@@ -54,7 +66,7 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
             Action: "kms:*"
             Resource: "*"
 
@@ -155,6 +167,12 @@ Resources:
   # since it cannot be undone for the rows it already covers.
   BackupVault:
     Type: AWS::Backup::BackupVault
+    # The deletion-resistant copy. A stack delete that took the vault with it
+    # would defeat the entire point of locking it — and a locked vault holding
+    # recovery points refuses deletion anyway, so without this the stack delete
+    # fails halfway rather than being declared correct up front.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       BackupVaultName: !Sub "aios-${EnvironmentName}-locked"
       EncryptionKeyArn: !GetAtt DatabaseKey.Arn
@@ -193,7 +211,7 @@ Resources:
               Service: backup.amazonaws.com
             Action: sts:AssumeRole
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup"
 
   BackupSelection:
     Type: AWS::Backup::BackupSelection
@@ -203,7 +221,7 @@ Resources:
         SelectionName: database
         IamRoleArn: !GetAtt BackupRole.Arn
         Resources:
-          - !Sub "arn:aws:rds:${AWS::Region}:${AWS::AccountId}:db:aios-${EnvironmentName}"
+          - !Sub "arn:${AWS::Partition}:rds:${AWS::Region}:${AWS::AccountId}:db:aios-${EnvironmentName}"
 
   # --- Restore-drill evidence ------------------------------------------------
   RecoveryEvidenceBucket:
@@ -237,8 +255,37 @@ Resources:
   # Secrets Manager, not SSM plain parameters, and never a task-definition
   # environment variable: those show in the console and in
   # `DescribeTaskDefinition`, which is readable by anyone with ECS read access.
+  # The connection string the application actually reads.
+  #
+  # Separate from the instance's `MasterUserSecret`, and this is a correction
+  # rather than a preference. RDS's managed master password is a JSON document
+  # of `username` and `password` — not a URL — so a task definition asking it
+  # for `DATABASE_URL` gets nothing, and the failure appears as
+  # `ResourceInitializationError` on a task that never starts, which does not
+  # say which key it wanted. Found by reading the templates against each other
+  # before applying them; nothing had run yet to fail.
+  #
+  # Created empty and written once, by hand, after the instance exists — the
+  # endpoint is not known until then, and the managed password is deliberately
+  # not readable from a template. `APPLY.md` step 3 has the command.
+  DatabaseUrlSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: !Sub "aios/${EnvironmentName}/database-url"
+      Description: >-
+        DATABASE_URL, composed from the instance endpoint and the managed master
+        credential. Written by an operator, never by a deploy.
+      KmsKeyId: !Ref DatabaseKey
+
   ClerkSecret:
     Type: AWS::SecretsManager::Secret
+    # A credential is not a stack artifact. Rotating the template must never be
+    # able to revoke a live secret, and the recovery window is a grace period
+    # rather than a licence to delete one by accident.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       Name: !Sub "aios/${EnvironmentName}/clerk"
       Description: CLERK_SECRET_KEY and CLERK_WEBHOOK_SIGNING_SECRET (ADR-0013).
@@ -246,6 +293,11 @@ Resources:
 
   AnthropicSecret:
     Type: AWS::SecretsManager::Secret
+    # A credential is not a stack artifact. Rotating the template must never be
+    # able to revoke a live secret, and the recovery window is a grace period
+    # rather than a licence to delete one by accident.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       Name: !Sub "aios/${EnvironmentName}/anthropic"
       Description: ANTHROPIC_API_KEY (ADR-0016).
@@ -266,9 +318,15 @@ Outputs:
     Export:
       Name: !Sub "aios-${EnvironmentName}-db-sg"
   DatabaseSecretArn:
-    Value: !GetAtt Database.MasterUserSecret.SecretArn
+    Value: !Ref DatabaseUrlSecret
+    Description: The DATABASE_URL secret the tasks read. Written by hand; see APPLY.md.
     Export:
       Name: !Sub "aios-${EnvironmentName}-db-secret"
+  DatabaseMasterSecretArn:
+    Value: !GetAtt Database.MasterUserSecret.SecretArn
+    Description: RDS's managed username/password. Not a connection string, and not read by any task.
+    Export:
+      Name: !Sub "aios-${EnvironmentName}-db-master-secret"
   ClerkSecretArn:
     Value: !Ref ClerkSecret
     Export:

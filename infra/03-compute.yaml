@@ -68,6 +68,15 @@ Parameters:
 Resources:
   Registry:
     Type: AWS::ECR::Repository
+    # Every image, including the one the running service references and every
+    # image runbook 5's rollback depends on. A stack delete that took the
+    # registry with it would leave two ECS services pointing at images that no
+    # longer exist, discoverable only at the next task placement.
+    #
+    # Found by the stateful-resource rule this session added, after cfn-lint
+    # pointed at the other four.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       RepositoryName: !Sub "aios-${EnvironmentName}"
       ImageScanningConfiguration:
@@ -264,7 +273,7 @@ Resources:
               - Effect: Allow
                 Action: s3:PutObject
                 Resource: !Sub
-                  - "arn:aws:s3:::${Bucket}/*"
+                  - "arn:${AWS::Partition}:s3:::${Bucket}/*"
                   - Bucket: !ImportValue
                       Fn::Sub: "aios-${EnvironmentName}-recovery-evidence"
 
@@ -524,9 +533,6 @@ Outputs:
     Value: !Ref MigrationTaskDefinition
     Export:
       Name: !Sub "aios-${EnvironmentName}-migrate-task"
-  TaskSubnets:
-    Value: !ImportValue
-      Fn::Sub: "aios-${EnvironmentName}-private-subnets"
   TaskSecurityGroupId:
     Value: !Ref TaskSecurityGroup
     Export:
