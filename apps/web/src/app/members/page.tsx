@@ -1,4 +1,5 @@
-import { ApiError, api, currentUser } from "../../lib/api";
+import { ApiError, api } from "../../lib/api";
+import { requireSession } from "../../lib/session";
 import {
   assignRole,
   inviteMember,
@@ -29,14 +30,14 @@ const statusClass = (status: string): string =>
   : "badge";
 
 export default async function Members() {
-  const user = await currentUser();
+  const session = await requireSession();
   const issued = await lastIssuedInvitation();
 
   let items: Awaited<ReturnType<typeof api.listMembers>>["items"] = [];
   let loadError: string | null = null;
 
   try {
-    items = (await api.listMembers(user.subject)).items;
+    items = (await api.listMembers(session)).items;
   } catch (error) {
     loadError =
       error instanceof ApiError

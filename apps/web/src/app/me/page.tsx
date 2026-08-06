@@ -1,4 +1,5 @@
-import { ApiError, api, currentUser } from "../../lib/api";
+import { ApiError, api } from "../../lib/api";
+import { requireSession } from "../../lib/session";
 
 /**
  * The Personal Workspace.
@@ -9,7 +10,7 @@ import { ApiError, api, currentUser } from "../../lib/api";
  * read, not a private store.
  */
 export default async function PersonalWorkspace() {
-  const user = await currentUser();
+  const session = await requireSession();
 
   let loadError: string | null = null;
   let membershipId = "";
@@ -20,10 +21,10 @@ export default async function PersonalWorkspace() {
 
   try {
     const [me, workList, memoryList, notificationList] = await Promise.all([
-      api.me(user.subject),
-      api.listWork(user.subject),
-      api.listMemories(user.subject),
-      api.listNotifications(user.subject),
+      api.me(session),
+      api.listWork(session),
+      api.listMemories(session),
+      api.listNotifications(session),
     ]);
     membershipId = me.membershipId;
     roles = me.roles;

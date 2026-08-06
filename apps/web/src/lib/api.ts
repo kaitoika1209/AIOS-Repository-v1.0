@@ -2,46 +2,25 @@
  * API client.
  *
  * The browser never talks to the API directly: every call runs on the server,
- * so the acting subject is chosen server-side rather than by whatever headers a
+ * so the credential is chosen server-side rather than by whatever headers a
  * client happens to send.
  *
- * The identity here is the development stub (ADR-0013). Replacing it with Clerk
- * means taking the subject from the session instead of from a cookie, and
- * changes nothing else in this file.
+ * What changed with A1 is the *source* of that credential. Every function used
+ * to take `session: WebSession` — a name the caller picked — and the client sent it
+ * as a header the API's development adapter trusted. They now take a
+ * `WebSession`, which only `session.ts` can produce and only from a real
+ * sign-in. A page cannot construct one, and there is no longer a string that
+ * means "act as this person".
  */
 
 import { cookies } from "next/headers";
+
+import type { WebSession } from "./session";
 
 const API_URL = process.env["API_URL"] ?? "http://localhost:3001";
 
 /** Which Organization the person is currently acting in. */
 export const ORGANIZATION_COOKIE = "aios_organization";
-
-/**
- * Development identities.
- *
- * Only Olivia is seeded. Alice and Raj have no Membership — and no Identity —
- * until Olivia invites them and they accept, which is why acting as them before
- * that produces "not authenticated" rather than a working session. That is the
- * invitation flow being real, not a gap.
- *
- * `expectedRole` is what each will hold *after* joining, and it drives demo copy
- * only. It confers nothing: real roles come from the Membership, and every form
- * below submits to the API whether or not the label says it will succeed.
- */
-export const DEV_USERS = [
-  { subject: "olivia", label: "Olivia", seeded: true, expectedRole: "OrganizationOwner" },
-  { subject: "alice", label: "Alice", seeded: false, expectedRole: "Member" },
-  { subject: "raj", label: "Raj", seeded: false, expectedRole: "Reviewer" },
-] as const;
-
-export type DevUser = (typeof DEV_USERS)[number];
-
-export const currentUser = async (): Promise<DevUser> => {
-  const store = await cookies();
-  const subject = store.get("aios_dev_subject")?.value;
-  return DEV_USERS.find((u) => u.subject === subject) ?? DEV_USERS[0];
-};
 
 export interface Work {
   workId: string;
@@ -113,7 +92,7 @@ export class ApiError extends Error {
 const call = async <T>(
   path: string,
   init: RequestInit & {
-    subject: string;
+    session: WebSession;
     /**
      * Omitted for the routes ADR-0014 exempts from Organization resolution.
      * Supplied explicitly everywhere else rather than read from a module
@@ -123,17 +102,13 @@ const call = async <T>(
     withoutOrganization?: boolean;
   },
 ): Promise<T> => {
-  const { subject, organizationId, withoutOrganization = false, ...rest } = init;
+  const { session, organizationId, withoutOrganization = false, ...rest } = init;
 
   const response = await fetch(`${API_URL}${path}`, {
     ...rest,
     headers: {
       "content-type": "application/json",
-      "x-dev-subject": subject,
-      // Only read when acceptance has to create an Identity, so the member list
-      // shows a name rather than a provider subject.
-      "x-dev-display-name":
-        DEV_USERS.find((u) => u.subject === subject)?.label ?? subject,
+      ...(await credentialFor(session)),
       // Omitted for the routes ADR-0014 exempts from Organization resolution:
       // invitation acceptance, Organization creation, and listing the caller's
       // own Organizations.
@@ -145,7 +120,7 @@ const call = async <T>(
         ? {}
         : {
             "x-organization-id":
-              organizationId ?? (await requireOrganization(subject)).organizationId,
+              organizationId ?? (await requireOrganization(session)).organizationId,
           }),
       ...(rest.headers ?? {}),
     },
@@ -175,6 +150,38 @@ const call = async <T>(
   return (await response.json()) as T;
 };
 
+/**
+ * How this session proves who it is to the API.
+ *
+ * A bearer token when the session has one — which is the Clerk path, and the
+ * only path a deployed client ever takes — and the development headers
+ * otherwise. The two are mutually exclusive by construction rather than by
+ * convention: a session with a token never sends `x-dev-session`, so there is no
+ * arrangement in which a real session and a development header are both present
+ * and the API has to choose.
+ *
+ * The API refuses the development adapter outside `development` anyway. This is
+ * the client's half of the same rule, and it is worth having on both sides:
+ * relying on the far end to reject what this end should not have sent is how a
+ * misconfiguration becomes an authentication bypass.
+ */
+const credentialFor = async (
+  session: WebSession,
+): Promise<Record<string, string>> => {
+  const token = await session.token();
+  if (token !== null) {
+    return { authorization: `Bearer ${token}` };
+  }
+
+  return {
+    "x-dev-subject": session.subject,
+    // Read only when acceptance has to create an Identity, so the member list
+    // shows a name rather than a provider session.
+    "x-dev-display-name": session.displayName,
+    ...(session.email === null ? {} : { "x-dev-email": session.email }),
+  };
+};
+
 /** One Organization the caller belongs to, as `GET /organizations` reports it. */
 export interface CallerOrganization {
   organizationId: string;
@@ -192,12 +199,12 @@ export interface CallerOrganization {
  * a choice — see ADR-0014.
  */
 export const myOrganizations = async (
-  subject: string,
+  session: WebSession,
 ): Promise<readonly CallerOrganization[]> =>
   (
     await call<{ organizations: CallerOrganization[] }>("/organizations", {
       method: "GET",
-      subject,
+      session,
       withoutOrganization: true,
     })
   ).organizations;
@@ -216,9 +223,9 @@ export const myOrganizations = async (
  * someone who has signed in and not yet been invited anywhere.
  */
 export const currentOrganization = async (
-  subject: string,
+  session: WebSession,
 ): Promise<CallerOrganization | null> => {
-  const available = await myOrganizations(subject);
+  const available = await myOrganizations(session);
   if (available.length === 0) return null;
 
   const store = await cookies();
@@ -234,8 +241,8 @@ export const currentOrganization = async (
  * Throws rather than returning null so a caller cannot forget the empty case
  * and send a request with no tenant at all.
  */
-const requireOrganization = async (subject: string): Promise<CallerOrganization> => {
-  const organization = await currentOrganization(subject);
+const requireOrganization = async (session: WebSession): Promise<CallerOrganization> => {
+  const organization = await currentOrganization(session);
   if (organization === null) {
     throw new ApiError(404, "NO_ORGANIZATION", "You do not belong to an Organization.");
   }
@@ -276,150 +283,150 @@ export interface AssistanceGrant {
 }
 
 export const api = {
-  listMembers: async (subject: string) => {
-    const org = await requireOrganization(subject);
+  listMembers: async (session: WebSession) => {
+    const org = await requireOrganization(session);
     return call<{ items: Member[] }>(`/organizations/${org.organizationId}/members`, {
       method: "GET",
-      subject,
+      session,
       organizationId: org.organizationId,
     });
   },
 
-  inviteMember: async (subject: string, body: { email: string; roles: string[] }) => {
-    const org = await requireOrganization(subject);
+  inviteMember: async (session: WebSession, body: { email: string; roles: string[] }) => {
+    const org = await requireOrganization(session);
     return call<Invitation>(`/organizations/${org.organizationId}/members`, {
       method: "POST",
-      subject,
+      session,
       organizationId: org.organizationId,
       body: JSON.stringify(body),
     });
   },
 
-  resendInvitation: async (subject: string, membershipId: string) => {
-    const org = await requireOrganization(subject);
+  resendInvitation: async (session: WebSession, membershipId: string) => {
+    const org = await requireOrganization(session);
     return call<Invitation>(
       `/organizations/${org.organizationId}/members/${membershipId}/resend-invitation`,
-      { method: "POST", subject, organizationId: org.organizationId },
+      { method: "POST", session, organizationId: org.organizationId },
     );
   },
 
-  revokeInvitation: async (subject: string, membershipId: string, reason: string) => {
-    const org = await requireOrganization(subject);
+  revokeInvitation: async (session: WebSession, membershipId: string, reason: string) => {
+    const org = await requireOrganization(session);
     return call<{ membershipId: string; status: string }>(
       `/organizations/${org.organizationId}/members/${membershipId}/revoke-invitation`,
-      { method: "POST", subject, organizationId: org.organizationId, body: JSON.stringify({ reason }) },
+      { method: "POST", session, organizationId: org.organizationId, body: JSON.stringify({ reason }) },
     );
   },
 
-  suspendMember: async (subject: string, membershipId: string, reason: string) => {
-    const org = await requireOrganization(subject);
+  suspendMember: async (session: WebSession, membershipId: string, reason: string) => {
+    const org = await requireOrganization(session);
     return call<{ membershipId: string; status: string }>(
       `/organizations/${org.organizationId}/members/${membershipId}/suspend`,
-      { method: "POST", subject, organizationId: org.organizationId, body: JSON.stringify({ reason }) },
+      { method: "POST", session, organizationId: org.organizationId, body: JSON.stringify({ reason }) },
     );
   },
 
-  reactivateMember: async (subject: string, membershipId: string, reason: string) => {
-    const org = await requireOrganization(subject);
+  reactivateMember: async (session: WebSession, membershipId: string, reason: string) => {
+    const org = await requireOrganization(session);
     return call<{ membershipId: string; status: string }>(
       `/organizations/${org.organizationId}/members/${membershipId}/reactivate`,
-      { method: "POST", subject, organizationId: org.organizationId, body: JSON.stringify({ reason }) },
+      { method: "POST", session, organizationId: org.organizationId, body: JSON.stringify({ reason }) },
     );
   },
 
-  revokeMember: async (subject: string, membershipId: string, reason: string) => {
-    const org = await requireOrganization(subject);
+  revokeMember: async (session: WebSession, membershipId: string, reason: string) => {
+    const org = await requireOrganization(session);
     return call<{ membershipId: string; status: string }>(
       `/organizations/${org.organizationId}/members/${membershipId}/revoke`,
-      { method: "POST", subject, organizationId: org.organizationId, body: JSON.stringify({ reason }) },
+      { method: "POST", session, organizationId: org.organizationId, body: JSON.stringify({ reason }) },
     );
   },
 
-  assignRole: async (subject: string, membershipId: string, role: string) => {
-    const org = await requireOrganization(subject);
+  assignRole: async (session: WebSession, membershipId: string, role: string) => {
+    const org = await requireOrganization(session);
     return call<{ membershipId: string; roles: string[] }>(
       `/organizations/${org.organizationId}/members/${membershipId}/assign-role`,
-      { method: "POST", subject, organizationId: org.organizationId, body: JSON.stringify({ role }) },
+      { method: "POST", session, organizationId: org.organizationId, body: JSON.stringify({ role }) },
     );
   },
 
   revokeRole: async (
-    subject: string,
+    session: WebSession,
     membershipId: string,
     role: string,
     reason: string,
   ) => {
-    const org = await requireOrganization(subject);
+    const org = await requireOrganization(session);
     return call<{ membershipId: string; roles: string[] }>(
       `/organizations/${org.organizationId}/members/${membershipId}/revoke-role`,
-      { method: "POST", subject, organizationId: org.organizationId, body: JSON.stringify({ role, reason }) },
+      { method: "POST", session, organizationId: org.organizationId, body: JSON.stringify({ role, reason }) },
     );
   },
 
-  organization: async (subject: string) => {
-    const org = await requireOrganization(subject);
+  organization: async (session: WebSession) => {
+    const org = await requireOrganization(session);
     return call<Organization>(`/organizations/${org.organizationId}`, {
       method: "GET",
-      subject,
+      session,
       organizationId: org.organizationId,
     });
   },
 
-  renameOrganization: async (subject: string, name: string) => {
-    const org = await requireOrganization(subject);
+  renameOrganization: async (session: WebSession, name: string) => {
+    const org = await requireOrganization(session);
     return call<Organization>(`/organizations/${org.organizationId}`, {
       method: "PATCH",
-      subject,
+      session,
       organizationId: org.organizationId,
       body: JSON.stringify({ name }),
     });
   },
 
-  suspendOrganization: async (subject: string, reason: string) => {
-    const org = await requireOrganization(subject);
+  suspendOrganization: async (session: WebSession, reason: string) => {
+    const org = await requireOrganization(session);
     return call<Organization>(`/organizations/${org.organizationId}/suspend`, {
       method: "POST",
-      subject,
+      session,
       organizationId: org.organizationId,
       body: JSON.stringify({ reason }),
     });
   },
 
-  reactivateOrganization: async (subject: string, reason: string) => {
-    const org = await requireOrganization(subject);
+  reactivateOrganization: async (session: WebSession, reason: string) => {
+    const org = await requireOrganization(session);
     return call<Organization>(`/organizations/${org.organizationId}/reactivate`, {
       method: "POST",
-      subject,
+      session,
       organizationId: org.organizationId,
       body: JSON.stringify({ reason }),
     });
   },
 
-  archiveOrganization: async (subject: string, reason: string) => {
-    const org = await requireOrganization(subject);
+  archiveOrganization: async (session: WebSession, reason: string) => {
+    const org = await requireOrganization(session);
     return call<Organization>(`/organizations/${org.organizationId}/archive`, {
       method: "POST",
-      subject,
+      session,
       organizationId: org.organizationId,
       body: JSON.stringify({ reason }),
     });
   },
 
-  grantAssistance: async (subject: string, operation: string, reason: string) => {
-    const org = await requireOrganization(subject);
+  grantAssistance: async (session: WebSession, operation: string, reason: string) => {
+    const org = await requireOrganization(session);
     return call<AssistanceGrant>(`/organizations/${org.organizationId}/assistance-grants`, {
       method: "POST",
-      subject,
+      session,
       organizationId: org.organizationId,
       body: JSON.stringify({ operation, reason }),
     });
   },
 
-  revokeAssistance: async (subject: string, operation: string) => {
-    const org = await requireOrganization(subject);
+  revokeAssistance: async (session: WebSession, operation: string) => {
+    const org = await requireOrganization(session);
     return call<AssistanceGrant>(
       `/organizations/${org.organizationId}/assistance-grants/revoke`,
-      { method: "POST", subject, organizationId: org.organizationId, body: JSON.stringify({ operation }) },
+      { method: "POST", session, organizationId: org.organizationId, body: JSON.stringify({ operation }) },
     );
   },
 
@@ -429,36 +436,36 @@ export const api = {
    * No `x-organization-id`: the caller is bringing the Organization into
    * existence, so there is nothing for the header to select among (ADR-0014).
    */
-  createOrganization: (subject: string, name: string) =>
+  createOrganization: (session: WebSession, name: string) =>
     call<Organization & { membershipId: string }>("/organizations", {
       method: "POST",
-      subject,
+      session,
       withoutOrganization: true,
       body: JSON.stringify({ name }),
     }),
 
-  acceptInvitation: (subject: string, token: string) =>
+  acceptInvitation: (session: WebSession, token: string) =>
     call<{ organizationId: string; membershipId: string; roles: string[] }>(
       "/invitations/accept",
       {
         method: "POST",
-        subject,
+        session,
         withoutOrganization: true,
         body: JSON.stringify({ token }),
       },
     ),
 
   /** The caller's own resolved principal — which Membership is acting. */
-  me: (subject: string) =>
+  me: (session: WebSession) =>
     call<{
       identityId: string;
       membershipId: string;
       organizationId: string;
       roles: string[];
-    }>("/me", { method: "GET", subject }),
+    }>("/me", { method: "GET", session }),
 
   /** The caller's own notifications. There is no parameter for whose they are. */
-  listNotifications: (subject: string) =>
+  listNotifications: (session: WebSession) =>
     call<{
       items: {
         notificationId: string;
@@ -470,48 +477,48 @@ export const api = {
         acknowledgedAt: string | null;
       }[];
       unacknowledged: number;
-    }>("/notifications", { method: "GET", subject }),
+    }>("/notifications", { method: "GET", session }),
 
-  acknowledgeNotification: (subject: string, notificationId: string) =>
+  acknowledgeNotification: (session: WebSession, notificationId: string) =>
     call<void>(`/notifications/${notificationId}/acknowledge`, {
       method: "POST",
-      subject,
+      session,
     }),
 
-  listWork: (subject: string) =>
-    call<{ items: Work[] }>("/works", { method: "GET", subject }),
+  listWork: (session: WebSession) =>
+    call<{ items: Work[] }>("/works", { method: "GET", session }),
 
-  getWork: (subject: string, workId: string) =>
-    call<Work>(`/works/${workId}`, { method: "GET", subject }),
+  getWork: (session: WebSession, workId: string) =>
+    call<Work>(`/works/${workId}`, { method: "GET", session }),
 
-  createWork: (subject: string, body: { title: string; description?: string }) =>
-    call<Work>("/works", { method: "POST", subject, body: JSON.stringify(body) }),
+  createWork: (session: WebSession, body: { title: string; description?: string }) =>
+    call<Work>("/works", { method: "POST", session, body: JSON.stringify(body) }),
 
-  startWork: (subject: string, workId: string) =>
-    call<Work>(`/works/${workId}/start`, { method: "POST", subject }),
+  startWork: (session: WebSession, workId: string) =>
+    call<Work>(`/works/${workId}/start`, { method: "POST", session }),
 
-  completeWork: (subject: string, workId: string, completionSummary: string) =>
+  completeWork: (session: WebSession, workId: string, completionSummary: string) =>
     call<Work>(`/works/${workId}/complete`, {
       method: "POST",
-      subject,
+      session,
       body: JSON.stringify({ completionSummary }),
     }),
 
-  cancelWork: (subject: string, workId: string, reason: string) =>
+  cancelWork: (session: WebSession, workId: string, reason: string) =>
     call<Work>(`/works/${workId}/cancel`, {
       method: "POST",
-      subject,
+      session,
       body: JSON.stringify({ reason }),
     }),
 
-  listDecisionsForWork: (subject: string, workId: string) =>
+  listDecisionsForWork: (session: WebSession, workId: string) =>
     call<{ items: Decision[] }>(`/decisions/by-work/${workId}`, {
       method: "GET",
-      subject,
+      session,
     }),
 
   createDecision: (
-    subject: string,
+    session: WebSession,
     body: {
       relatedWorkId: string;
       title: string;
@@ -519,72 +526,72 @@ export const api = {
       options: { optionId: string; summary: string }[];
       isBlocking: boolean;
     },
-  ) => call<Decision>("/decisions", { method: "POST", subject, body: JSON.stringify(body) }),
+  ) => call<Decision>("/decisions", { method: "POST", session, body: JSON.stringify(body) }),
 
-  submitDecision: (subject: string, decisionId: string) =>
+  submitDecision: (session: WebSession, decisionId: string) =>
     call<{ decision: Decision; workStatus: string }>(
       `/decisions/${decisionId}/submit`,
-      { method: "POST", subject },
+      { method: "POST", session },
     ),
 
   approveDecision: (
-    subject: string,
+    session: WebSession,
     decisionId: string,
     body: { selectedOptionId: string; rationale: string },
   ) =>
     call<Decision>(`/decisions/${decisionId}/approve`, {
       method: "POST",
-      subject,
+      session,
       body: JSON.stringify(body),
     }),
 
-  rejectDecision: (subject: string, decisionId: string, rationale: string) =>
+  rejectDecision: (session: WebSession, decisionId: string, rationale: string) =>
     call<Decision>(`/decisions/${decisionId}/reject`, {
       method: "POST",
-      subject,
+      session,
       body: JSON.stringify({ rationale }),
     }),
 
-  listMemories: (subject: string) =>
-    call<{ items: Memory[] }>("/memories", { method: "GET", subject }),
+  listMemories: (session: WebSession) =>
+    call<{ items: Memory[] }>("/memories", { method: "GET", session }),
 
-  memoryForWork: (subject: string, workId: string) =>
+  memoryForWork: (session: WebSession, workId: string) =>
     call<{ memory: Memory | null }>(`/memories/by-work/${workId}`, {
       method: "GET",
-      subject,
+      session,
     }),
 
   editMemory: (
-    subject: string,
+    session: WebSession,
     memoryId: string,
     body: { title?: string; summary?: string; content?: string },
   ) =>
     call<Memory>(`/memories/${memoryId}`, {
       method: "PATCH",
-      subject,
+      session,
       body: JSON.stringify(body),
     }),
 
-  submitMemory: (subject: string, memoryId: string) =>
-    call<Memory>(`/memories/${memoryId}/submit`, { method: "POST", subject }),
+  submitMemory: (session: WebSession, memoryId: string) =>
+    call<Memory>(`/memories/${memoryId}/submit`, { method: "POST", session }),
 
-  approveMemory: (subject: string, memoryId: string, note: string) =>
+  approveMemory: (session: WebSession, memoryId: string, note: string) =>
     call<Memory>(`/memories/${memoryId}/approve`, {
       method: "POST",
-      subject,
+      session,
       body: JSON.stringify({ note }),
     }),
 
-  rejectMemory: (subject: string, memoryId: string, note: string) =>
+  rejectMemory: (session: WebSession, memoryId: string, note: string) =>
     call<Memory>(`/memories/${memoryId}/reject`, {
       method: "POST",
-      subject,
+      session,
       body: JSON.stringify({ note }),
     }),
 
-  reopenMemory: (subject: string, memoryId: string) =>
-    call<Memory>(`/memories/${memoryId}/reopen`, { method: "POST", subject }),
+  reopenMemory: (session: WebSession, memoryId: string) =>
+    call<Memory>(`/memories/${memoryId}/reopen`, { method: "POST", session }),
 
-  startRevision: (subject: string, decisionId: string) =>
-    call<Decision>(`/decisions/${decisionId}/revisions`, { method: "POST", subject }),
+  startRevision: (session: WebSession, decisionId: string) =>
+    call<Decision>(`/decisions/${decisionId}/revisions`, { method: "POST", session }),
 };

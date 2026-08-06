@@ -1,4 +1,5 @@
-import { ApiError, api, currentUser } from "../../lib/api";
+import { ApiError, api } from "../../lib/api";
+import { requireSession } from "../../lib/session";
 import {
   archiveOrganization,
   grantAssistance,
@@ -30,13 +31,13 @@ const statusClass = (status: string): string =>
   status === "Active" ? "badge ok" : status === "Suspended" ? "badge warn" : "badge bad";
 
 export default async function Settings() {
-  const user = await currentUser();
+  const session = await requireSession();
 
   let organization: Awaited<ReturnType<typeof api.organization>> | null = null;
   let loadError: string | null = null;
 
   try {
-    organization = await api.organization(user.subject);
+    organization = await api.organization(session);
   } catch (error) {
     loadError =
       error instanceof ApiError

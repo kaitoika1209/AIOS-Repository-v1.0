@@ -1,4 +1,5 @@
-import { ApiError, api, currentUser } from "../../lib/api";
+import { ApiError, api } from "../../lib/api";
+import { requireSession } from "../../lib/session";
 import { acknowledgeNotification } from "../actions";
 import { ActionForm } from "../ui";
 
@@ -7,13 +8,13 @@ const linkFor = (subjectType: string, subjectId: string): string | null =>
   subjectType === "Work" ? `/works/${subjectId}` : null;
 
 export default async function Notifications() {
-  const user = await currentUser();
+  const session = await requireSession();
 
   let items: Awaited<ReturnType<typeof api.listNotifications>>["items"] = [];
   let loadError: string | null = null;
 
   try {
-    items = (await api.listNotifications(user.subject)).items;
+    items = (await api.listNotifications(session)).items;
   } catch (error) {
     loadError =
       error instanceof ApiError

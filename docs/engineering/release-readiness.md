@@ -110,16 +110,55 @@ tells an operator to read. Only plurality surfaced it — see
 Nothing here is exotic; all of it is load-bearing for a first customer, and none of it is
 covered by the operational baseline.
 
-### A1. Sign-in
+### A1. Sign-in — the session boundary is built; the credential is not
 
-`ClerkAuthAdapter` is implemented and unit-tested, and `chooseAuth` refuses to fall back to
-the development stub outside `development` and `test`. It has **never been verified against
-a live Clerk instance**, and the web application has no sign-in at all — it carries an
-identity switcher that sets `x-dev-subject`.
+`ClerkAuthAdapter` is implemented and unit-tested on the API, and `chooseAuth` refuses to
+fall back to the development stub outside `development` and `test`. **The web client now
+has the matching half.** What it had before was not a weaker session — it was no session at
+all.
 
-- Configure a Clerk instance; verify token verification both networkless (`CLERK_JWT_KEY`)
-  and via JWKS.
-- Replace the development switcher with a real session in `apps/web`.
+`currentUser()` read a cookie and fell back to the first development identity when the
+cookie was absent, so there was no signed-out state for anything to protect against. Every
+page rendered as somebody, every route was reachable by everybody, and **every server
+action was callable by anyone who knew its identifier** — a server action is a POST
+endpoint that does not require rendering the page holding its form.
+
+That is not a hypothetical. A `create Work` action was captured verbatim from a signed-in
+browser and replayed from a context with no session:
+
+| | Replayed with no session | Rows created |
+|---|---|---|
+| With the gate (`requireSession`) | `303` to `/sign-in` | **0** |
+| With the old fallback restored | `200` | **1**, as the seeded Owner |
+
+What exists now:
+
+- **`apps/web/src/lib/session.ts`** — a `WebSession` port with two adapters. The provider is
+  chosen once, logged, and the development adapter **throws** outside `development` and
+  `test` rather than falling back, mirroring `chooseAuth`. A half-configured Clerk (one key)
+  is refused rather than read as "nearly set up".
+- **A sign-in page and a sign-out action.** The header switcher is gone: changing identity
+  means signing out and back in, which is the same number of clicks and a true statement
+  about what happened.
+- **Every page and every server action calls `requireSession()`.** The actions are the part
+  that mattered.
+- **The API credential comes from the session.** `api.*` took `subject: string` — a name the
+  caller chose — and now takes a `WebSession`, which only `session.ts` can produce. A bearer
+  token when the session has one; the development headers otherwise, and never both.
+- **Every route is dynamic.** `next build` found this honestly: it runs under
+  `NODE_ENV=production`, tried to prerender `/me`, and hit the refusal. The refusal was
+  right — prerendering a page that renders one person's data was what was wrong, and it was
+  only accidentally safe before because every page happened to read a cookie.
+
+Verified in a real browser (Chromium via Playwright): signed out lands on `/sign-in`;
+signing in reaches every protected page; a command succeeds as the signed-in person; signing
+out returns to `/sign-in` and leaves **no cookies**.
+
+**What is still missing is the credential, and one thing more.**
+
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`. **The Clerk path has never
+  been executed** — it typechecks and builds, which is not the same as working.
+- Verify token verification both networkless (`CLERK_JWT_KEY`) and via JWKS.
 - Decide whether the profile webhook `CLERK_WEBHOOK_SIGNING_SECRET` anticipates is in
   scope. It is in `.env.example` with no endpoint behind it, which is a loose end either
   way — implement it or remove the variable.

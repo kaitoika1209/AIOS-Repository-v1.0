@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
-import { ApiError, api, currentUser } from "../../../lib/api";
+import { ApiError, api, currentOrganization } from "../../../lib/api";
+import { requireSession } from "../../../lib/session";
 import {
   approveDecision,
   approveMemory,
@@ -29,18 +30,24 @@ export default async function WorkPage({
   params: Promise<{ workId: string }>;
 }) {
   const { workId } = await params;
-  const user = await currentUser();
+  const session = await requireSession();
+
+  // The caller's real roles in the Organization they are acting in. The hints
+  // below used to key off a hardcoded `expectedRole` on the development
+  // identity — a client telling you what you may do, based on a guess. These
+  // come from `GET /organizations`, so the hint is true or it is not shown.
+  const roles = (await currentOrganization(session).catch(() => null))?.roles ?? [];
 
   let work: Awaited<ReturnType<typeof api.getWork>>;
   try {
-    work = await api.getWork(user.subject, workId);
+    work = await api.getWork(session, workId);
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) notFound();
     throw error;
   }
 
-  const decisions = (await api.listDecisionsForWork(user.subject, workId)).items;
-  const memory = (await api.memoryForWork(user.subject, workId)).memory;
+  const decisions = (await api.listDecisionsForWork(session, workId)).items;
+  const memory = (await api.memoryForWork(session, workId)).memory;
   const openDecision = decisions.find((d) => d.status === "InReview");
   const rejected = decisions.find((d) => d.status === "Rejected");
 
@@ -125,7 +132,7 @@ export default async function WorkPage({
           <h2>Decision under review</h2>
           <p style={{ marginTop: 0 }}>{openDecision.question}</p>
 
-          {user.expectedRole === "Reviewer" ? (
+          {roles.includes("Reviewer") || roles.includes("OrganizationOwner") ? (
             <>
               <h3>Approve</h3>
               <ActionForm action={approveDecision} submitLabel="Approve">
@@ -239,11 +246,13 @@ export default async function WorkPage({
 
           {memory.status === "InReview" && (
             <>
-              {user.expectedRole === "Member" ? (
+              {roles.includes("Reviewer") || roles.includes("OrganizationOwner") ? null : (
                 <p className="hint">
-                  Only a Reviewer or the Owner may approve. Switch to Raj.
+                  Only a Reviewer or the Owner may approve, and your Membership
+                  holds neither. The form is still here — the API's refusal is
+                  the authority, not this hint.
                 </p>
-              ) : null}
+              )}
               <h3 style={{ marginTop: "1.2rem" }}>Approve</h3>
               <ActionForm action={approveMemory} submitLabel="Approve Memory">
                 <input type="hidden" name="workId" value={work.workId} />

@@ -1,4 +1,4 @@
-import { currentUser } from "../../lib/api";
+import { requireSession } from "../../lib/session";
 import { acceptInvitation } from "../actions";
 import { ActionForm } from "../ui";
 
@@ -14,7 +14,7 @@ export default async function Join({
 }: {
   searchParams: Promise<{ token?: string }>;
 }) {
-  const user = await currentUser();
+  const session = await requireSession();
   const { token } = await searchParams;
 
   return (
@@ -24,10 +24,9 @@ export default async function Join({
       <div className="card">
         <h2>Accept an invitation</h2>
         <p className="hint">
-          You are acting as <strong>{user.label}</strong>. Accepting binds this
-          identity to the Membership the token names, with the roles the inviter
-          chose — switch identity in the header first if that is not who you mean
-          to be.
+          You are signed in as <strong>{session.displayName}</strong>. Accepting
+          binds this identity to the Membership the token names, with the roles
+          the inviter chose — sign out first if that is not who you mean to be.
         </p>
         <p className="hint">
           The Organization comes from the token, not from this page. There is

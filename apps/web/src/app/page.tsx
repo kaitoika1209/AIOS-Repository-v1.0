@@ -1,4 +1,5 @@
-import { ApiError, api, currentOrganization, currentUser } from "../lib/api";
+import { ApiError, api, currentOrganization } from "../lib/api";
+import { requireSession } from "../lib/session";
 import { createOrganization, createWork } from "./actions";
 import { ActionForm } from "./ui";
 
@@ -9,13 +10,13 @@ const statusClass = (status: string): string =>
   : "badge";
 
 export default async function Home() {
-  const user = await currentUser();
+  const session = await requireSession();
 
   // Asked before any scoped request, because someone who belongs to no
   // Organization has nothing to be shown and every scoped route would refuse
   // them. That is an ordinary state — a person who has signed in and not yet
   // been invited anywhere — and it needs an offer, not an error.
-  const organization = await currentOrganization(user.subject).catch(() => null);
+  const organization = await currentOrganization(session).catch(() => null);
 
   if (organization === null) {
     return (
@@ -40,7 +41,7 @@ export default async function Home() {
   let loadError: string | null = null;
 
   try {
-    items = (await api.listWork(user.subject)).items;
+    items = (await api.listWork(session)).items;
   } catch (error) {
     loadError =
       error instanceof ApiError
@@ -66,11 +67,12 @@ export default async function Home() {
 
       <div className="card">
         <h2>Create Work</h2>
-        {user.expectedRole === "Reviewer" ? (
+        {organization.roles.includes("Reviewer") && organization.roles.length === 1 ? (
           <p className="hint">
-            Raj joins as a Reviewer, and a Reviewer holds review authority only —
-            creating Work is denied. Switch to Olivia or Alice to create one, or
-            press the button to see the API refuse it.
+            You hold Reviewer only, and a Reviewer holds review authority — the
+            API will refuse this. The roles here are the ones your Membership
+            actually carries, read from <code>GET /organizations</code>, rather
+            than a guess about who you are.
           </p>
         ) : null}
         <ActionForm action={createWork} submitLabel="Create">
