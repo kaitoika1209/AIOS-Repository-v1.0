@@ -139,13 +139,28 @@ suite("the recovery status", () => {
     expect(status.pitrWindowDays).toBeNull();
   });
 
-  it("reports no WAL archive lag on a cluster that has never archived", async () => {
-    // `archive_mode` off means `pg_stat_archiver.last_archived_time` is null.
-    // The metric is withheld rather than published as zero, which would read as
-    // "archived a moment ago" for a cluster with no recovery window at all.
+  it("reports WAL archive lag as the archiver reports it, or not at all", async () => {
+    // Asserted against `pg_stat_archiver` rather than against a fixed
+    // expectation, because the first version of this test asserted `null` — true
+    // on a default cluster, where `archive_mode` is off, and false on any
+    // cluster configured the way `backup-and-recovery.md` requires. It failed
+    // the moment the suite ran against the staging primary, which archives.
+    //
+    // A test that only passes on a cluster with no recovery window is a test
+    // that describes the wrong environment. What must hold everywhere is the
+    // mapping: an archiver that has never archived yields `null` — withheld, not
+    // zero, because zero reads as "archived a moment ago" — and one that has
+    // yields the age of its last segment.
+    const archiver = await pool.query<{ archived: Date | null }>(
+      "SELECT last_archived_time AS archived FROM pg_stat_archiver",
+    );
     const status = await query.read();
 
-    expect(status.walArchiveLagSeconds).toBeNull();
+    if (archiver.rows[0]?.archived == null) {
+      expect(status.walArchiveLagSeconds).toBeNull();
+    } else {
+      expect(status.walArchiveLagSeconds).toBeGreaterThanOrEqual(0);
+    }
   });
 
   it("counts no unprovable external effects, because no consumer declares one", async () => {

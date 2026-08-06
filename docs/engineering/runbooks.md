@@ -56,13 +56,7 @@ made read-only, a migration withheld, the Worker stopped with committed work wai
 poison event dead-lettered with its ordering key blocked, and a recovery driven through to a
 resolved dead letter and an unblocked key.
 
-That is not the same as a staging rehearsal and does not claim to be. It has no load
-balancer, no replica set, no object store, no second application replica, and no real
-provider — so every step that depends on those is still unrehearsed, and each is marked
-below where it appears.
-
-It was worth doing anyway: **executing them found three defects**, which is what a runbook is
-for.
+It was worth doing: **executing them found three defects**, which is what a runbook is for.
 
 | Found by | Defect |
 |---|---|
@@ -72,6 +66,33 @@ for.
 
 Runbooks 6, 7, and 8 are exercised mechanically — 6 by `scripts/restore_drill.sh`, 7 and 8
 by the test suite on every build.
+
+### And again, with more than one of everything
+
+That first pass had no load balancer, no replica, and one of each process, so every step
+depending on plurality was reasoning rather than evidence. `scripts/staging.sh` removes that
+assumption — two API replicas behind a readiness-routing ingress, two Workers, and a real
+streaming standby — and runbooks 1, 3, 5 and 8 were executed against it on 2026-08-06.
+[`staging-rehearsal.md`](staging-rehearsal.md) records the whole exercise; the part that
+belongs here is what it found and what it confirmed.
+
+| Found by | Defect |
+|---|---|
+| Runbook 3 | **A working Worker was indistinguishable from a stopped one.** The drain logged only when `applied`, `failed`, or `notified` was non-zero, so two Workers publishing 120 messages left no record of any of them — every event reached the `notifications` consumer, which correctly produced nothing because a Member who assigns Work to themselves is not notified about it. That is this runbook's premise arriving through the evidence used to disprove it. Now gated on `claimed`, with a regression test. |
+| Runbook 1 | **`pg_ctl promote` produces split brain in one command.** Both clusters reported `pg_is_in_recovery() = false` immediately afterwards. The runbook said "resolve the failover" and said nothing about fencing; it now carries fencing as a prohibited action and the check that catches it. |
+
+Confirmed rather than found — each previously an assertion in a comment:
+
+- a real promotion returns readiness to `Ready` within one probe interval, on the **same
+  process and the same pool**, with no restart;
+- two Workers divide a queue (61 and 59 of 120) rather than duplicating it, with 120
+  deliveries over 120 distinct events;
+- code deployed ahead of its migration takes the **whole fleet** out of rotation with
+  `MIGRATIONS_PENDING` rather than serving errors, and `GET /admin/diagnostics` reports the
+  ledger head that reveals it;
+- a paused Worker claims nothing while its sibling carries the queue;
+- readiness gates the **ingress**, not the process: a write sent directly to an `Unready`
+  replica still succeeds.
 
 ---
 
@@ -84,7 +105,7 @@ The architecture asks every runbook to carry `owner`, `reviewDate`, `lastTestedA
 |---|---|
 | `owner` | Platform Operations |
 | `reviewDate` | On the first production incident, or at the next baseline review |
-| `lastTestedAt` | 2026-08-05, runbooks 1–5, against a live local environment — see *How they were exercised* |
+| `lastTestedAt` | 2026-08-06, runbooks 1, 3, 5 and 8 against a **staging-shaped** environment — two API replicas behind a readiness-routing ingress, two Workers, and a real streaming standby promoted with `pg_ctl` ([`staging-rehearsal.md`](staging-rehearsal.md)). 2026-08-05 for runbooks 1–5 against a single live local process |
 | `applicableVersion` | Blueprint 0.2.0; schema at migration `0003_organization_workflow_health` |
 | `severity` | Stated per runbook |
 
@@ -139,6 +160,20 @@ readiness reports `ADMINISTRATIVELY_PAUSED` rather than the process simply being
 - Pointing the application at a replica to restore reads. It will accept the connection and
   fail every write, and `DATABASE_READ_ONLY` is the readiness check that already refuses
   this on the application's behalf.
+- **Promoting a standby without fencing the old primary.** `pg_ctl promote` returns
+  success in under a second and leaves *both* clusters reporting
+  `pg_is_in_recovery() = false` — two writable primaries, from one command. Rehearsed, and
+  it happened on the first attempt. Stop or isolate the old primary before or immediately
+  after promoting, and confirm:
+
+  ```sql
+  -- Must be exactly one 'f'. Two means every write is landing in one of two
+  -- databases that will never reconcile.
+  SELECT pg_is_in_recovery();   -- on each cluster
+  ```
+
+  On a managed provider the failover does this for you; on anything you promote by hand it
+  is yours.
 - Editing rows to unstick a workflow. Every durable transition has a typed command.
 
 ### Recovery steps
@@ -168,6 +203,21 @@ readiness reports `ADMINISTRATIVELY_PAUSED` rather than the process simply being
 
    No restart is needed afterwards: pooled connections pick the change up, and readiness
    returns to `Ready` within one probe interval. That was verified, not assumed.
+
+   The same holds for a **real promotion**, which has now been rehearsed against a genuine
+   streaming standby rather than a session setting
+   ([`staging-rehearsal.md`](staging-rehearsal.md)):
+
+   ```
+   against the standby   readiness 503 DATABASE_READ_ONLY, liveness 200, reads 200,
+                         writes 503 SERVICE_UNAVAILABLE (SQLSTATE 25006, Retry-After: 5)
+   pg_ctl promote        readiness Ready within one probe interval
+                         same process id, same pool, next write 201
+   ```
+
+   So the answer to "do we need to restart the API after a failover" is no, and it is now
+   measured. What *does* need doing is fencing the old primary — see the prohibited actions
+   above.
 5. **Pause the Worker** if the database is recovering, so no claim lands mid-failover.
 6. **Restore the database**, or fail over. If the database is lost rather than unreachable,
    this becomes runbook 6.

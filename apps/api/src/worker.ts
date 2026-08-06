@@ -36,7 +36,7 @@ import { SECRETARY_IDENTITY_ID, dependenciesFor } from "./app.js";
 import { captureUnhandledFailures } from "./failure-capture.js";
 import { loopLiveness, workerReadiness } from "./health.js";
 import { chooseLogger } from "./json-logger.js";
-import { drainOutbox } from "./outbox-worker.js";
+import { drainOutbox, isDrainWorthLogging } from "./outbox-worker.js";
 import { startMetrics } from "./metrics-setup.js";
 import { startRecoveryReporting } from "./recovery-setup.js";
 import { startProbeServer } from "./probe-server.js";
@@ -215,7 +215,10 @@ const main = async (): Promise<void> => {
           );
         }
 
-        if (result.applied > 0 || result.failed > 0 || result.notified > 0) {
+        // See `isDrainWorthLogging`. Gating on the outcomes alone made a Worker
+        // publishing at full rate indistinguishable, in the log, from one that
+        // had stopped.
+        if (isDrainWorthLogging(result)) {
           logger.log({
             severity: result.failed > 0 ? "WARN" : "INFO",
             operationalLogName: "worker.drain_completed",

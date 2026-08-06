@@ -10,6 +10,10 @@
 import { describe, expect, it } from "vitest";
 
 import { chooseWorkerMode } from "./app.js";
+import {
+  isDrainWorthLogging,
+  type DrainResult,
+} from "./outbox-worker.js";
 
 describe("choosing where the Outbox worker runs", () => {
   it("runs in-process in development, where one process is the point", () => {
@@ -51,5 +55,39 @@ describe("choosing where the Outbox worker runs", () => {
     ]) {
       expect(chooseWorkerMode(env).reason.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("whether a drain says it happened", () => {
+  const drain = (over: Partial<DrainResult> = {}): DrainResult => ({
+    claimed: 0,
+    applied: 0,
+    alreadyApplied: 0,
+    failed: 0,
+    notified: 0,
+    ...over,
+  });
+
+  it("records a drain that claimed messages even when every consumer produced nothing", () => {
+    // The regression this exists for. The condition was `applied || failed ||
+    // notified`, and a staging rehearsal drained 120 messages through two
+    // Workers leaving no record of any of them: each event reached the
+    // `notifications` consumer, which correctly produced nothing because a
+    // Member who assigns Work to themselves is not notified about it.
+    //
+    // A Worker publishing at full rate looked exactly like a Worker that had
+    // stopped — runbook 3's premise arriving through the evidence an operator
+    // uses to disprove it.
+    expect(isDrainWorthLogging(drain({ claimed: 20 }))).toBe(true);
+  });
+
+  it("says nothing about an empty drain", () => {
+    // The loop polls every 500ms. An idle queue is the ordinary case, and a
+    // record per poll would bury the ones that matter.
+    expect(isDrainWorthLogging(drain())).toBe(false);
+  });
+
+  it("records a failure even when nothing was claimed", () => {
+    expect(isDrainWorthLogging(drain({ failed: 1 }))).toBe(true);
   });
 });

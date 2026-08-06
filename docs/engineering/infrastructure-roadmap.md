@@ -315,6 +315,25 @@ ability to break things on purpose:
 Record `lastTestedAt` in [`runbooks.md`](runbooks.md) after each. A runbook that
 has never been run at production shape is still partly a draft.
 
+**Half of this has now been rehearsed without an account.**
+`scripts/staging.sh` builds the shape on one machine — two API replicas behind a
+readiness-routing ingress, two Workers, and a real streaming standby — and
+runbooks 1, 3, 5 and 8 were executed against it. That covers exercises 1, 3 and
+5 above and the *application* half of 2: a genuine `pg_ctl promote` returns
+readiness to `Ready` within one probe interval on the same process and pool.
+[`staging-rehearsal.md`](staging-rehearsal.md) records it.
+
+It found two defects and confirmed five claims that had only ever been comments.
+The sharpest finding is worth repeating here, because it is what plurality buys:
+**a Worker publishing 120 messages wrote nothing to the log**, so a working
+Worker and a stopped one were indistinguishable in the evidence runbook 3 tells
+an operator to read. One process could never have shown that.
+
+What still needs a real staging environment: exercise 4 (restore through an
+object store, where fetch time dominates RTO), failover as a managed provider
+performs it rather than as `pg_ctl` does, and anything involving TLS, DNS, an
+AZ, or a network partition.
+
 **Decisions:** D5 (fidelity).
 **Rough cost:** a scaled-down staging ≈ **$60–80/month**, or near zero if you
 tear it down between exercises.

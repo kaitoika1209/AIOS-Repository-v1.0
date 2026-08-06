@@ -70,7 +70,7 @@ Thirteen items. Assessed against the code as it stands.
 | 9 | Bounded retry, idempotency, retry-exhaustion visibility, dead-letter handling, typed Operations commands for Worker pause/resume, replay, dead-letter retry/skip | **Done** — pause and resume land as ADR-0022, alongside replay and dead-letter retry/skip |
 | 10 | Continuous WAL archiving, base backup ≥ every 24h, 14-day PITR, monthly verified restore test, approved RPO and RTO | **Absent** — the restore *procedure* is proven by an executable drill that now records its result, and the ten recovery metrics publish; the storage, schedule, and retention are written in `infra/02-data.yaml` and unapplied |
 | 11 | Actionable alerts for database unavailability, authoritative-write failure, Outbox or Worker stoppage, Memory-generation failure, Organization-isolation violation | **Absent** — the transport, the series, and the alarm definitions all exist; nothing has evaluated one. The isolation alert is the exception and is not merely unapplied: it cannot be built as specified, and `authorization_denied_total` replaces it |
-| 12 | The six MVP runbooks | **Partial** — all six written, plus two for Worker containment, and all executed; runbooks 1–5 against a live local environment rather than staging |
+| 12 | The six MVP runbooks | **Partial** — all six written, plus two for Worker containment, all executed, and 1, 3, 5 and 8 re-executed against two API replicas behind an ingress, two Workers, and a promoted streaming standby. What remains unrehearsed is the object store, the provider, and provider-side failover |
 | 13 | Separate Worker process | **Done** — `apps/api/src/worker.ts`; `chooseWorkerMode` refuses in-process draining outside development |
 
 Ten done, one partial, two absent — unchanged, and deliberately so.
@@ -88,14 +88,20 @@ What remains needs an AWS account: a metrics backend to evaluate an alarm
 against, an object store to hold backups in, and a staging environment to
 rehearse the runbooks in.
 
-Item 12 stays Partial for a narrower reason than before: every runbook has now been
-executed, but runbooks 1–5 were executed against a **live local environment**, not a staging
-one. There is no load balancer, no replica set, no object store, no second application
-replica, and no real provider, so every step depending on those is still unrehearsed.
+Item 12 stays Partial for a reason that has narrowed twice. Every runbook is written and
+executed; runbooks 1, 3, 5 and 8 have now also been executed against a shape with **two of
+everything** — `scripts/staging.sh` builds two API replicas behind a readiness-routing
+ingress, two Workers, and a real streaming standby that is promoted with `pg_ctl`. What is
+left unrehearsed is no longer plurality. It is the object store behind runbook 6's RTO, the
+real model provider, and failover as a managed provider performs it.
 
-Executing them was not a formality. It found three defects — see
-[`runbooks.md`](runbooks.md) — one of which was a recovery command that appeared to work and
-did not.
+Executing them has never been a formality. The first pass found three defects, one of them a
+recovery command that appeared to work and did not. The staging-shaped pass found two more,
+and the first of them is the sharpest yet: **a Worker publishing at full rate wrote nothing
+to the log**, because every event reached a consumer that correctly produced nothing. A
+working Worker and a stopped one were indistinguishable in exactly the evidence runbook 3
+tells an operator to read. Only plurality surfaced it — see
+[`staging-rehearsal.md`](staging-rehearsal.md).
 
 ---
 

@@ -188,6 +188,29 @@ export interface DrainResult {
 }
 
 /**
+ * Whether a drain is worth a log record.
+ *
+ * A predicate rather than an inline condition because it is the difference
+ * between a Worker that can be seen working and one that cannot, and it was
+ * wrong: the condition was `applied || failed || notified`, so a drain that
+ * claimed and published sixty messages while every consumer legitimately
+ * produced nothing wrote no record at all.
+ *
+ * That combination is ordinary. A Member who assigns Work to themselves is not
+ * notified about it — "the actor is excluded from their own notifications" — so
+ * the `notifications` consumer handles the event, does exactly the right thing,
+ * and reports nothing. Found by draining 120 such messages through two Workers
+ * in a staging rehearsal and finding no trace of any of them, which is runbook
+ * 3's premise ("Worker readiness does not prove progress") arriving through the
+ * evidence an operator reaches for to disprove it.
+ *
+ * `claimed === 0` still says nothing: the loop polls every 500ms and an empty
+ * queue is the idle case, not an event.
+ */
+export const isDrainWorthLogging = (result: DrainResult): boolean =>
+  result.claimed > 0 || result.failed > 0;
+
+/**
  * Run the notification projection for one event, in its own transaction.
  *
  * Separate from the business consumer's transaction on purpose: a projection

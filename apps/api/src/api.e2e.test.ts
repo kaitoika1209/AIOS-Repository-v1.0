@@ -268,9 +268,17 @@ suite("AIOS API", () => {
       const returned = res.headers["x-correlation-id"];
       expect(returned).toMatch(/^[0-9a-f-]{36}$/);
 
+      // Scoped to *this* Work, not "the newest work.create row". The unscoped
+      // version raced: test files run in parallel against one schema, so the
+      // newest row can belong to another file's request. It passed for months
+      // and failed the first time the suite ran against a database that was
+      // also under load from two Workers — the same latent flake, made visible
+      // rather than introduced.
       const audit = await pool.query(
         `SELECT correlation_id, request_id FROM authorization_audit_records
-          WHERE permission = 'work.create' ORDER BY created_at DESC LIMIT 1`,
+          WHERE permission = 'work.create' AND resource_id = $1
+          ORDER BY created_at DESC LIMIT 1`,
+        [res.body.workId],
       );
       const outbox = await pool.query(
         `SELECT correlation_id FROM outbox_messages
