@@ -99,7 +99,12 @@ Numbers may carry thousands separators or shorthand: `12,300`, `12.3K`, `1.2万`
 all parse. Multi-line post text works as long as it is quoted, which every
 spreadsheet does automatically on export.
 
-See `samples/` for a working file in each format.
+Columns you do not have can simply be left out — only the text and the three
+basic counters are required.
+
+`samples/template.csv` is an empty file with the headers already in place.
+`samples/buzz-posts.sample.json` and `samples/buzz-posts.sample.csv` are working
+examples in each format.
 
 ---
 
