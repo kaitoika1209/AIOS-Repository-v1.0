@@ -1,0 +1,26 @@
+{
+  "name": "@aios/x-buzz-research",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Researches high-engagement posts on X and composes new post drafts from the patterns it finds.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "bin": {
+    "x-buzz": "./src/main.ts"
+  },
+  "scripts": {
+    "x-buzz": "node src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.115.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}

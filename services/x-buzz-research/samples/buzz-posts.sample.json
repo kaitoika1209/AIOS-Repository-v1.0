@@ -1,0 +1,194 @@
+[
+  {
+    "authorHandle": "indie_dev_mika",
+    "url": "https://x.com/indie_dev_mika/status/1000000000000000001",
+    "postedAt": "2026-06-02T12:10:00Z",
+    "language": "ja",
+    "text": "個人開発で3年間、収益ゼロだった。\n\n変えたのは1つだけ。\n\n「作りたいもの」を作るのをやめて、\n「自分が毎月お金を払っているもの」の\n不満を作るようにした。\n\n翌月からMRRが立った。",
+    "metrics": {
+      "likes": 4820,
+      "reposts": 611,
+      "replies": 143,
+      "quotes": 88,
+      "bookmarks": 1902,
+      "impressions": 412000,
+      "authorFollowers": 8400
+    }
+  },
+  {
+    "authorHandle": "saas_kento",
+    "url": "https://x.com/saas_kento/status/1000000000000000002",
+    "postedAt": "2026-06-04T09:30:00Z",
+    "language": "ja",
+    "text": "料金ページを直しただけで成約率が2.1倍になった話。\n\n・プラン数を4→3に減らした\n・「おすすめ」バッジを真ん中に付けた\n・年額を先に見せた\n・FAQを価格の真下に置いた\n\nコードは1行も書いてない。",
+    "metrics": {
+      "likes": 3910,
+      "reposts": 742,
+      "replies": 96,
+      "quotes": 121,
+      "bookmarks": 2560,
+      "impressions": 388000,
+      "authorFollowers": 12100
+    }
+  },
+  {
+    "authorHandle": "yuki_writes",
+    "url": "https://x.com/yuki_writes/status/1000000000000000003",
+    "postedAt": "2026-06-05T20:05:00Z",
+    "language": "ja",
+    "text": "なぜ、いい機能を作っても誰も使わないのか？\n\n答えは単純で、\nユーザーは機能を探していないから。\n\n探しているのは\n「今の面倒がなくなる瞬間」だけ。",
+    "metrics": {
+      "likes": 2680,
+      "reposts": 388,
+      "replies": 211,
+      "quotes": 44,
+      "bookmarks": 940,
+      "impressions": 245000,
+      "authorFollowers": 6200
+    }
+  },
+  {
+    "authorHandle": "ops_tanaka",
+    "url": "https://x.com/ops_tanaka/status/1000000000000000004",
+    "postedAt": "2026-06-06T07:45:00Z",
+    "language": "ja",
+    "text": "今日から使える、会議を30分短くする3つの型。\n\n1. 議題に「決めること」を必ず書く\n2. 資料は前日18時に締め切る\n3. 最後の5分を議事録に使う\n\n特に3つ目。あとで書くと絶対に書かない。",
+    "metrics": {
+      "likes": 3140,
+      "reposts": 520,
+      "replies": 78,
+      "quotes": 63,
+      "bookmarks": 2210,
+      "impressions": 301000,
+      "authorFollowers": 15800
+    }
+  },
+  {
+    "authorHandle": "indie_dev_mika",
+    "url": "https://x.com/indie_dev_mika/status/1000000000000000005",
+    "postedAt": "2026-06-08T11:00:00Z",
+    "language": "ja",
+    "text": "新機能をリリースしました。詳しくはブログをご覧ください。 https://example.com/blog/release #個人開発 #SaaS",
+    "metrics": {
+      "likes": 92,
+      "reposts": 6,
+      "replies": 4,
+      "quotes": 1,
+      "bookmarks": 18,
+      "impressions": 21000,
+      "authorFollowers": 8400
+    }
+  },
+  {
+    "authorHandle": "saas_kento",
+    "url": "https://x.com/saas_kento/status/1000000000000000006",
+    "postedAt": "2026-06-09T14:20:00Z",
+    "language": "ja",
+    "text": "本日、無事に登壇を終えることができました。関係者の皆様、ご来場いただいた皆様、本当にありがとうございました。",
+    "metrics": {
+      "likes": 210,
+      "reposts": 9,
+      "replies": 31,
+      "quotes": 2,
+      "bookmarks": 5,
+      "impressions": 34000,
+      "authorFollowers": 12100
+    }
+  },
+  {
+    "authorHandle": "growth_haru",
+    "url": "https://x.com/growth_haru/status/1000000000000000007",
+    "postedAt": "2026-06-10T08:15:00Z",
+    "language": "ja",
+    "text": "解約理由の1位は「高い」ではありません。\n\n実際に聞き取った結果、\n1位は「使い方が分からないまま3ヶ月経った」でした。\n\n値下げの前に、\n最初の7日間を作り直したほうがいい。",
+    "metrics": {
+      "likes": 5210,
+      "reposts": 890,
+      "replies": 132,
+      "quotes": 176,
+      "bookmarks": 3120,
+      "impressions": 505000,
+      "authorFollowers": 9700
+    }
+  },
+  {
+    "authorHandle": "ops_tanaka",
+    "url": "https://x.com/ops_tanaka/status/1000000000000000008",
+    "postedAt": "2026-06-11T19:00:00Z",
+    "language": "ja",
+    "text": "おはようございます。今日も一日頑張りましょう。",
+    "metrics": {
+      "likes": 340,
+      "reposts": 12,
+      "replies": 22,
+      "quotes": 0,
+      "bookmarks": 3,
+      "impressions": 48000,
+      "authorFollowers": 15800
+    }
+  },
+  {
+    "authorHandle": "pm_nao",
+    "url": "https://x.com/pm_nao/status/1000000000000000009",
+    "postedAt": "2026-06-12T10:40:00Z",
+    "language": "ja",
+    "text": "「要件を固めてから作る」をやめたら、リリース速度が3倍になった。\n\n代わりにやっていること:\n\n・最初に触れる画面だけ作る\n・5人に見せる\n・2人が詰まった箇所だけ直す\n\nドキュメントは後から書く。",
+    "metrics": {
+      "likes": 2950,
+      "reposts": 431,
+      "replies": 187,
+      "quotes": 92,
+      "bookmarks": 1580,
+      "impressions": 276000,
+      "authorFollowers": 7100
+    }
+  },
+  {
+    "authorHandle": "growth_haru",
+    "url": "https://x.com/growth_haru/status/1000000000000000010",
+    "postedAt": "2026-06-13T16:30:00Z",
+    "language": "ja",
+    "text": "アンケートの回答率を上げる方法をまとめました。長文になったのでブログに書いています。興味がある方は読んでみてください。",
+    "metrics": {
+      "likes": 156,
+      "reposts": 11,
+      "replies": 8,
+      "quotes": 2,
+      "bookmarks": 41,
+      "impressions": 29000,
+      "authorFollowers": 9700
+    }
+  },
+  {
+    "authorHandle": "cto_ren",
+    "url": "https://x.com/cto_ren/status/1000000000000000011",
+    "postedAt": "2026-06-14T21:10:00Z",
+    "language": "ja",
+    "text": "採用面接で一番効く質問はこれ。\n\n「直近で、自分の判断が間違っていたと気づいた瞬間はいつですか？」\n\n答えられない人より、\n具体的に答えられる人のほうが、\n入社後に伸びる。",
+    "metrics": {
+      "likes": 4410,
+      "reposts": 705,
+      "replies": 265,
+      "quotes": 138,
+      "bookmarks": 2040,
+      "impressions": 445000,
+      "authorFollowers": 18300
+    }
+  },
+  {
+    "authorHandle": "pm_nao",
+    "url": "https://x.com/pm_nao/status/1000000000000000012",
+    "postedAt": "2026-06-15T13:00:00Z",
+    "language": "ja",
+    "text": "資料を作り直しています。",
+    "metrics": {
+      "likes": 88,
+      "reposts": 2,
+      "replies": 6,
+      "quotes": 0,
+      "bookmarks": 1,
+      "impressions": 12000,
+      "authorFollowers": 7100
+    }
+  }
+]

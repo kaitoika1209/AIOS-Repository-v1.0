@@ -73,6 +73,7 @@ Current objective:
 ├── apps/
 ├── packages/
 ├── services/
+│   └── x-buzz-research/
 ├── infra/
 ├── docs/
 │   ├── product/
@@ -82,6 +83,12 @@ Current objective:
 │   └── adr/
 └── README.md
 ```
+
+### Services
+
+| Service | Description |
+|---------|-------------|
+| `x-buzz-research` | Analyzes high-performing posts on X and drafts new posts from the patterns it finds. Standalone CLI. |
 
 ---
 
