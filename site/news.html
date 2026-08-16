@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NEWS ｜ 君がいた季節 KIMI GA ITA KISETSU</title>
+<meta name="description" content="アイドルグループ「君がいた季節」からの最新のお知らせ一覧です。ライブ・リリース・メディア出演情報を掲載しています。">
+<meta name="theme-color" content="#eaf2fa">
+
+<meta property="og:type" content="article">
+<meta property="og:title" content="NEWS ｜ 君がいた季節 KIMI GA ITA KISETSU">
+<meta property="og:description" content="忘れたくない季節を、歌にする。">
+<meta property="og:image" content="assets/img/og-image.jpg">
+<meta name="twitter:card" content="summary_large_image">
+
+<link rel="icon" href="assets/img/favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500&family=Noto+Sans+JP:wght@300;400;500;700&family=Shippori+Mincho+B1:wght@400;500;600&display=swap" rel="stylesheet">
+<script>document.documentElement.className += " js";</script>
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<header class="header" data-always="solid">
+  <div class="header__inner">
+    <a class="header__logo" href="index.html" aria-label="君がいた季節 トップへ">
+      <img src="assets/img/logo-wordmark.png" alt="君がいた季節">
+    </a>
+    <nav class="gnav" aria-label="メインナビゲーション">
+      <a class="gnav__link" href="news.html" aria-current="page">NEWS</a>
+      <a class="gnav__link" href="members.html">MEMBER</a>
+      <a class="gnav__link" href="discography.html">DISCOGRAPHY</a>
+      <a class="gnav__link" href="index.html#schedule">SCHEDULE</a>
+      <a class="gnav__link" href="index.html#media">MEDIA</a>
+      <a class="header__fc" href="#">FAN CLUB</a>
+    </nav>
+    <button class="burger" type="button" aria-label="メニューを開く" aria-expanded="false" aria-controls="drawer">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</header>
+
+<div class="drawer" id="drawer" aria-hidden="true">
+  <div class="drawer__inner">
+    <nav class="drawer__nav" aria-label="モバイルナビゲーション">
+      <a class="drawer__link" href="index.html">HOME<small>トップ</small></a>
+      <a class="drawer__link" href="news.html">NEWS<small>お知らせ</small></a>
+      <a class="drawer__link" href="members.html">MEMBER<small>メンバー</small></a>
+      <a class="drawer__link" href="discography.html">DISCOGRAPHY<small>作品</small></a>
+      <a class="drawer__link" href="index.html#schedule">SCHEDULE<small>スケジュール</small></a>
+      <a class="drawer__link" href="index.html#media">MEDIA<small>メディア</small></a>
+      <a class="drawer__link" href="#">FAN CLUB<small>ファンクラブ</small></a>
+    </nav>
+    <div class="drawer__sns" data-sns-buttons></div>
+  </div>
+</div>
+
+<main>
+  <section class="page-head">
+    <div class="petals" aria-hidden="true"></div>
+    <div style="position:relative;z-index:2">
+      <h1 class="page-head__en">NEWS</h1>
+      <p class="page-head__ja">お知らせ</p>
+      <div class="rule"><span class="orn"></span></div>
+      <nav class="crumbs" aria-label="パンくずリスト">
+        <a href="index.html">HOME</a><span>/</span><span aria-current="page">NEWS</span>
+      </nav>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <div class="filter" data-news-filter data-reveal></div>
+      <ul class="news-list" data-news data-news-body data-reveal></ul>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="petals" aria-hidden="true"></div>
+  <div style="position:relative;z-index:2">
+    <img class="footer__logo" src="assets/img/logo-wordmark.png" alt="君がいた季節" loading="lazy">
+    <p class="footer__tagline" data-tagline></p>
+    <div class="footer__sns" data-sns-buttons></div>
+    <nav class="footer__nav" aria-label="フッターナビゲーション">
+      <a href="index.html">HOME</a>
+      <a href="news.html">NEWS</a>
+      <a href="members.html">MEMBER</a>
+      <a href="discography.html">DISCOGRAPHY</a>
+      <a href="index.html#schedule">SCHEDULE</a>
+      <a href="index.html#media">MEDIA</a>
+      <a href="#">FAN CLUB</a>
+      <a href="#">CONTACT</a>
+    </nav>
+    <p class="footer__copy">&copy; <span data-year></span> KIMI GA ITA KISETSU</p>
+    <p class="footer__note">※ 本サイトはデザインサンプルです。掲載しているメンバー・楽曲・日程はすべて架空のものです。</p>
+  </div>
+</footer>
+
+<button class="to-top" type="button" aria-label="ページ上部へ戻る"></button>
+
+<script src="assets/js/data.js"></script>
+<script src="assets/js/main.js"></script>
+</body>
+</html>
