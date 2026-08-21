@@ -41,7 +41,7 @@
   const REALISM_TEXT =
     '写真としてのリアリティを最優先。自然な肌の質感（毛穴・産毛・わずかな肌ムラ）、実際のカメラで撮影したような被写界深度と微細なノイズ、破綻のない手指と身体のプロポーション。イラスト調・CG調・過度なレタッチには見えないこと。';
 
-  const PERSIST_IDS = ['mainPrompt', 'negativePrompt', 'realismBoost', 'clothingPrompt', 'genSize', 'genQuality', 'genCount', 'genFormat'];
+  const PERSIST_IDS = ['mainPrompt', 'negativePrompt', 'realismBoost', 'clothingPrompt', 'cgAspect', 'cgVariations', 'genSize', 'genQuality', 'genCount', 'genFormat'];
 
   const state = {
     assets: [],
@@ -124,6 +124,7 @@
   function getSettings() {
     const s = readJson(LS.settings, {});
     return {
+      outputMode: s.outputMode || 'chatgpt',
       mode: s.mode || 'proxy',
       apiKey: s.apiKey || '',
       proxyUrl: s.proxyUrl || '/api',
@@ -133,6 +134,7 @@
 
   function saveSettings() {
     writeJson(LS.settings, {
+      outputMode: $('setOutputMode').value,
       mode: $('setMode').value,
       apiKey: $('setApiKey').value.trim(),
       proxyUrl: $('setProxyUrl').value.trim() || '/api',
@@ -143,13 +145,22 @@
 
   function applySettings() {
     const s = getSettings();
-    document.querySelectorAll('[data-mode]').forEach((el) => {
-      el.classList.toggle('hidden', el.dataset.mode !== s.mode);
+    document.querySelectorAll('[data-out], [data-mode]').forEach((el) => {
+      const hidden =
+        (el.dataset.out && el.dataset.out !== s.outputMode) ||
+        (el.dataset.mode && el.dataset.mode !== s.mode);
+      el.classList.toggle('hidden', !!hidden);
     });
+
     const badge = $('connBadge');
-    const ready = s.mode === 'proxy' ? !!s.proxyUrl : !!s.apiKey;
-    badge.textContent = ready ? (s.mode === 'proxy' ? 'プロキシ経由' : '直接接続') + ' · ' + s.model : '未設定';
-    badge.className = 'badge ' + (ready ? 'badge-ok' : 'badge-warn');
+    if (s.outputMode === 'chatgpt') {
+      badge.textContent = 'ChatGPTに貼り付け';
+      badge.className = 'badge badge-ok';
+    } else {
+      const ready = s.mode === 'proxy' ? !!s.proxyUrl : !!s.apiKey;
+      badge.textContent = ready ? (s.mode === 'proxy' ? 'プロキシ経由' : '直接接続') + ' · ' + s.model : '未設定';
+      badge.className = 'badge ' + (ready ? 'badge-ok' : 'badge-warn');
+    }
   }
 
   function apiBase(s) {
@@ -235,6 +246,15 @@
     }
 
     if ($('realismBoost').checked) parts.push('【仕上がり要件】\n' + REALISM_TEXT);
+
+    if (getSettings().outputMode === 'chatgpt') {
+      const output = [];
+      const aspect = $('cgAspect').value;
+      const variations = Number($('cgVariations').value) || 1;
+      if (aspect) output.push(`- 画角: ${aspect}`);
+      output.push(variations > 1 ? `- 同じ設定でバリエーションを${variations}案生成する` : '- 画像は1枚');
+      parts.push('【出力】\n' + output.join('\n'));
+    }
 
     const negative = $('negativePrompt').value.trim();
     if (negative) parts.push('【避けたい要素】\n' + negative);
@@ -545,6 +565,45 @@
     $('resultsEmpty').classList.add('hidden');
   }
 
+  async function copyPrompt() {
+    const text = $('finalPrompt').value;
+    if (!text.trim()) return setStatus('プロンプトが空です。', 'error');
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Clipboard API is unavailable outside secure contexts — fall back to selection.
+      const area = $('finalPrompt');
+      const wasReadOnly = area.readOnly;
+      area.readOnly = false;
+      area.select();
+      const copied = document.execCommand('copy');
+      area.readOnly = wasReadOnly;
+      area.setSelectionRange(0, 0);
+      if (!copied) return setStatus('コピーできませんでした。プロンプト欄を選択して手動でコピーしてください。', 'error');
+    }
+    setStatus('プロンプトをコピーしました。ChatGPTに貼り付けてください。');
+  }
+
+  async function exportReferenceImages() {
+    const images = selectedAssets().filter((a) => a.kind === 'image');
+    if (!images.length) return setStatus('書き出す参考画像が選択されていません。', 'error');
+
+    images.forEach((asset, index) => {
+      const url = URL.createObjectURL(asset.blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = /\.[a-z0-9]+$/i.test(asset.name)
+        ? asset.name
+        : `${asset.name || `reference-${index + 1}`}.${(asset.mime || 'image/png').split('/')[1]}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    });
+
+    setStatus(`参考画像${images.length}枚を書き出しました。ChatGPTの入力欄に添付してください。`);
+  }
+
   /* ── wiring ────────────────────────────────────────────────────── */
 
   function init() {
@@ -552,6 +611,7 @@
     buildFields($('clothingFields'), 'clothing', CLOTHING_FIELDS);
 
     const settings = getSettings();
+    $('setOutputMode').value = settings.outputMode;
     $('setMode').value = settings.mode;
     $('setApiKey').value = settings.apiKey;
     $('setProxyUrl').value = settings.proxyUrl;
@@ -562,7 +622,7 @@
     renderPresets();
 
     $('toggleSettings').addEventListener('click', () => $('settingsPanel').classList.toggle('hidden'));
-    for (const id of ['setMode', 'setApiKey', 'setProxyUrl', 'setModel']) {
+    for (const id of ['setOutputMode', 'setMode', 'setApiKey', 'setProxyUrl', 'setModel']) {
       $(id).addEventListener('change', saveSettings);
       $(id).addEventListener('input', saveSettings);
     }
@@ -654,6 +714,9 @@
       setStatus(`服装プリセット「${name}」を削除しました。`);
     });
 
+    $('setOutputMode').addEventListener('change', refreshPrompt);
+    $('copyPrompt').addEventListener('click', copyPrompt);
+    $('exportRefs').addEventListener('click', exportReferenceImages);
     $('generate').addEventListener('click', generate);
     $('clearResults').addEventListener('click', () => {
       $('results').innerHTML = '';

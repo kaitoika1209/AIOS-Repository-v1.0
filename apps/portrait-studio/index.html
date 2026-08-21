@@ -18,15 +18,23 @@
   </div>
   <div class="topbar-right">
     <span id="connBadge" class="badge badge-warn">未設定</span>
-    <button id="toggleSettings" class="btn btn-ghost" type="button">接続設定</button>
+    <button id="toggleSettings" class="btn btn-ghost" type="button">設定</button>
   </div>
 </header>
 
 <!-- ── 接続設定 ─────────────────────────────────────────── -->
 <section id="settingsPanel" class="panel settings hidden">
-  <h2 class="panel-title">接続設定</h2>
+  <h2 class="panel-title">設定</h2>
   <div class="grid grid-3">
     <label class="field">
+      <span class="label">使い方</span>
+      <select id="setOutputMode">
+        <option value="chatgpt">ChatGPTに貼り付ける（APIキー不要）</option>
+        <option value="api">APIで直接生成する</option>
+      </select>
+      <span class="hint">既定は、組み立てたプロンプトをChatGPTの画面に貼り付けて生成する方式です。</span>
+    </label>
+    <label class="field" data-out="api">
       <span class="label">接続方法</span>
       <select id="setMode">
         <option value="proxy">プロキシ経由（推奨）</option>
@@ -34,17 +42,17 @@
       </select>
       <span class="hint">直接接続はAPIキーがブラウザに保存されます。共有PCでは避けてください。</span>
     </label>
-    <label class="field" data-mode="direct">
+    <label class="field" data-out="api" data-mode="direct">
       <span class="label">OpenAI APIキー</span>
       <input id="setApiKey" type="password" placeholder="sk-..." autocomplete="off" />
       <span class="hint">この端末の localStorage にのみ保存されます。</span>
     </label>
-    <label class="field" data-mode="proxy">
+    <label class="field" data-out="api" data-mode="proxy">
       <span class="label">プロキシのベースURL</span>
       <input id="setProxyUrl" type="text" placeholder="/api" />
       <span class="hint">同梱の <code>server.mjs</code> を使う場合は <code>/api</code> のままでOK。</span>
     </label>
-    <label class="field">
+    <label class="field" data-out="api">
       <span class="label">モデル</span>
       <input id="setModel" type="text" placeholder="gpt-image-1" list="modelList" />
       <datalist id="modelList">
@@ -64,7 +72,7 @@
       <h2 class="panel-title">情報資料</h2>
       <span id="assetCount" class="count">0件</span>
     </div>
-    <p class="panel-note">アップロードした資料は保存され、いつでも選び直せます。選択した画像は参照画像としてAPIに添付され、テキストはプロンプトに追記されます。</p>
+    <p class="panel-note">アップロードした資料はこの端末に保存され、いつでも選び直せます。選択した画像は参考画像として書き出してChatGPTに添付でき、選択したテキストはプロンプトに自動で追記されます。</p>
 
     <div id="dropzone" class="dropzone">
       <p class="dz-main">ここに画像／テキストをドロップ</p>
@@ -129,10 +137,32 @@
     <div id="clothingFields" class="grid grid-2"></div>
   </section>
 
-  <!-- ── 右: 生成 ───────────────────────────────────────── -->
+  <!-- ── 右: 出力 ───────────────────────────────────────── -->
   <section class="panel col-generate">
-    <h2 class="panel-title">生成</h2>
-    <div class="grid grid-2">
+    <h2 class="panel-title">出力</h2>
+
+    <div class="grid grid-2" data-out="chatgpt">
+      <label class="field">
+        <span class="label">画角</span>
+        <select id="cgAspect">
+          <option value="縦長（2:3）">縦長（2:3）</option>
+          <option value="正方形（1:1）">正方形（1:1）</option>
+          <option value="横長（3:2）">横長（3:2）</option>
+          <option value="">指定しない</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="label">バリエーション</span>
+        <select id="cgVariations">
+          <option value="1">1案</option>
+          <option value="2">2案</option>
+          <option value="3">3案</option>
+          <option value="4">4案</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="grid grid-2" data-out="api">
       <label class="field">
         <span class="label">サイズ</span>
         <select id="genSize">
@@ -167,23 +197,35 @@
 
     <div class="field">
       <div class="label-row">
-        <span class="label">送信されるプロンプト</span>
+        <span class="label">生成用プロンプト</span>
         <label class="check check-inline">
           <input id="manualPrompt" type="checkbox" />
           <span>手動で編集</span>
         </label>
       </div>
-      <textarea id="finalPrompt" rows="10" readonly></textarea>
+      <textarea id="finalPrompt" rows="12" readonly></textarea>
     </div>
 
-    <button id="generate" class="btn btn-primary btn-lg" type="button">画像を生成</button>
+    <button id="copyPrompt" class="btn btn-primary btn-lg" type="button" data-out="chatgpt">プロンプトをコピー</button>
+    <div class="action-row" data-out="chatgpt">
+      <button id="exportRefs" class="btn btn-ghost" type="button">参考画像を書き出す</button>
+      <a class="btn btn-ghost" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">ChatGPTを開く</a>
+    </div>
+    <ol class="steps" data-out="chatgpt">
+      <li>「プロンプトをコピー」を押す。</li>
+      <li>参考画像を使う場合は「参考画像を書き出す」でダウンロードし、ChatGPTの入力欄に添付する。</li>
+      <li>ChatGPTに貼り付けて送信する。</li>
+      <li>できあがった画像は、この画面の資料エリアにドロップすると次回の参考資料として保存できます。</li>
+    </ol>
+
+    <button id="generate" class="btn btn-primary btn-lg" type="button" data-out="api">画像を生成</button>
     <p id="status" class="status"></p>
 
-    <div class="panel-head">
+    <div class="panel-head" data-out="api">
       <h3 class="section-title">生成結果</h3>
       <button id="clearResults" class="btn btn-ghost btn-sm" type="button">クリア</button>
     </div>
-    <p id="resultsEmpty" class="empty">生成した画像がここに表示されます。</p>
+    <p id="resultsEmpty" class="empty" data-out="api">生成した画像がここに表示されます。</p>
     <div id="results" class="results"></div>
   </section>
 
