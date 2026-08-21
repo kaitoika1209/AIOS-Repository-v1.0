@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Portrait Studio — リアル人物画像ジェネレーター</title>
+<link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">PS</span>
+    <div>
+      <h1>Portrait Studio</h1>
+      <p class="brand-sub">リアルな人物画像を生成するワークベンチ</p>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <span id="connBadge" class="badge badge-warn">未設定</span>
+    <button id="toggleSettings" class="btn btn-ghost" type="button">接続設定</button>
+  </div>
+</header>
+
+<!-- ── 接続設定 ─────────────────────────────────────────── -->
+<section id="settingsPanel" class="panel settings hidden">
+  <h2 class="panel-title">接続設定</h2>
+  <div class="grid grid-3">
+    <label class="field">
+      <span class="label">接続方法</span>
+      <select id="setMode">
+        <option value="proxy">プロキシ経由（推奨）</option>
+        <option value="direct">ブラウザから直接</option>
+      </select>
+      <span class="hint">直接接続はAPIキーがブラウザに保存されます。共有PCでは避けてください。</span>
+    </label>
+    <label class="field" data-mode="direct">
+      <span class="label">OpenAI APIキー</span>
+      <input id="setApiKey" type="password" placeholder="sk-..." autocomplete="off" />
+      <span class="hint">この端末の localStorage にのみ保存されます。</span>
+    </label>
+    <label class="field" data-mode="proxy">
+      <span class="label">プロキシのベースURL</span>
+      <input id="setProxyUrl" type="text" placeholder="/api" />
+      <span class="hint">同梱の <code>server.mjs</code> を使う場合は <code>/api</code> のままでOK。</span>
+    </label>
+    <label class="field">
+      <span class="label">モデル</span>
+      <input id="setModel" type="text" placeholder="gpt-image-1" list="modelList" />
+      <datalist id="modelList">
+        <option value="gpt-image-1"></option>
+        <option value="gpt-image-1-mini"></option>
+      </datalist>
+      <span class="hint">画像生成モデル名。ChatGPT / OpenAI の Images API を使用します。</span>
+    </label>
+  </div>
+</section>
+
+<main class="layout">
+
+  <!-- ── 左: 情報資料ライブラリ ──────────────────────────── -->
+  <section class="panel col-assets">
+    <div class="panel-head">
+      <h2 class="panel-title">情報資料</h2>
+      <span id="assetCount" class="count">0件</span>
+    </div>
+    <p class="panel-note">アップロードした資料は保存され、いつでも選び直せます。選択した画像は参照画像としてAPIに添付され、テキストはプロンプトに追記されます。</p>
+
+    <div id="dropzone" class="dropzone">
+      <p class="dz-main">ここに画像／テキストをドロップ</p>
+      <p class="dz-sub">PNG・JPEG・WebP・TXT・MD</p>
+      <button id="pickFiles" class="btn btn-ghost btn-sm" type="button">ファイルを選択</button>
+      <input id="fileInput" type="file" multiple accept="image/png,image/jpeg,image/webp,.txt,.md,text/plain,text/markdown" hidden />
+    </div>
+
+    <details class="note-add">
+      <summary>テキストメモを資料として追加</summary>
+      <label class="field">
+        <span class="label">メモ名</span>
+        <input id="noteName" type="text" placeholder="例: 撮影ブリーフ v2" />
+      </label>
+      <label class="field">
+        <span class="label">内容</span>
+        <textarea id="noteBody" rows="4" placeholder="人物設定、世界観、NG事項など"></textarea>
+      </label>
+      <button id="addNote" class="btn btn-primary btn-sm" type="button">資料として保存</button>
+    </details>
+
+    <div class="asset-toolbar">
+      <input id="assetSearch" type="search" placeholder="資料を検索" />
+      <button id="clearSelection" class="btn btn-ghost btn-sm" type="button">選択解除</button>
+    </div>
+    <p id="selectionInfo" class="selection-info">画像 0 / テキスト 0 を選択中</p>
+
+    <div id="assetList" class="asset-list"></div>
+  </section>
+
+  <!-- ── 中央: プロンプト・服装 ─────────────────────────── -->
+  <section class="panel col-compose">
+    <h2 class="panel-title">プロンプト</h2>
+    <label class="field">
+      <span class="label">基本プロンプト</span>
+      <textarea id="mainPrompt" rows="5" placeholder="例: 30代前半の日本人女性のポートレート。窓際の自然光、少し微笑んでいる。"></textarea>
+    </label>
+    <label class="field">
+      <span class="label">避けたい要素</span>
+      <textarea id="negativePrompt" rows="2" placeholder="例: CG調、過度な美肌加工、文字、ロゴ"></textarea>
+    </label>
+    <label class="check">
+      <input id="realismBoost" type="checkbox" checked />
+      <span>写真としてのリアリティ指示を自動で追加する</span>
+    </label>
+
+    <h3 class="section-title">人物・撮影設定</h3>
+    <div id="subjectFields" class="grid grid-2"></div>
+
+    <div class="section-head">
+      <h3 class="section-title">服装</h3>
+      <div class="preset-bar">
+        <select id="presetSelect"><option value="">プリセットを選択</option></select>
+        <button id="presetSave" class="btn btn-ghost btn-sm" type="button">保存</button>
+        <button id="presetDelete" class="btn btn-ghost btn-sm" type="button">削除</button>
+      </div>
+    </div>
+    <label class="field">
+      <span class="label">服装プロンプト（自由記述）</span>
+      <textarea id="clothingPrompt" rows="4" placeholder="例: オフホワイトのオーバーサイズシャツに黒のワイドパンツ。袖をまくり、シルバーの細いネックレス。"></textarea>
+    </label>
+    <div id="clothingFields" class="grid grid-2"></div>
+  </section>
+
+  <!-- ── 右: 生成 ───────────────────────────────────────── -->
+  <section class="panel col-generate">
+    <h2 class="panel-title">生成</h2>
+    <div class="grid grid-2">
+      <label class="field">
+        <span class="label">サイズ</span>
+        <select id="genSize">
+          <option value="1024x1536">縦長 1024×1536</option>
+          <option value="1024x1024">正方形 1024×1024</option>
+          <option value="1536x1024">横長 1536×1024</option>
+          <option value="auto">自動</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="label">品質</span>
+        <select id="genQuality">
+          <option value="high">高</option>
+          <option value="medium" selected>中</option>
+          <option value="low">低</option>
+          <option value="auto">自動</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="label">枚数</span>
+        <input id="genCount" type="number" min="1" max="4" value="1" />
+      </label>
+      <label class="field">
+        <span class="label">出力形式</span>
+        <select id="genFormat">
+          <option value="png">PNG</option>
+          <option value="jpeg">JPEG</option>
+          <option value="webp">WebP</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="field">
+      <div class="label-row">
+        <span class="label">送信されるプロンプト</span>
+        <label class="check check-inline">
+          <input id="manualPrompt" type="checkbox" />
+          <span>手動で編集</span>
+        </label>
+      </div>
+      <textarea id="finalPrompt" rows="10" readonly></textarea>
+    </div>
+
+    <button id="generate" class="btn btn-primary btn-lg" type="button">画像を生成</button>
+    <p id="status" class="status"></p>
+
+    <div class="panel-head">
+      <h3 class="section-title">生成結果</h3>
+      <button id="clearResults" class="btn btn-ghost btn-sm" type="button">クリア</button>
+    </div>
+    <p id="resultsEmpty" class="empty">生成した画像がここに表示されます。</p>
+    <div id="results" class="results"></div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <p>実在する人物に似せた画像の生成や、本人の同意がない写真の資料としての利用は避けてください。生成画像はAIによるものである旨を明示して利用してください。</p>
+</footer>
+
+<script src="./app.js"></script>
+</body>
+</html>
